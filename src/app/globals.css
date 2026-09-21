@@ -1,26 +1,180 @@
 @import "tailwindcss";
 
+@theme {
+  --color-ink-950: #07070b;
+  --color-ink-900: #0b0b12;
+  --color-ink-850: #101019;
+  --color-ink-800: #15151f;
+  --color-ink-700: #1d1d2b;
+  --color-ink-600: #2a2a3d;
+  --color-ink-500: #3d3d55;
+  --color-ink-400: #6b6b87;
+  --color-ink-300: #9a9ab5;
+  --color-ink-200: #c9c9dc;
+  --color-ink-100: #ececf5;
+
+  --color-brand-50:  #f4f0ff;
+  --color-brand-100: #e9e0ff;
+  --color-brand-200: #d4c2ff;
+  --color-brand-300: #b596ff;
+  --color-brand-400: #9563ff;
+  --color-brand-500: #7c3aed;
+  --color-brand-600: #6d28d9;
+  --color-brand-700: #5b21b6;
+  --color-brand-800: #4c1d95;
+
+  --color-gold-400: #f5c451;
+  --color-gold-500: #e0aa30;
+
+  --color-ok-400:   #34d399;
+  --color-ok-500:   #10b981;
+  --color-warn-400: #fbbf24;
+  --color-warn-500: #f59e0b;
+  --color-bad-400:  #f87171;
+  --color-bad-500:  #ef4444;
+  --color-info-400: #38bdf8;
+  --color-info-500: #0ea5e9;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --bg: var(--color-ink-950);
+  --panel: var(--color-ink-900);
+  --line: rgba(255, 255, 255, 0.07);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+* { border-color: var(--line); }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html, body { height: 100%; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(1100px 620px at 82% -12%, rgba(124, 58, 237, 0.16), transparent 62%),
+    radial-gradient(900px 520px at 6% 4%, rgba(14, 165, 233, 0.08), transparent 55%),
+    var(--bg);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-ink-600); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-500); }
+
+@utility panel {
+  background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012));
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  backdrop-filter: blur(10px);
+}
+
+@utility glow {
+  box-shadow: 0 0 0 1px rgba(124,58,237,0.25), 0 12px 40px -12px rgba(124,58,237,0.45);
+}
+
+@keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.82); } }
+.live-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+
+@keyframes slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-in-up { animation: slide-up .28s ease-out both; }
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.skeleton { position: relative; overflow: hidden; background: var(--color-ink-800); }
+.skeleton::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+.recharts-cartesian-axis-tick text { fill: var(--color-ink-400); font-size: 11px; }
+.recharts-cartesian-grid line { stroke: rgba(255,255,255,0.05); }
+
+/* largura do conteúdo acompanha a sidebar */
+@media (min-width: 1024px) {
+  .shell { padding-left: 248px; transition: padding-left .3s ease; }
+  html[data-sidebar="recolhido"] .shell { padding-left: 72px; }
+}
+
+/* --------------------------- ACESSIBILIDADE --------------------------- */
+
+/* foco visível e consistente para quem navega por teclado */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+:where(a, button, input, select, textarea):focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* respeita quem pediu menos movimento no sistema operacional */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .live-dot, .skeleton::after { animation: none !important; }
+}
+
+/* mais contraste quando o sistema pede */
+@media (prefers-contrast: more) {
+  :root { --line: rgba(255, 255, 255, 0.18); }
+}
+
+/* --------------------------- TABELAS LONGAS --------------------------- */
+
+/* sombra na borda indica que a tabela continua para o lado */
+@utility rolagem-lateral {
+  background:
+    linear-gradient(to right, var(--color-ink-900) 30%, transparent),
+    linear-gradient(to left, var(--color-ink-900) 30%, transparent) 100% 0,
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,0.5), transparent),
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,0.5), transparent) 100% 0;
+  background-repeat: no-repeat;
+  background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* alvo de toque confortável no celular */
+@media (max-width: 640px) {
+  button, a, select, [role="button"] { touch-action: manipulation; }
+  td, th { padding-inline: 0.75rem; }
+}
+
+/* evita zoom automático do iOS ao focar um campo */
+@media (max-width: 768px) {
+  input, select, textarea { font-size: max(16px, 1em); }
+}
+
+/* --------------------------- SELEÇÃO DE TEXTO -------------------------- */
+::selection {
+  background: color-mix(in oklab, var(--color-brand-500) 45%, transparent);
+  color: #fff;
+}
+
+/* ------------------------------ IMPRESSÃO ------------------------------ */
+@media print {
+  @page { size: 80mm auto; margin: 3mm; }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-family: "Courier New", ui-monospace, monospace;
+  }
+
+  aside, header, nav, .print\:hidden { display: none !important; }
+  .shell { padding-left: 0 !important; }
+  main { padding: 0 !important; }
+
+  .comanda { display: block !important; width: 74mm; color: #000; }
+  .comanda hr { border: none; border-top: 1px dashed #000; margin: 5px 0; }
+  .comanda p, .comanda td { color: #000; }
 }
