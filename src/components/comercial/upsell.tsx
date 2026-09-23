@@ -8,6 +8,7 @@ import { Campo, Confirmar, Modal, Switch, Textarea } from "@/components/ui/modal
 import { brl, cn, num, pct } from "@/lib/utils";
 import type { Produto, RegraUpsell } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { CampoMoeda } from "@/components/ui";
 
 const vazio: Partial<RegraUpsell> = {
   nome: "", mensagem: "", tipo_desconto: "valor", desconto: 10,
@@ -93,7 +94,7 @@ export function TelaUpsell({
             const conv = r.exibidas ? (r.aceitas / r.exibidas) * 100 : 0;
             return (
               <Panel key={r.id} className="overflow-hidden">
-                <div className="flex items-start gap-3 border-b border-white/6 px-5 py-3.5">
+                <div className="flex items-start gap-3 border-b border-[var(--linha)] px-5 py-3.5">
                   <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-xs font-bold text-brand-300">
                     {r.prioridade}
                   </span>
@@ -134,13 +135,13 @@ export function TelaUpsell({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-px border-t border-white/6 bg-white/4">
+                <div className="grid grid-cols-3 gap-px border-t border-[var(--linha)] bg-ink-850">
                   {[
                     ["Exibidas", num(r.exibidas), "text-ink-100"],
                     ["Aceitas", num(r.aceitas), "text-ok-400"],
                     ["Gerou", brl(r.faturamento), "text-gold-400"],
                   ].map(([rot, val, cor]) => (
-                    <div key={rot} className="bg-ink-900/70 px-3 py-2.5">
+                    <div key={rot} className="bg-ink-900 px-3 py-2.5">
                       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rot}</p>
                       <p className={cn("mt-0.5 text-sm font-bold tabular-nums", cor)}>{val}</p>
                     </div>
@@ -249,8 +250,12 @@ function FormUpsell({
             </Select>
           </Campo>
           <Campo rotulo="Desconto">
-            <Input type="number" step="0.01" value={f.desconto ?? 0}
-              onChange={(e) => set("desconto", Number(e.target.value))} />
+            {f.tipo_desconto === "percentual" ? (
+              <Input type="number" min={0} max={100} value={f.desconto ?? 0}
+                onChange={(e) => set("desconto", Number(e.target.value))} />
+            ) : (
+              <CampoMoeda valor={f.desconto ?? 0} aoMudar={(v) => set("desconto", v)} />
+            )}
           </Campo>
           <Campo rotulo="Prioridade" dica="1 = primeira">
             <Input type="number" value={f.prioridade ?? 1}

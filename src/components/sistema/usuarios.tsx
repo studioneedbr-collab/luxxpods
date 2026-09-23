@@ -1,23 +1,27 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Pencil, Shield, UserCog, UserPlus, Mail } from "lucide-react";
+import { Mail, Pencil, UserCog, UserPlus } from "lucide-react";
 import { salvarUsuario } from "@/lib/actions-mvp2";
-import {
-  Badge, Button, Input, Panel, PanelHeader, Select, Table, Td, Th, Tr, Vazio,
-} from "@/components/ui";
+import Link from "next/link";
+import { Badge, Button, CampoMascara, Input, Select, Vazio } from "@/components/ui";
 import type { BadgeTom } from "@/components/ui";
 import { Campo, Modal, Switch } from "@/components/ui/modal";
-import { iniciais, telefone, tempoRelativo } from "@/lib/utils";
+import { cn, iniciais, telefone, tempoRelativo } from "@/lib/utils";
 import type { Usuario } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 
 const PERFIS: Array<{ slug: string; nome: string; tom: BadgeTom; acesso: string }> = [
-  { slug: "admin", nome: "Administrador", tom: "brand", acesso: "Acesso total ao sistema" },
-  { slug: "atendimento", nome: "Atendimento", tom: "info", acesso: "Chats, clientes, pedidos e kanban" },
-  { slug: "operacional", nome: "Operacional", tom: "ok", acesso: "Pedidos, separação, estoque e trocas" },
-  { slug: "financeiro", nome: "Financeiro", tom: "gold", acesso: "Contas e relatórios financeiros" },
-  { slug: "entregador", nome: "Entregador", tom: "neutro", acesso: "Pedidos para entrega, endereço, pagamento e troco" },
+  { slug: "admin", nome: "Administrador", tom: "brand",
+    acesso: "Tudo, incluindo preço, cancelamento, usuários e configurações" },
+  { slug: "atendimento", nome: "Atendimento", tom: "info",
+    acesso: "Conversas, clientes, funil e criação de pedidos" },
+  { slug: "operacional", nome: "Operacional", tom: "ok",
+    acesso: "Separação, estoque, catálogo e trocas" },
+  { slug: "financeiro", nome: "Financeiro", tom: "gold",
+    acesso: "Contas a pagar e receber, baixas e relatórios" },
+  { slug: "entregador", nome: "Entregador", tom: "neutro",
+    acesso: "Só a rota do dia: endereço, forma de pagamento e troco" },
 ];
 
 export function TelaUsuarios({
@@ -50,100 +54,124 @@ export function TelaUsuarios({
     });
   }
 
-  return (
-    <div className="space-y-3">
-      <Panel>
-        <PanelHeader titulo="Perfis de acesso" icone={Shield}
-          descricao="Cada perfil concede um conjunto de permissões" />
-        <Table>
-          <thead>
-            <tr>
-              <Th>Perfil</Th><Th>O que acessa</Th>
-              <Th className="text-center">Usuários</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {PERFIS.map((p) => (
-              <Tr key={p.slug}>
-                <Td><Badge tom={p.tom}>{p.nome}</Badge></Td>
-                <Td className="text-ink-300">{p.acesso}</Td>
-                <Td className="text-center tabular-nums text-ink-400">
-                  {usuarios.filter((u) => u.role_slug === p.slug).length}
-                </Td>
-              </Tr>
-            ))}
-          </tbody>
-        </Table>
-      </Panel>
+  const porPerfil = PERFIS.map((p) => ({
+    ...p,
+    total: usuarios.filter((u) => u.role_slug === p.slug).length,
+  }));
 
-      <Panel className="overflow-hidden">
-        <PanelHeader titulo="Usuários" icone={UserCog}
-          descricao={supabaseConectado
-            ? "Novos acessos são criados pelo convite do Supabase Auth"
-            : "Equipe com acesso ao sistema"}
-          acao={
-            <Button variante="primario" tamanho="sm" onClick={() => setEditando({
-              nome: "", role_slug: "atendimento", status: "ativo",
-            })}>
-              <UserPlus className="size-3.5" /> Adicionar
-            </Button>
-          } />
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      {/* ------------------------------- equipe ------------------------------ */}
+      <section className="space-y-2.5">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="display text-[13px] font-semibold text-ink-100">Equipe</h2>
+            <p className="text-[11px] text-ink-500">
+              {usuarios.length} pessoa{usuarios.length === 1 ? "" : "s"} com acesso ao sistema
+            </p>
+          </div>
+          <Button variante="primario" tamanho="sm" onClick={() => setEditando({
+            nome: "", role_slug: "atendimento", status: "ativo",
+          })}>
+            <UserPlus className="size-3.5" /> Adicionar
+          </Button>
+        </div>
+
         {usuarios.length === 0 ? (
-          <Vazio icone={UserCog} titulo="Nenhum usuário"
-            descricao="Adicione a equipe e defina o nível de acesso de cada um." />
+          <div className="chapa">
+            <Vazio icone={UserCog} titulo="Nenhum usuário"
+              descricao="Adicione a equipe e defina o nível de acesso de cada um." />
+          </div>
         ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Usuário</Th><Th>Contato</Th><Th>Cargo</Th>
-                <Th className="text-center">Perfil</Th>
-                <Th>Último acesso</Th>
-                <Th className="text-center">Status</Th>
-                <Th className="text-right">Ações</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {usuarios.map((u) => {
-                const perfil = PERFIS.find((p) => p.slug === u.role_slug);
-                return (
-                  <Tr key={u.id}>
-                    <Td>
-                      <div className="flex items-center gap-2.5">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-[10px] font-bold text-white">
-                          {iniciais(u.nome)}
-                        </span>
-                        <span className="truncate font-medium text-ink-100">{u.nome}</span>
-                      </div>
-                    </Td>
-                    <Td>
-                      <p className="truncate text-[11px] text-ink-300">{u.email ?? "—"}</p>
-                      <p className="truncate text-[11px] tabular-nums text-ink-500">
-                        {u.telefone ? telefone(u.telefone) : ""}
-                      </p>
-                    </Td>
-                    <Td className="text-ink-300">{u.cargo ?? "—"}</Td>
-                    <Td className="text-center">
-                      <Badge tom={perfil?.tom ?? "neutro"}>{u.role_nome}</Badge>
-                    </Td>
-                    <Td className="whitespace-nowrap text-[11px] text-ink-400">
-                      {u.ultimo_login ? tempoRelativo(u.ultimo_login) : "nunca"}
-                    </Td>
-                    <Td className="text-center">
-                      <Badge tom={u.status === "ativo" ? "ok" : "neutro"} ponto>{u.status}</Badge>
-                    </Td>
-                    <Td className="text-right">
-                      <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(u)}
-                        aria-label={`Editar ${u.nome}`} title="Editar usuário">
-                        <Pencil className="size-3.5" />
-                      </Button>
-                    </Td>
-                  </Tr>
-                );
-              })}
-            </tbody>
-          </Table>
+          <ul className="chapa divide-y divide-[var(--linha)] overflow-hidden">
+            {usuarios.map((u) => {
+              const perfil = PERFIS.find((p) => p.slug === u.role_slug);
+              return (
+                <li key={u.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-ink-850/60">
+                  <span className={cn(
+                    "grid size-9 shrink-0 place-items-center rounded-lg text-[11px] font-semibold",
+                    u.status === "ativo"
+                      ? "bg-brand-500/14 text-brand-200"
+                      : "bg-ink-800 text-ink-500",
+                  )}>
+                    {iniciais(u.nome)}
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    <p className={cn(
+                      "truncate text-[13px] font-medium",
+                      u.status === "ativo" ? "text-ink-100" : "text-ink-500",
+                    )}>
+                      {u.nome}
+                      {u.cargo && <span className="ml-2 text-[11px] font-normal text-ink-500">{u.cargo}</span>}
+                    </p>
+                    <p className="truncate text-[11px] text-ink-500">
+                      {u.email ?? "sem e-mail"}
+                      {u.telefone ? ` · ${telefone(u.telefone)}` : ""}
+                    </p>
+                  </div>
+
+                  <div className="hidden shrink-0 text-right sm:block">
+                    <p className="text-[11px] text-ink-400">
+                      {u.ultimo_login ? `ativo há ${tempoRelativo(u.ultimo_login)}` : "nunca entrou"}
+                    </p>
+                  </div>
+
+                  <Badge tom={perfil?.tom ?? "neutro"}>{u.role_nome}</Badge>
+
+                  {u.status !== "ativo" && <Badge tom="neutro">inativo</Badge>}
+
+                  <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(u)}
+                    aria-label={`Editar ${u.nome}`} title="Editar usuário">
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </Panel>
+      </section>
+
+      {/* ------------------------------- perfis ------------------------------ */}
+      <section className="space-y-2.5">
+        <div>
+          <h2 className="display text-[13px] font-semibold text-ink-100">Perfis de acesso</h2>
+          <p className="text-[11px] text-ink-500">
+            Cada perfil libera um conjunto de ações —{" "}
+            <Link href="/permissoes" className="text-brand-300 hover:text-brand-200">
+              ver a matriz completa
+            </Link>
+          </p>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {porPerfil.map((p) => (
+            <div key={p.slug} className="chapa realce overflow-hidden px-4 py-3">
+              {p.total > 0 && <span className="realce-barra" />}
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="display text-[13px] font-semibold text-ink-100">{p.nome}</h3>
+                <span className={cn(
+                  "numero text-sm",
+                  p.total > 0 ? "text-brand-300" : "text-ink-600",
+                )}>
+                  {p.total}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-ink-500">{p.acesso}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ------------------------------ como entra --------------------------- */}
+      <div className="flex items-start gap-2.5 rounded-lg bg-ink-900 px-4 py-3 ring-1 ring-inset ring-[var(--linha)]">
+        <Mail className="mt-0.5 size-3.5 shrink-0 text-ink-500" />
+        <p className="text-[11px] leading-relaxed text-ink-400">
+          {supabaseConectado
+            ? "O login passa pelo Supabase Auth. Para dar acesso a alguém novo, envie o convite por e-mail no painel do Supabase — o perfil e as permissões ficam guardados aqui."
+            : "Quando o Supabase estiver conectado, o login passa a ser feito por e-mail e senha, com convite para novos usuários."}
+        </p>
+      </div>
 
       {editando && (
         <Modal
@@ -172,8 +200,8 @@ export function TelaUsuarios({
                   onChange={(e) => setEditando((p) => ({ ...p!, email: e.target.value }))} />
               </Campo>
               <Campo rotulo="Telefone">
-                <Input value={editando.telefone ?? ""}
-                  onChange={(e) => setEditando((p) => ({ ...p!, telefone: e.target.value }))} />
+                <CampoMascara tipo="telefone" valor={editando.telefone ?? ""}
+                  aoMudar={(v) => setEditando((p) => ({ ...p!, telefone: v }))} />
               </Campo>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">

@@ -13,7 +13,7 @@ import {
 } from "./demo-mvp2";
 import type {
   CategoriaFinanceira, ContaBancaria, Cupom, EventoCalendario, Fornecedor,
-  Lancamento, RegraUpsell, Tarefa, Troca, Usuario,
+  Lancamento, NotaSituacao, RegraUpsell, Tarefa, Troca, Usuario,
 } from "./types";
 
 async function cli() {
@@ -144,16 +144,21 @@ export async function salvarFornecedor(
 
 /* ----------------------------------------------------------- NOTA DE ENTRADA */
 
-/**
- * Cria a nota e dá entrada no estoque em uma única operação.
- * Cada item gera uma movimentação de entrada e recalcula o custo médio do SKU.
- */
-export async function lancarEntrada(
+/* ------------------------------------------------------- NOTA DE ENTRADA ---
+ * Lançar a nota e dar entrada no estoque são atos separados.
+ * A nota nasce "em trânsito" e nada toca estoque, custo ou financeiro até
+ * alguém CONCLUIR — depois de conferir a carga que chegou.
+ * -------------------------------------------------------------------------- */
+
+export async function criarNota(
   dados: {
     supplier_id: string | null;
     numero_documento: string | null;
     data: string;
     observacao: string | null;
+    cotacao: number | null;
+    freteiro_pct: number;
+    vencimento: string | null;
   },
   itens: Array<{ product_flavor_id: string; quantidade: number; custo_unitario: number }>,
 ): Promise<Resultado & { id?: string }> {
@@ -164,69 +169,150 @@ export async function lancarEntrada(
   const c = await cli();
 
   if (!c) {
-    const { demo, demoAjustarEstoque } = await import("./demo");
-    const id = `not-${Date.now().toString(36)}`;
     const fornecedor = demo2().fornecedores.find((f) => f.id === dados.supplier_id);
-
     demoSalvarNota({
-      ...dados, fornecedor_nome: fornecedor?.nome ?? null,
-      valor_total: total, status: "finalizada",
-      itens_count: itens.length, pecas,
+      ...dados,
+      fornecedor_nome: fornecedor?.nome ?? null,
+      valor_total: total,
+      situacao: "transito",
+      estoque_aplicado: false,
+      itens_count: itens.length,
+      pecas,
     });
-
-    itens.forEach((i) => {
-      const atual = demo().catalogo.find((x) => x.product_flavor_id === i.product_flavor_id);
-      if (atual) {
-        demoAjustarEstoque(
-          i.product_flavor_id,
-          atual.estoque_total + i.quantidade,
-          "Entrada por nota de mercadoria",
-        );
-      }
-    });
-
     revalidatePath("/notas-entrada");
-    revalidatePath("/estoque");
-    revalidatePath("/catalogo");
-    return { ok: true, id };
+    return { ok: true };
   }
 
-  const { data: nota, error: erroNota } = await c.from("purchase_entries")
-    .insert({ ...dados, store_id: STORE_ID, valor_total: total })
+  const { data: nota, error } = await c.from("purchase_entries")
+    .insert({
+      ...dados,
+      store_id: STORE_ID,
+      valor_total: total,
+      situacao: "transito",
+      status: "rascunho",
+      estoque_aplicado: false,
+    })
     .select("id").single();
-  if (erroNota || !nota) return { ok: false, erro: erroNota?.message ?? "Falha ao criar a nota" };
+  if (error || !nota) return { ok: false, erro: error?.message ?? "Falha ao criar a nota" };
 
-  for (const item of itens) {
-    const { error } = await c.from("purchase_entry_items").insert({
+  const { error: erroItens } = await c.from("purchase_entry_items").insert(
+    itens.map((i) => ({
       entry_id: nota.id,
-      product_flavor_id: item.product_flavor_id,
-      quantidade: item.quantidade,
-      custo_unitario: item.custo_unitario,
-      subtotal: item.quantidade * item.custo_unitario,
-    });
+      product_flavor_id: i.product_flavor_id,
+      quantidade: i.quantidade,
+      custo_unitario: i.custo_unitario,
+      subtotal: i.quantidade * i.custo_unitario,
+    })),
+  );
+  if (erroItens) return { ok: false, erro: erroItens.message };
+
+  revalidatePath("/notas-entrada");
+  return { ok: true, id: nota.id };
+}
+
+/** Move a nota entre trânsito e conferência (nenhum efeito colateral). */
+export async function situacaoNota(id: string, situacao: NotaSituacao): Promise<Resultado> {
+  const c = await cli();
+  if (!c) {
+    demoSalvarNota({ id, situacao });
+  } else {
+    const campos: Record<string, unknown> = { situacao };
+    if (situacao === "conferencia") campos.conferencia_iniciada_em = new Date().toISOString();
+    const { error } = await c.from("purchase_entries").update(campos).eq("id", id);
     if (error) return { ok: false, erro: error.message };
-
-    const { error: erroEstoque } = await c.rpc("mover_estoque", {
-      p_product_flavor_id: item.product_flavor_id,
-      p_tipo: "entrada",
-      p_quantidade: item.quantidade,
-      p_referencia_tipo: "purchase_entry",
-      p_referencia_id: nota.id,
-      p_custo_unitario: item.custo_unitario,
-      p_observacao: "Entrada por nota de mercadoria",
-    });
-    if (erroEstoque) return { ok: false, erro: erroEstoque.message };
   }
+  revalidatePath("/notas-entrada");
+  return { ok: true };
+}
 
-  const { error } = await c.from("purchase_entries").update({
-    status: "finalizada", finalizada_em: new Date().toISOString(),
-  }).eq("id", nota.id);
-  if (error) return { ok: false, erro: error.message };
+/**
+ * Concluir: o estoque sobe, o custo médio é recalculado (com o freteiro
+ * embutido) e a conta a pagar é criada — tudo numa transação no banco.
+ */
+export async function concluirNota(id: string): Promise<Resultado> {
+  const c = await cli();
+
+  if (!c) {
+    const nota = demo2().notas.find((n) => n.id === id);
+    if (!nota) return { ok: false, erro: "Nota não encontrada" };
+    if (nota.estoque_aplicado) return { ok: true }; // idempotente
+
+    const { demo, demoAjustarEstoque } = await import("./demo");
+    // na demonstração não há itens gravados: distribui as peças no catálogo
+    const alvos = demo().catalogo.slice(0, Math.max(1, nota.itens_count));
+    const porItem = Math.max(1, Math.round(nota.pecas / alvos.length));
+    alvos.forEach((c2) => {
+      demoAjustarEstoque(
+        c2.product_flavor_id,
+        c2.estoque_total + porItem,
+        `Entrada pela nota ${nota.numero_documento ?? "sem número"}`,
+      );
+    });
+
+    demoSalvarNota({ id, situacao: "concluida", estoque_aplicado: true });
+    demoSalvarLancamento({
+      tipo: "pagar",
+      descricao: `Nota ${nota.numero_documento ?? "sem número"}`,
+      contraparte: nota.fornecedor_nome,
+      categoria_id: "cat-d1", categoria_nome: "Mercadoria",
+      valor: nota.valor_total,
+      vencimento: nota.vencimento,
+      status: "pendente",
+    });
+    if (nota.freteiro_pct > 0) {
+      demoSalvarLancamento({
+        tipo: "pagar",
+        descricao: `Freteiro da nota ${nota.numero_documento ?? "sem número"}`,
+        categoria_id: "cat-d5", categoria_nome: "Motoboy",
+        valor: nota.valor_total * (nota.freteiro_pct / 100),
+        vencimento: nota.vencimento,
+        status: "pendente",
+      });
+    }
+  } else {
+    const { error } = await c.rpc("concluir_nota_entrada", { p_nota_id: id });
+    if (error) return { ok: false, erro: error.message };
+  }
 
   revalidatePath("/notas-entrada");
   revalidatePath("/estoque");
   revalidatePath("/catalogo");
-  return { ok: true, id: nota.id };
+  revalidatePath("/financeiro/pagar");
+  return { ok: true };
+}
+
+/** Reabrir: estorna o estoque pela mesma trilha e cancela as contas geradas. */
+export async function reabrirNota(id: string, motivo?: string): Promise<Resultado> {
+  const c = await cli();
+
+  if (!c) {
+    const nota = demo2().notas.find((n) => n.id === id);
+    if (!nota || !nota.estoque_aplicado) {
+      demoSalvarNota({ id, situacao: "conferencia" });
+    } else {
+      const { demo, demoAjustarEstoque } = await import("./demo");
+      const alvos = demo().catalogo.slice(0, Math.max(1, nota.itens_count));
+      const porItem = Math.max(1, Math.round(nota.pecas / alvos.length));
+      alvos.forEach((c2) => {
+        demoAjustarEstoque(
+          c2.product_flavor_id,
+          Math.max(0, c2.estoque_total - porItem),
+          motivo ?? "Reabertura da nota de entrada",
+        );
+      });
+      demoSalvarNota({ id, situacao: "conferencia", estoque_aplicado: false });
+    }
+  } else {
+    const { error } = await c.rpc("reabrir_nota_entrada", {
+      p_nota_id: id, p_motivo: motivo ?? null,
+    });
+    if (error) return { ok: false, erro: error.message };
+  }
+
+  revalidatePath("/notas-entrada");
+  revalidatePath("/estoque");
+  revalidatePath("/financeiro/pagar");
+  return { ok: true };
 }
 
 /* -------------------------------------------------------------- FINANCEIRO */

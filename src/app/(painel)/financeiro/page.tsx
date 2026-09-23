@@ -78,7 +78,7 @@ export default async function FinanceiroPage({
               </div>
               <Barra valor={m.faturamento > 0 ? (m.cmv / m.faturamento) * 100 : 0} tom="bad" className="mt-1.5" />
             </div>
-            <div className="border-t border-white/6 pt-3">
+            <div className="border-t border-[var(--linha)] pt-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-ink-400">Lucro bruto</span>
                 <span className="text-lg font-bold tabular-nums text-ok-400">{brl(m.lucro_bruto)}</span>
@@ -87,7 +87,7 @@ export default async function FinanceiroPage({
               <p className="mt-1 text-right text-[11px] text-ink-500">margem de {pct(margem)}</p>
             </div>
 
-            <div className="border-t border-white/6 pt-3">
+            <div className="border-t border-[var(--linha)] pt-3">
               <p className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">Por forma de pagamento</p>
               {porMetodo.length > 0
                 ? <GraficoRosca dados={porMetodo} altura={170} />
@@ -147,7 +147,7 @@ export default async function FinanceiroPage({
             titulo="Nenhum lançamento"
             descricao="As categorias financeiras já estão criadas. O cadastro de despesas entra no MVP 2."
           />
-          <div className="border-t border-white/6 px-5 py-3">
+          <div className="border-t border-[var(--linha)] px-5 py-3">
             <p className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">Categorias já cadastradas</p>
             <div className="flex flex-wrap gap-1.5">
               {["Mercadoria", "Aluguel", "Funcionários", "Marketing", "Motoboy", "Sistemas", "Energia", "Internet", "Outros"]
@@ -188,7 +188,7 @@ function Resumo({ rotulo, valor, icone: Icone }: {
 }) {
   return (
     <Panel className="flex items-center gap-3 p-4">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/5 text-ink-400">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-ink-850 text-ink-400">
         <Icone className="size-4" />
       </span>
       <div className="min-w-0">

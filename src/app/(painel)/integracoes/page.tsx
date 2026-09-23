@@ -48,10 +48,10 @@ export default async function IntegracoesPage() {
           {usandoDemo ? (
             <>
               O painel está rodando com a base de demonstração. Para conectar ao Supabase, preencha{" "}
-              <code className="rounded bg-white/6 px-1 py-0.5 text-[11px] text-brand-300">NEXT_PUBLIC_SUPABASE_URL</code> e{" "}
-              <code className="rounded bg-white/6 px-1 py-0.5 text-[11px] text-brand-300">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
-              no arquivo <code className="rounded bg-white/6 px-1 py-0.5 text-[11px]">.env.local</code> e rode as migrations de{" "}
-              <code className="rounded bg-white/6 px-1 py-0.5 text-[11px]">supabase/migrations</code>.
+              <code className="rounded bg-ink-800 px-1 py-0.5 text-[11px] text-brand-300">NEXT_PUBLIC_SUPABASE_URL</code> e{" "}
+              <code className="rounded bg-ink-800 px-1 py-0.5 text-[11px] text-brand-300">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
+              no arquivo <code className="rounded bg-ink-800 px-1 py-0.5 text-[11px]">.env.local</code> e rode as migrations de{" "}
+              <code className="rounded bg-ink-800 px-1 py-0.5 text-[11px]">supabase/migrations</code>.
             </>
           ) : (
             "Conectado. Estoque, catálogo, pedidos e financeiro vêm todos do mesmo banco."
@@ -62,8 +62,8 @@ export default async function IntegracoesPage() {
       <div className="grid gap-3 lg:grid-cols-2">
         {INTEGRACOES.map((i) => (
           <Panel key={i.nome}>
-            <div className="flex items-start gap-3 border-b border-white/6 px-5 py-4">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/5"
+            <div className="flex items-start gap-3 border-b border-[var(--linha)] px-5 py-4">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-ink-850"
                 style={{ color: i.cor }}>
                 <i.icone className="size-5" />
               </span>
@@ -84,7 +84,7 @@ export default async function IntegracoesPage() {
                   {i.campos.map((c) => <Badge key={c} tom="neutro">{c}</Badge>)}
                 </div>
               </div>
-              <div className="flex items-center gap-2 rounded-lg bg-white/4 px-3 py-2">
+              <div className="flex items-center gap-2 rounded-lg bg-ink-850 px-3 py-2">
                 <Webhook className="size-3 shrink-0 text-ink-500" />
                 <code className="truncate text-[11px] text-ink-300">{i.endpoint}</code>
               </div>

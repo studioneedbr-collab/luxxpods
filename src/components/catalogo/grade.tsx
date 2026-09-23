@@ -105,7 +105,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar produto, sabor ou SKU…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
 
@@ -143,7 +143,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
           ]}
         />
 
-        <div className="flex rounded-lg bg-white/4 p-0.5 ring-1 ring-inset ring-white/10">
+        <div className="flex rounded-lg bg-ink-850 p-0.5 ring-1 ring-inset ring-[var(--linha)]">
           {(["grade", "lista"] as Visao[]).map((v) => (
             <button
               key={v}
@@ -179,7 +179,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
         const disponiveis = grupo.filter((g) => g.estoque_disponivel > 0).length;
         return (
           <Panel key={p.product_id} className="overflow-hidden">
-            <div className="flex flex-wrap items-center gap-3 border-b border-white/6 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3 border-b border-[var(--linha)] px-4 py-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500/25 to-brand-700/10 text-xs font-bold text-brand-200 ring-1 ring-inset ring-brand-500/20">
                 {(p.marca ?? "?").slice(0, 2).toUpperCase()}
               </span>
@@ -201,12 +201,12 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
               <Badge tom="neutro">{num(total)} un</Badge>
             </div>
 
-            <div className="grid gap-px bg-white/4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-px bg-ink-850 sm:grid-cols-2 xl:grid-cols-3">
               {grupo.map((item) => {
                 const critico = item.estoque_disponivel <= item.estoque_minimo;
                 const zerado = item.estoque_disponivel <= 0;
                 return (
-                  <div key={item.product_flavor_id} className="bg-ink-900/70 p-3">
+                  <div key={item.product_flavor_id} className="bg-ink-900 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className={cn(
@@ -225,7 +225,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                           "grid size-6 shrink-0 place-items-center rounded-md transition",
                           item.sabor_ativo
                             ? "bg-ok-500/15 text-ok-400 hover:bg-ok-500/25"
-                            : "bg-white/6 text-ink-500 hover:bg-white/10",
+                            : "bg-ink-800 text-ink-500 hover:bg-ink-700",
                         )}
                       >
                         {item.sabor_ativo ? <Check className="size-3" /> : <Ban className="size-3" />}
@@ -236,7 +236,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                       <button
                         onClick={() => mudarEstoque(item, -1)}
                         disabled={salvando || item.estoque_total <= 0}
-                        className="grid size-6 place-items-center rounded-md bg-white/6 text-ink-300 transition hover:bg-white/12 disabled:opacity-30"
+                        className="grid size-6 place-items-center rounded-md bg-ink-800 text-ink-300 transition hover:bg-ink-700 disabled:opacity-30"
                       >
                         <Minus className="size-3" />
                       </button>
@@ -244,14 +244,14 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                         "min-w-[46px] rounded-md px-2 py-1 text-center text-xs font-bold tabular-nums",
                         zerado ? "bg-bad-500/12 text-bad-400"
                           : critico ? "bg-warn-500/12 text-warn-400"
-                            : "bg-white/6 text-ink-100",
+                            : "bg-ink-800 text-ink-100",
                       )}>
                         {item.estoque_disponivel}
                       </span>
                       <button
                         onClick={() => mudarEstoque(item, +1)}
                         disabled={salvando}
-                        className="grid size-6 place-items-center rounded-md bg-white/6 text-ink-300 transition hover:bg-white/12"
+                        className="grid size-6 place-items-center rounded-md bg-ink-800 text-ink-300 transition hover:bg-ink-700"
                       >
                         <Plus className="size-3" />
                       </button>
@@ -339,7 +339,7 @@ function Mini({
   };
   return (
     <Panel className="flex items-center gap-3 p-3">
-      <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg bg-white/5", cores[tom])}>
+      <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg bg-ink-850", cores[tom])}>
         <Icone className="size-4" />
       </span>
       <div className="min-w-0">

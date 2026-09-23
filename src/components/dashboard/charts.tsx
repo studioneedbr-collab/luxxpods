@@ -8,7 +8,7 @@ import { brl, num } from "@/lib/utils";
 import { CalendarOff } from "lucide-react";
 import type { SeriePonto } from "@/lib/types";
 
-const CORES = ["#9563ff", "#38bdf8", "#34d399", "#fbbf24", "#f87171", "#f5c451", "#22d3ee", "#c084fc"];
+const CORES = ["#8b6bc4", "#5c84ab", "#4ecfa0", "#d8b45f", "#e8706a", "#c3a5dd", "#5fa8d8", "#2a3f78"];
 
 function TooltipBox({ active, payload, label, moeda }: {
   active?: boolean;
@@ -18,7 +18,7 @@ function TooltipBox({ active, payload, label, moeda }: {
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-white/10 bg-ink-850/95 px-3 py-2 text-xs shadow-xl backdrop-blur">
+    <div className="flutua px-3 py-2 text-xs">
       {label && <p className="mb-1 font-medium text-ink-200">{label}</p>}
       {payload.map((p, i) => (
         <p key={i} className="flex items-center gap-2 tabular-nums text-ink-300">
@@ -40,7 +40,7 @@ function SemDados({ altura, mensagem }: { altura: number; mensagem: string }) {
       className="flex flex-col items-center justify-center gap-2 text-center"
       style={{ height: altura }}
     >
-      <span className="grid size-9 place-items-center rounded-xl bg-white/4 text-ink-600">
+      <span className="grid size-9 place-items-center rounded-lg bg-ink-850 text-ink-600">
         <CalendarOff className="size-4" />
       </span>
       <p className="text-xs text-ink-500">{mensagem}</p>
@@ -64,8 +64,8 @@ export function GraficoFaturamento({ dados }: { dados: SeriePonto[] }) {
       <AreaChart data={dados} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
         <defs>
           <linearGradient id="gFat" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#9563ff" stopOpacity={0.45} />
-            <stop offset="100%" stopColor="#9563ff" stopOpacity={0.02} />
+            <stop offset="0%" stopColor="#8b6bc4" stopOpacity={0.38} />
+            <stop offset="100%" stopColor="#8b6bc4" stopOpacity={0.01} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -74,7 +74,7 @@ export function GraficoFaturamento({ dados }: { dados: SeriePonto[] }) {
                tickLine={false} axisLine={false} width={46} />
         <Tooltip content={<TooltipBox moeda />} labelFormatter={diaCurto} />
         <Area type="monotone" dataKey="faturamento" name="Faturamento"
-              stroke="#9563ff" strokeWidth={2} fill="url(#gFat)" />
+              stroke="#a684cb" strokeWidth={1.75} fill="url(#gFat)" />
       </AreaChart>
     </ResponsiveContainer>
   );
@@ -92,16 +92,16 @@ export function GraficoPedidosLeads({ dados }: { dados: SeriePonto[] }) {
         <XAxis dataKey="dia" tickFormatter={diaCurto} tickLine={false} axisLine={false} minTickGap={24} />
         <YAxis tickLine={false} axisLine={false} width={34} allowDecimals={false} />
         <Tooltip content={<TooltipBox />} labelFormatter={diaCurto} />
-        <Legend wrapperStyle={{ fontSize: 11, color: "#9a9ab5" }} iconType="circle" iconSize={7} />
-        <Line type="monotone" dataKey="leads" name="Leads" stroke="#38bdf8" strokeWidth={2} dot={false} />
-        <Line type="monotone" dataKey="pedidos" name="Pedidos" stroke="#34d399" strokeWidth={2} dot={false} />
+        <Legend wrapperStyle={{ fontSize: 10, color: "#6a7396" }} iconType="circle" iconSize={7} />
+        <Line type="monotone" dataKey="leads" name="Leads" stroke="#5c84ab" strokeWidth={1.75} dot={false} />
+        <Line type="monotone" dataKey="pedidos" name="Pedidos" stroke="#4ecfa0" strokeWidth={1.75} dot={false} />
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
 export function GraficoBarras({
-  dados, chaveX, chaveY, cor = "#9563ff", moeda, altura = 240,
+  dados, chaveX, chaveY, cor = "#8b6bc4", moeda, altura = 240,
 }: {
   dados: Array<Record<string, string | number>>;
   chaveX: string; chaveY: string; cor?: string; moeda?: boolean; altura?: number;
@@ -117,7 +117,7 @@ export function GraficoBarras({
         <XAxis type="number" tickLine={false} axisLine={false}
                tickFormatter={(v) => (moeda ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)) : String(v))} />
         <YAxis type="category" dataKey={chaveX} tickLine={false} axisLine={false} width={132} />
-        <Tooltip content={<TooltipBox moeda={moeda} />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+        <Tooltip content={<TooltipBox moeda={moeda} />} cursor={{ fill: "rgba(140,152,210,0.05)" }} />
         <Bar dataKey={chaveY} name={moeda ? "Valor" : "Quantidade"} radius={[0, 5, 5, 0]} fill={cor} barSize={16} />
       </BarChart>
     </ResponsiveContainer>
@@ -145,7 +145,7 @@ export function GraficoRosca({
           const p = payload[0];
           const v = Number(p.value);
           return (
-            <div className="rounded-lg border border-white/10 bg-ink-850/95 px-3 py-2 text-xs shadow-xl">
+            <div className="flutua px-3 py-2 text-xs">
               <p className="font-medium text-ink-100">{p.name}</p>
               <p className="tabular-nums text-ink-300">
                 {num(v)} · {total ? ((v / total) * 100).toFixed(1).replace(".", ",") : 0}%
@@ -153,7 +153,7 @@ export function GraficoRosca({
             </div>
           );
         }} />
-        <Legend wrapperStyle={{ fontSize: 11, color: "#9a9ab5" }} iconType="circle" iconSize={7} />
+        <Legend wrapperStyle={{ fontSize: 10, color: "#6a7396" }} iconType="circle" iconSize={7} />
       </PieChart>
     </ResponsiveContainer>
   );

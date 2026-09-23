@@ -1593,3 +1593,847 @@ from (values
 where not exists (select 1 from calendar_events where store_id = v_store);
 
 end $$;
+
+-- ============ 0007_notas_entrada.sql ============
+-- =====================================================================
+-- LUXX PODS — 0007 NOTA DE ENTRADA: fluxo correto
+--
+-- Regra central: NADA toca estoque, custo ou financeiro enquanto a nota
+-- não for CONCLUÍDA. Lançar a nota e dar entrada são atos separados.
+--
+--   transito  → mercadoria a caminho, só o registro existe
+--   conferencia → chegou, alguém está conferindo fisicamente
+--   concluida → conferida e aprovada: aí sim estoque + custo + contas
+-- =====================================================================
+
+do $$ begin
+  create type nota_status as enum ('transito','conferencia','concluida','cancelada');
+exception when duplicate_object then null; end $$;
+
+-- ---------- campos que faltavam ----------
+alter table purchase_entries
+  add column if not exists situacao nota_status not null default 'transito',
+  add column if not exists estoque_aplicado boolean not null default false,
+  add column if not exists cotacao numeric(10,4),          -- dólar da nota
+  add column if not exists freteiro_pct numeric(6,3) not null default 0,
+  add column if not exists vencimento date,
+  add column if not exists freteiro_vencimento date,
+  add column if not exists conta_pagar_id uuid references accounts_payable(id) on delete set null,
+  add column if not exists freteiro_conta_id uuid references accounts_payable(id) on delete set null,
+  add column if not exists conferencia_iniciada_em timestamptz,
+  add column if not exists conferencia_concluida_em timestamptz,
+  add column if not exists cancelada_em timestamptz;
+
+alter table purchase_entry_items
+  add column if not exists custo_usd numeric(12,4),
+  add column if not exists quantidade_conferida integer;
+
+-- migra o status antigo (text) para o enum
+update purchase_entries
+   set situacao = case status
+     when 'finalizada' then 'concluida'::nota_status
+     when 'cancelada'  then 'cancelada'::nota_status
+     else 'transito'::nota_status end
+ where situacao = 'transito' and status is not null;
+
+update purchase_entries set estoque_aplicado = true where situacao = 'concluida';
+
+-- ---------------------------------------------------------------------
+-- CONCLUIR: estoque + custo médio + contas a pagar, em uma transação só.
+-- Idempotente: chamar duas vezes não dobra a entrada.
+-- ---------------------------------------------------------------------
+create or replace function concluir_nota_entrada(
+  p_nota_id uuid,
+  p_usuario_id uuid default null
+) returns purchase_entries
+language plpgsql security definer as $$
+declare
+  v_nota  purchase_entries;
+  v_item  purchase_entry_items;
+  v_total numeric(12,2) := 0;
+  v_cat_mercadoria uuid;
+  v_cat_freteiro   uuid;
+  v_conta uuid;
+  v_freteiro_valor numeric(12,2);
+  v_custo_com_freteiro numeric(12,2);
+  v_itens integer;
+begin
+  select * into v_nota from purchase_entries where id = p_nota_id for update;
+  if v_nota.id is null then
+    raise exception 'Nota não encontrada';
+  end if;
+
+  -- idempotência: já concluída não faz nada de novo
+  if v_nota.situacao = 'concluida' or v_nota.estoque_aplicado then
+    return v_nota;
+  end if;
+  if v_nota.situacao = 'cancelada' then
+    raise exception 'Nota cancelada não pode ser concluída';
+  end if;
+
+  select count(*) into v_itens from purchase_entry_items where entry_id = p_nota_id;
+  if v_itens = 0 then
+    raise exception 'Nota sem itens: nada para dar entrada';
+  end if;
+
+  -- 1) ESTOQUE — item a item, cada um com sua movimentação registrada.
+  --    O custo do freteiro entra no custo unitário, senão a margem mente.
+  for v_item in select * from purchase_entry_items where entry_id = p_nota_id loop
+    v_custo_com_freteiro :=
+      v_item.custo_unitario * (1 + coalesce(v_nota.freteiro_pct, 0) / 100.0);
+
+    perform mover_estoque(
+      v_item.product_flavor_id,
+      'entrada',
+      v_item.quantidade,
+      'purchase_entry',
+      p_nota_id::text,
+      p_usuario_id,
+      'Entrada pela nota ' || coalesce(v_nota.numero_documento, '(sem número)'),
+      v_custo_com_freteiro
+    );
+
+    v_total := v_total + (v_item.quantidade * v_item.custo_unitario);
+  end loop;
+
+  -- 2) A nota passa a valer. estoque_aplicado sai SÓ do passo acima:
+  --    marcar false por falha de um passo posterior faria a reabertura
+  --    pular o estorno e a próxima conclusão somar tudo de novo.
+  update purchase_entries set
+    situacao = 'concluida',
+    status = 'finalizada',
+    estoque_aplicado = true,
+    valor_total = v_total,
+    finalizada_em = now(),
+    conferencia_concluida_em = coalesce(conferencia_concluida_em, now())
+  where id = p_nota_id
+  returning * into v_nota;
+
+  -- 3) FINANCEIRO — daqui para baixo, falha vira aviso, nunca desfaz o
+  --    estoque: dizer "não apliquei" depois de aplicar libera entrada dupla.
+  begin
+    select id into v_cat_mercadoria from financial_categories
+     where store_id = v_nota.store_id and tipo = 'despesa' and nome = 'Mercadoria' limit 1;
+    select id into v_cat_freteiro from financial_categories
+     where store_id = v_nota.store_id and tipo = 'despesa' and nome = 'Motoboy' limit 1;
+
+    insert into accounts_payable (
+      store_id, supplier_id, categoria_id, descricao, valor,
+      vencimento, documento, status)
+    values (
+      v_nota.store_id, v_nota.supplier_id, v_cat_mercadoria,
+      'Nota ' || coalesce(v_nota.numero_documento, 'sem número'),
+      v_total,
+      coalesce(v_nota.vencimento, current_date),
+      v_nota.numero_documento, 'pendente')
+    returning id into v_conta;
+
+    update purchase_entries set conta_pagar_id = v_conta where id = p_nota_id;
+
+    if coalesce(v_nota.freteiro_pct, 0) > 0 then
+      v_freteiro_valor := round(v_total * v_nota.freteiro_pct / 100.0, 2);
+      insert into accounts_payable (
+        store_id, categoria_id, descricao, valor, vencimento, status)
+      values (
+        v_nota.store_id, v_cat_freteiro,
+        'Freteiro da nota ' || coalesce(v_nota.numero_documento, 'sem número'),
+        v_freteiro_valor,
+        coalesce(v_nota.freteiro_vencimento, v_nota.vencimento, current_date),
+        'pendente')
+      returning id into v_conta;
+      update purchase_entries set freteiro_conta_id = v_conta where id = p_nota_id;
+    end if;
+  exception when others then
+    raise warning 'Nota % concluída, mas o lançamento financeiro falhou: %',
+      p_nota_id, sqlerrm;
+  end;
+
+  select * into v_nota from purchase_entries where id = p_nota_id;
+  return v_nota;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- REABRIR: desfaz exatamente o que a conclusão fez, pela mesma trilha.
+-- ---------------------------------------------------------------------
+create or replace function reabrir_nota_entrada(
+  p_nota_id uuid,
+  p_motivo text default null,
+  p_usuario_id uuid default null
+) returns purchase_entries
+language plpgsql security definer as $$
+declare
+  v_nota purchase_entries;
+  v_item purchase_entry_items;
+begin
+  select * into v_nota from purchase_entries where id = p_nota_id for update;
+  if v_nota.id is null then raise exception 'Nota não encontrada'; end if;
+
+  if not v_nota.estoque_aplicado then
+    update purchase_entries set situacao = 'conferencia', status = 'rascunho'
+     where id = p_nota_id returning * into v_nota;
+    return v_nota;
+  end if;
+
+  -- estorna item a item; se algum não puder sair, a transação inteira volta
+  for v_item in select * from purchase_entry_items where entry_id = p_nota_id loop
+    perform mover_estoque(
+      v_item.product_flavor_id,
+      'ajuste_negativo',
+      v_item.quantidade,
+      'purchase_entry_reabertura',
+      p_nota_id::text,
+      p_usuario_id,
+      coalesce(p_motivo, 'Reabertura da nota de entrada')
+    );
+  end loop;
+
+  -- as contas geradas por esta nota deixam de valer
+  update accounts_payable set status = 'cancelado'
+   where id in (v_nota.conta_pagar_id, v_nota.freteiro_conta_id)
+     and status <> 'pago';
+
+  update purchase_entries set
+    situacao = 'conferencia',
+    status = 'rascunho',
+    estoque_aplicado = false,
+    finalizada_em = null,
+    conta_pagar_id = null,
+    freteiro_conta_id = null
+  where id = p_nota_id
+  returning * into v_nota;
+
+  return v_nota;
+end $$;
+
+create index if not exists idx_notas_situacao
+  on purchase_entries (store_id, situacao, data desc);
+
+-- ============ 0008_ciclo_lead.sql ============
+-- =====================================================================
+-- LUXX PODS — 0008 CICLO DE VIDA DO LEAD
+--
+-- Um lead é um ATENDIMENTO, não o cliente. Ele nasce quando alguém chama,
+-- morre quando a venda fecha (ou se perde), e um novo nasce na próxima vez
+-- que a pessoa chamar. Sem isso, o Kanban vira uma lista de todos os
+-- clientes que já compraram e para de servir para trabalhar.
+--
+--   pedido entregue/pago  → lead vira GANHO e sai do funil
+--   pedido cancelado      → lead volta a ficar aberto
+--   cliente chama de novo → novo lead, na primeira coluna
+-- =====================================================================
+
+alter table leads
+  add column if not exists numero_atendimento integer not null default 1,
+  add column if not exists order_id uuid references orders(id) on delete set null,
+  add column if not exists valor_ganho numeric(12,2),
+  add column if not exists reaberto_de uuid references leads(id) on delete set null;
+
+comment on column leads.numero_atendimento is
+  'Quantas vezes este cliente já foi atendido: 1 = primeiro contato';
+
+create index if not exists idx_leads_abertos
+  on leads (store_id, status, stage_id) where status = 'aberto';
+create index if not exists idx_leads_customer
+  on leads (customer_id, created_at desc);
+
+-- ---------------------------------------------------------------------
+-- O pedido fecha o lead que o originou.
+-- ---------------------------------------------------------------------
+create or replace function fechar_lead_do_pedido() returns trigger
+language plpgsql as $$
+declare
+  v_stage_ganho uuid;
+  v_stage_perdido uuid;
+begin
+  if new.lead_id is null then return new; end if;
+
+  select id into v_stage_ganho from pipeline_stages
+   where store_id = new.store_id and tipo = 'ganho' and status = 'ativo'
+   order by ordem limit 1;
+  select id into v_stage_perdido from pipeline_stages
+   where store_id = new.store_id and tipo = 'perdido' and status = 'ativo'
+   order by ordem limit 1;
+
+  -- venda concluída: o atendimento acabou
+  if new.status_pedido = 'entregue'
+     or (new.status_pedido = 'confirmado' and new.status_pagamento = 'aprovado') then
+    update leads set
+      status = 'ganho',
+      stage_id = coalesce(v_stage_ganho, stage_id),
+      order_id = new.id,
+      valor_ganho = new.total,
+      data_ganho = coalesce(data_ganho, now())
+    where id = new.lead_id and status <> 'ganho';
+
+  -- pedido cancelado: o atendimento volta a estar em aberto
+  elsif new.status_pedido = 'cancelado' then
+    update leads set
+      status = 'aberto',
+      order_id = null,
+      valor_ganho = null,
+      data_ganho = null
+    where id = new.lead_id and status = 'ganho';
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists trg_fechar_lead on orders;
+create trigger trg_fechar_lead
+  after insert or update of status_pedido, status_pagamento on orders
+  for each row execute function fechar_lead_do_pedido();
+
+-- ---------------------------------------------------------------------
+-- Cliente voltou a chamar: reabre um atendimento novo.
+-- Chamado pelo webhook quando chega mensagem numa conversa sem lead aberto.
+-- ---------------------------------------------------------------------
+create or replace function abrir_atendimento(
+  p_conversation_id uuid,
+  p_origem text default null
+) returns leads
+language plpgsql security definer as $$
+declare
+  v_conversa conversations;
+  v_lead     leads;
+  v_anterior leads;
+  v_stage    uuid;
+  v_numero   integer;
+begin
+  select * into v_conversa from conversations where id = p_conversation_id;
+  if v_conversa.id is null then raise exception 'Conversa não encontrada'; end if;
+
+  -- já existe atendimento aberto? então é a mesma conversa continuando
+  select * into v_lead from leads
+   where conversation_id = p_conversation_id and status = 'aberto'
+   order by created_at desc limit 1;
+  if v_lead.id is not null then return v_lead; end if;
+
+  -- o último atendimento desse cliente, para numerar o novo
+  select * into v_anterior from leads
+   where customer_id = v_conversa.customer_id
+   order by created_at desc limit 1;
+  v_numero := coalesce(v_anterior.numero_atendimento, 0) + 1;
+
+  select id into v_stage from pipeline_stages
+   where store_id = v_conversa.store_id and tipo = 'aberto' and status = 'ativo'
+   order by ordem limit 1;
+
+  insert into leads (
+    store_id, customer_id, conversation_id, stage_id, origem, canal,
+    status, numero_atendimento, reaberto_de)
+  values (
+    v_conversa.store_id, v_conversa.customer_id, p_conversation_id, v_stage,
+    coalesce(p_origem, 'Retorno do cliente'), v_conversa.canal,
+    'aberto', v_numero, v_anterior.id)
+  returning * into v_lead;
+
+  update conversations set lead_id = v_lead.id, estado = 'INITIAL'
+   where id = p_conversation_id;
+
+  return v_lead;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- O Kanban mostra só atendimento vivo; o histórico fica na ficha do cliente.
+-- ---------------------------------------------------------------------
+create or replace view v_kanban as
+select
+  l.*,
+  c.nome  as cliente_nome,
+  c.telefone as cliente_telefone,
+  c.total_pedidos as cliente_total_pedidos,
+  conv.ultima_mensagem,
+  conv.ultima_mensagem_em,
+  conv.nao_lidas,
+  conv.bot_ativo
+from leads l
+left join customers c on c.id = l.customer_id
+left join conversations conv on conv.id = l.conversation_id
+where l.status = 'aberto';
+
+-- ============ 0009_correcoes_criticas.sql ============
+-- =====================================================================
+-- LUXX PODS — 0009 CORREÇÕES CRÍTICAS
+-- Bugs que só aparecem com dinheiro e concorrência de verdade.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 1) DINHEIRO NA ENTREGA: entregar é receber.
+--    Antes, o pedido virava "entregue" e o financeiro nunca via o dinheiro.
+-- ---------------------------------------------------------------------
+create or replace function receber_na_entrega(
+  p_order_id uuid,
+  p_usuario_id uuid default null
+) returns orders
+language plpgsql security definer as $$
+declare v_order orders;
+begin
+  select * into v_order from orders where id = p_order_id for update;
+  if v_order.id is null then raise exception 'Pedido não encontrado'; end if;
+  if v_order.status_pagamento = 'aprovado' then return v_order; end if;
+
+  update orders set status_pagamento = 'aprovado'
+   where id = p_order_id returning * into v_order;
+
+  update accounts_receivable
+     set status = 'pago', pagamento = current_date
+   where order_id = p_order_id and status = 'pendente';
+
+  insert into payments (store_id, order_id, metodo, valor, status, pago_em, gateway)
+  values (v_order.store_id, p_order_id, v_order.forma_pagamento, v_order.total,
+          'aprovado', now(), 'entrega')
+  on conflict do nothing;
+
+  insert into order_status_history (order_id, status_anterior, novo_status, usuario_id, origem, observacao)
+  values (p_order_id, 'aguardando', 'aprovado', p_usuario_id, 'operador',
+          'Recebido na entrega');
+
+  return v_order;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2) RESERVA: a venda não pode comer a reserva de outro carrinho.
+--
+--    No tipo 'venda' o delta de total e de reserva se cancelavam, então a
+--    checagem "disponível >= 0" nunca acusava falta: com 5 unidades todas
+--    reservadas por terceiros, um pedido de 3 passava e derrubava a reserva
+--    alheia. Agora a venda só consome reserva se ELA MESMA reservou antes.
+-- ---------------------------------------------------------------------
+create or replace function mover_estoque(
+  p_product_flavor_id uuid,
+  p_tipo movimento_tipo,
+  p_quantidade integer,
+  p_referencia_tipo text default null,
+  p_referencia_id text default null,
+  p_usuario_id uuid default null,
+  p_observacao text default null,
+  p_custo_unitario numeric default null,
+  /* quantas unidades desta venda já estavam reservadas por este pedido */
+  p_reservado integer default 0
+) returns inventory
+language plpgsql security definer as $$
+declare
+  v_inv inventory;
+  v_store uuid;
+  v_wh uuid;
+  v_anterior integer;
+  v_delta_total integer := 0;
+  v_delta_reserva integer := 0;
+  v_consome_reserva integer := 0;
+begin
+  if p_quantidade <= 0 then
+    raise exception 'Quantidade deve ser positiva';
+  end if;
+
+  select pf.store_id into v_store from product_flavors pf where pf.id = p_product_flavor_id;
+  if v_store is null then raise exception 'Produto/sabor inexistente'; end if;
+  select w.id into v_wh from warehouses w where w.store_id = v_store and w.principal limit 1;
+
+  select * into v_inv from inventory
+   where product_flavor_id = p_product_flavor_id for update;
+
+  if v_inv.id is null then
+    insert into inventory (store_id, warehouse_id, product_flavor_id, quantidade_total, quantidade_reservada)
+    values (v_store, v_wh, p_product_flavor_id, 0, 0)
+    returning * into v_inv;
+  end if;
+
+  v_anterior := v_inv.quantidade_total - v_inv.quantidade_reservada;
+
+  case p_tipo
+    when 'entrada'            then v_delta_total :=  p_quantidade;
+    when 'ajuste_positivo'    then v_delta_total :=  p_quantidade;
+    when 'devolucao'          then v_delta_total :=  p_quantidade;
+    when 'cancelamento'       then v_delta_total :=  p_quantidade;
+    when 'ajuste_negativo'    then v_delta_total := -p_quantidade;
+    when 'troca'              then v_delta_total := -p_quantidade;
+    when 'reserva'            then v_delta_reserva :=  p_quantidade;
+    when 'liberacao_reserva'  then v_delta_reserva := -p_quantidade;
+    when 'venda' then
+      -- só devolve à disponibilidade a reserva que ESTE pedido criou
+      v_consome_reserva := least(greatest(p_reservado, 0), v_inv.quantidade_reservada);
+      v_delta_total   := -p_quantidade;
+      v_delta_reserva := -v_consome_reserva;
+  end case;
+
+  if (v_inv.quantidade_total + v_delta_total) < 0 then
+    raise exception 'Estoque insuficiente: tem % unidades, pediu %',
+      v_inv.quantidade_total, p_quantidade;
+  end if;
+
+  if (v_inv.quantidade_total + v_delta_total)
+     - (v_inv.quantidade_reservada + v_delta_reserva) < 0 then
+    raise exception 'Estoque disponível insuficiente: % livres (% reservadas para outros pedidos)',
+      v_inv.quantidade_total - v_inv.quantidade_reservada, v_inv.quantidade_reservada;
+  end if;
+
+  update inventory set
+    quantidade_total     = quantidade_total + v_delta_total,
+    quantidade_reservada = greatest(0, quantidade_reservada + v_delta_reserva),
+    custo_medio = case
+      when p_tipo = 'entrada' and p_custo_unitario is not null and (quantidade_total + v_delta_total) > 0
+      then ((custo_medio * quantidade_total) + (p_custo_unitario * p_quantidade)) / (quantidade_total + v_delta_total)
+      else custo_medio end,
+    updated_at = now()
+  where id = v_inv.id
+  returning * into v_inv;
+
+  insert into inventory_movements (
+    store_id, product_flavor_id, warehouse_id, tipo, quantidade,
+    saldo_anterior, saldo_posterior, referencia_tipo, referencia_id,
+    usuario_id, custo_unitario, observacao)
+  values (
+    v_store, p_product_flavor_id, v_inv.warehouse_id, p_tipo, p_quantidade,
+    v_anterior, v_inv.quantidade_total - v_inv.quantidade_reservada,
+    p_referencia_tipo, p_referencia_id, p_usuario_id, p_custo_unitario, p_observacao);
+
+  return v_inv;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 3) Confirmar pedido fecha o carrinho que o originou.
+--    Sem isso, a rotina de expiração liberaria depois uma reserva que a
+--    venda já consumiu — movimento falso e reserva corrompida.
+-- ---------------------------------------------------------------------
+create or replace function confirmar_pedido(p_order_id uuid, p_usuario_id uuid default null)
+returns orders language plpgsql security definer as $$
+declare
+  v_order orders;
+  v_item  order_items;
+  v_cat   uuid;
+  v_cart  carts;
+  v_reservado integer;
+begin
+  select * into v_order from orders where id = p_order_id for update;
+  if v_order.id is null then raise exception 'Pedido não encontrado'; end if;
+  if v_order.status_pedido not in ('pendente','aguardando_pagamento') then
+    return v_order;
+  end if;
+
+  -- PIX só confirma com o dinheiro na conta
+  if v_order.forma_pagamento = 'pix' and v_order.status_pagamento <> 'aprovado' then
+    raise exception 'PIX ainda não foi aprovado: o pedido não pode ser confirmado';
+  end if;
+
+  select * into v_cart from carts
+   where conversation_id = v_order.conversation_id and status = 'ativo'
+   order by created_at desc limit 1;
+
+  for v_item in select * from order_items where order_id = p_order_id loop
+    if v_item.product_flavor_id is not null then
+      -- o que este carrinho já tinha reservado deste item
+      select coalesce(sum(ci.quantidade), 0) into v_reservado
+        from cart_items ci
+       where ci.cart_id = v_cart.id
+         and ci.product_flavor_id = v_item.product_flavor_id
+         and ci.reservado;
+
+      perform mover_estoque(
+        v_item.product_flavor_id, 'venda', v_item.quantidade,
+        'order', p_order_id::text, p_usuario_id,
+        'Baixa por confirmação de pedido', null, v_reservado);
+    end if;
+  end loop;
+
+  -- o carrinho vira histórico: nada mais o expira nem libera reserva
+  if v_cart.id is not null then
+    update cart_items set reservado = false where cart_id = v_cart.id;
+    update carts set status = 'convertido' where id = v_cart.id;
+  end if;
+
+  update orders set
+    status_pedido  = 'confirmado',
+    confirmado_em  = coalesce(confirmado_em, now())
+  where id = p_order_id returning * into v_order;
+
+  select id into v_cat from financial_categories
+   where store_id = v_order.store_id and tipo = 'receita' limit 1;
+
+  insert into accounts_receivable (
+    store_id, order_id, customer_id, categoria_id, descricao, valor,
+    vencimento, pagamento, forma_pagamento, status)
+  values (
+    v_order.store_id, v_order.id, v_order.customer_id, v_cat,
+    'Venda ' || v_order.numero_pedido, v_order.total,
+    current_date,
+    case when v_order.status_pagamento = 'aprovado' then current_date else null end,
+    v_order.forma_pagamento,
+    case when v_order.status_pagamento = 'aprovado' then 'pago'::financeiro_status
+         else 'pendente'::financeiro_status end)
+  on conflict (order_id) do nothing;
+
+  insert into jobs (store_id, tipo, payload) values
+    (v_order.store_id, 'imprimir_pedido', jsonb_build_object('order_id', p_order_id));
+
+  return v_order;
+end $$;
+
+-- a conta a receber é uma por pedido — o ON CONFLICT acima dependia disto
+create unique index if not exists idx_ar_order_unico
+  on accounts_receivable (order_id) where order_id is not null;
+
+-- ---------------------------------------------------------------------
+-- 4) Liberar reservas: um carrinho com problema não pode travar os outros.
+-- ---------------------------------------------------------------------
+create or replace function liberar_reservas_expiradas() returns integer
+language plpgsql security definer as $$
+declare v_cart carts; v_item cart_items; v_count integer := 0;
+begin
+  for v_cart in select * from carts where status = 'ativo' and expires_at < now() loop
+    begin
+      for v_item in select * from cart_items where cart_id = v_cart.id and reservado loop
+        perform mover_estoque(v_item.product_flavor_id, 'liberacao_reserva',
+          v_item.quantidade, 'cart', v_cart.id::text, null, 'Carrinho expirado');
+        update cart_items set reservado = false where id = v_item.id;
+        v_count := v_count + 1;
+      end loop;
+      update carts set status = 'expirado' where id = v_cart.id;
+    exception when others then
+      -- segue para o próximo carrinho em vez de abortar a rotina inteira
+      raise warning 'Falha ao liberar o carrinho %: %', v_cart.id, sqlerrm;
+    end;
+  end loop;
+  return v_count;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 5) Cancelar pedido: dinheiro já recebido vira ESTORNO, não some.
+-- ---------------------------------------------------------------------
+create or replace function cancelar_pedido(
+  p_order_id uuid, p_motivo text, p_usuario_id uuid default null)
+returns orders language plpgsql security definer as $$
+declare v_order orders; v_item order_items; v_recebido numeric;
+begin
+  select * into v_order from orders where id = p_order_id for update;
+  if v_order.id is null then raise exception 'Pedido não encontrado'; end if;
+  if v_order.status_pedido = 'cancelado' then return v_order; end if;
+
+  if v_order.status_pedido in ('confirmado','em_separacao','saiu_para_entrega','entregue') then
+    for v_item in select * from order_items where order_id = p_order_id loop
+      if v_item.product_flavor_id is not null then
+        perform mover_estoque(v_item.product_flavor_id, 'cancelamento', v_item.quantidade,
+          'order', p_order_id::text, p_usuario_id, 'Devolução por cancelamento');
+      end if;
+    end loop;
+  end if;
+
+  update orders set status_pedido = 'cancelado', cancelado_em = now(),
+    motivo_cancelamento = p_motivo where id = p_order_id returning * into v_order;
+
+  -- o que ainda não entrou é só cancelado
+  update accounts_receivable set status = 'cancelado'
+   where order_id = p_order_id and status = 'pendente';
+
+  -- o que JÁ entrou precisa de contrapartida: sumir com dinheiro recebido
+  -- do financeiro é como perder o registro de uma devolução
+  select coalesce(sum(valor), 0) into v_recebido
+    from accounts_receivable where order_id = p_order_id and status = 'pago';
+
+  if v_recebido > 0 then
+    insert into accounts_payable (
+      store_id, categoria_id, descricao, valor, vencimento, status, observacao)
+    values (
+      v_order.store_id,
+      (select id from financial_categories
+        where store_id = v_order.store_id and tipo = 'despesa' order by nome limit 1),
+      'Estorno do pedido ' || v_order.numero_pedido,
+      v_recebido, current_date, 'pendente',
+      coalesce(p_motivo, 'Pedido cancelado após o pagamento'));
+
+    update payments set status = 'estornado'
+     where order_id = p_order_id and status = 'aprovado';
+  end if;
+
+  return v_order;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 6) Métricas do cliente só contam venda que aconteceu de verdade.
+-- ---------------------------------------------------------------------
+create or replace function recalcular_cliente() returns trigger language plpgsql as $$
+declare v_cid uuid;
+begin
+  v_cid := coalesce(new.customer_id, old.customer_id);
+  if v_cid is null then return new; end if;
+
+  update customers c set
+    total_pedidos  = s.qtd,
+    total_comprado = s.valor,
+    ticket_medio   = case when s.qtd > 0 then s.valor / s.qtd else 0 end,
+    ultima_compra  = s.ultima,
+    primeira_compra = coalesce(c.primeira_compra, s.primeira)
+  from (
+    select count(*) qtd, coalesce(sum(total),0) valor,
+           max(created_at) ultima, min(created_at) primeira
+      from orders
+     where customer_id = v_cid
+       -- pendente e aguardando pagamento ainda não são compra
+       and status_pedido in ('confirmado','em_separacao','saiu_para_entrega','entregue')
+  ) s where c.id = v_cid;
+
+  return new;
+end $$;
+
+-- ============ 0010_rls_por_perfil.sql ============
+-- =====================================================================
+-- LUXX PODS — 0010 RLS POR PERFIL
+--
+-- A política anterior era `using (true)` para todo usuário autenticado.
+-- Como a chave `anon` vai no bundle do navegador, um entregador logado
+-- podia falar direto com a API REST do Supabase e ler o financeiro inteiro
+-- ou apagar pedidos — sem passar pelo painel.
+--
+-- Agora cada tabela tem a política do seu setor, e o padrão de quem não se
+-- encaixa em nenhum perfil é NÃO VER NADA.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- Quem é quem. STABLE para o Postgres não reavaliar a cada linha.
+-- ---------------------------------------------------------------------
+create or replace function meu_perfil() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce(r.slug, 'sem_perfil')
+    from profiles p
+    left join roles r on r.id = p.role_id
+   where p.id = auth.uid()
+     and p.status = 'ativo'
+     and p.deleted_at is null
+$$;
+
+create or replace function minha_loja() returns uuid
+language sql stable security definer set search_path = public as $$
+  select store_id from profiles where id = auth.uid()
+$$;
+
+create or replace function tem_perfil(variadic perfis text[]) returns boolean
+language sql stable security definer set search_path = public as $$
+  select meu_perfil() = any(perfis)
+$$;
+
+/** Permissão concedida ou revogada individualmente vence a do perfil. */
+create or replace function posso(p_permissao text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select up.concedida
+       from user_permissions up
+       join permissions pe on pe.id = up.permission_id
+      where up.user_id = auth.uid() and pe.slug = p_permissao),
+    exists (
+      select 1
+        from profiles pr
+        join role_permissions rp on rp.role_id = pr.role_id
+        join permissions pe on pe.id = rp.permission_id
+       where pr.id = auth.uid() and pe.slug = p_permissao
+    )
+  )
+$$;
+
+-- ---------------------------------------------------------------------
+-- Troca a política aberta pela do setor de cada tabela.
+-- ---------------------------------------------------------------------
+do $$
+declare
+  t text;
+  leitura text;
+  escrita text;
+  -- quem enxerga e quem altera, por grupo de tabelas
+  grupos jsonb := jsonb_build_object(
+    'atendimento', jsonb_build_array(
+      'customers','customer_addresses','conversations','messages','leads',
+      'pipeline_stages','tasks','calendar_events'),
+    'catalogo', jsonb_build_array(
+      'brands','categories','products','flavors','product_flavors',
+      'inventory','inventory_movements','suppliers','purchase_entries',
+      'purchase_entry_items'),
+    'vendas', jsonb_build_array(
+      'orders','order_items','order_status_history','carts','cart_items',
+      'coupons','coupon_targets','upsell_rules','upsell_events','exchanges',
+      'exchange_files'),
+    'financeiro', jsonb_build_array(
+      'payments','accounts_receivable','accounts_payable','bank_accounts',
+      'financial_categories'),
+    'sistema', jsonb_build_array(
+      'companies','stores','warehouses','roles','permissions','role_permissions',
+      'user_permissions','settings','audit_logs','automations','jobs',
+      'webhook_events')
+  );
+  grupo text;
+  tabela jsonb;
+begin
+  for grupo in select jsonb_object_keys(grupos) loop
+    for tabela in select * from jsonb_array_elements_text(grupos -> grupo) loop
+      t := trim(both '"' from tabela::text);
+
+      -- quem pode LER
+      leitura := case grupo
+        when 'atendimento' then $q$tem_perfil('admin','atendimento','operacional')$q$
+        when 'catalogo'    then $q$tem_perfil('admin','atendimento','operacional','financeiro')$q$
+        -- o entregador vê pedido porque precisa do endereço e do troco
+        when 'vendas'      then $q$tem_perfil('admin','atendimento','operacional','financeiro','entregador')$q$
+        when 'financeiro'  then $q$tem_perfil('admin','financeiro')$q$
+        else                    $q$tem_perfil('admin')$q$
+      end;
+
+      -- quem pode ESCREVER
+      escrita := case grupo
+        when 'atendimento' then $q$tem_perfil('admin','atendimento')$q$
+        when 'catalogo'    then $q$tem_perfil('admin','operacional')$q$
+        when 'vendas'      then $q$tem_perfil('admin','atendimento','operacional')$q$
+        when 'financeiro'  then $q$tem_perfil('admin','financeiro')$q$
+        else                    $q$tem_perfil('admin')$q$
+      end;
+
+      execute format('alter table %I enable row level security', t);
+      execute format('drop policy if exists p_auth_all on %I', t);
+      execute format('drop policy if exists p_ler on %I', t);
+      execute format('drop policy if exists p_criar on %I', t);
+      execute format('drop policy if exists p_editar on %I', t);
+      execute format('drop policy if exists p_apagar on %I', t);
+
+      execute format('create policy p_ler on %I for select to authenticated using (%s)', t, leitura);
+      execute format('create policy p_criar on %I for insert to authenticated with check (%s)', t, escrita);
+      execute format('create policy p_editar on %I for update to authenticated using (%s) with check (%s)', t, escrita, escrita);
+      -- apagar é só do administrador, em qualquer tabela
+      execute format($f$create policy p_apagar on %I for delete to authenticated using (tem_perfil('admin'))$f$, t);
+    end loop;
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Perfil: cada um lê o seu; só o administrador mexe nos outros.
+-- ---------------------------------------------------------------------
+alter table profiles enable row level security;
+drop policy if exists p_auth_all on profiles;
+drop policy if exists p_perfil_ler on profiles;
+drop policy if exists p_perfil_editar on profiles;
+drop policy if exists p_perfil_admin on profiles;
+
+create policy p_perfil_ler on profiles for select to authenticated
+  using (id = auth.uid() or tem_perfil('admin'));
+create policy p_perfil_editar on profiles for update to authenticated
+  using (id = auth.uid() or tem_perfil('admin'))
+  with check (id = auth.uid() or tem_perfil('admin'));
+create policy p_perfil_admin on profiles for insert to authenticated
+  with check (tem_perfil('admin'));
+
+-- ---------------------------------------------------------------------
+-- Notificações: cada pessoa vê as suas.
+-- ---------------------------------------------------------------------
+alter table notifications enable row level security;
+drop policy if exists p_auth_all on notifications;
+drop policy if exists p_notif on notifications;
+create policy p_notif on notifications for all to authenticated
+  using (user_id = auth.uid() or user_id is null)
+  with check (user_id = auth.uid() or tem_perfil('admin'));
+
+-- ---------------------------------------------------------------------
+-- Auditoria: escreve quem age, apaga ninguém.
+-- ---------------------------------------------------------------------
+drop policy if exists p_criar on audit_logs;
+drop policy if exists p_editar on audit_logs;
+drop policy if exists p_apagar on audit_logs;
+create policy p_criar on audit_logs for insert to authenticated with check (true);
+-- sem policy de update/delete: log não se corrige, se complementa
+
+comment on function posso(text) is
+  'Permissão individual vence a do perfil — é assim que o admin libera ou tira uma ação de uma pessoa específica';

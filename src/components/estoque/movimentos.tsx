@@ -41,14 +41,14 @@ export function TabelaMovimentos({
         descricao={descricao ?? "Nenhuma alteração de estoque acontece sem histórico"}
       />
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/6 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--linha)] px-4 py-2.5">
         <div className="relative min-w-[180px] flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por produto, sabor ou observação…"
-            className="h-8 w-full rounded-lg bg-white/4 pl-8 pr-3 text-xs text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-xs text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-8 text-xs">

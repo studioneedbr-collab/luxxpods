@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Loader2, MessageCircle, Package, Search, ShoppingBag, User, CornerDownLeft,
@@ -79,6 +80,7 @@ export function BuscaGlobal() {
 
   // enquanto o termo é curto, nada é exibido — derivado, sem efeito
   const visiveis = termo.trim().length >= 2 ? resultados : [];
+  const indiceAtivo = Math.min(selecionado, Math.max(0, visiveis.length - 1));
 
   function teclas(e: React.KeyboardEvent) {
     if (visiveis.length === 0) return;
@@ -90,7 +92,7 @@ export function BuscaGlobal() {
       setSelecionado((s) => (s - 1 + visiveis.length) % visiveis.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      abrir(visiveis[selecionado]);
+      abrir(visiveis[indiceAtivo]);
     }
   }
 
@@ -101,37 +103,16 @@ export function BuscaGlobal() {
 
   return (
     <>
-      {/* gatilho na topbar */}
-      <button
-        onClick={() => setAberto(true)}
-        className="hidden h-8 w-64 items-center gap-2 rounded-lg bg-white/4 px-2.5 text-xs text-ink-500 ring-1 ring-inset ring-white/8 transition hover:bg-white/6 hover:text-ink-400 xl:flex"
-      >
-        <Search className="size-3.5 shrink-0" />
-        <span className="flex-1 text-left">Buscar cliente, pedido, produto…</span>
-        <kbd className="rounded border border-white/10 bg-white/5 px-1 font-sans text-[10px] text-ink-500">
-          ⌘K
-        </kbd>
-      </button>
-
-      {/* gatilho compacto no mobile */}
-      <button
-        onClick={() => setAberto(true)}
-        aria-label="Buscar"
-        className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-400 transition hover:bg-white/6 hover:text-ink-200 xl:hidden"
-      >
-        <Search className="size-4" />
-      </button>
-
-      {aberto && (
+      {aberto && createPortal(
         <div
-          className="fixed inset-0 z-[70] bg-black/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] bg-black/75 p-4 backdrop-blur-[2px]"
           onClick={fechar}
         >
           <div
-            className="panel mx-auto mt-[8vh] w-full max-w-xl animate-in-up overflow-hidden"
+            className="flutua mx-auto mt-[10vh] w-full max-w-xl animate-in-up overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-2.5 border-b border-white/6 px-4 py-3">
+            <div className="flex items-center gap-2.5 border-b border-[var(--linha)] px-4 py-3">
               {carregando
                 ? <Loader2 className="size-4 shrink-0 animate-spin text-brand-400" />
                 : <Search className="size-4 shrink-0 text-ink-500" />}
@@ -143,7 +124,7 @@ export function BuscaGlobal() {
                 placeholder="Nome, telefone, número do pedido ou produto…"
                 className="flex-1 bg-transparent text-sm text-ink-100 placeholder:text-ink-500 focus:outline-none"
               />
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-sans text-[10px] text-ink-500">
+              <kbd className="rounded border border-[var(--linha-forte)] bg-ink-800 px-1.5 py-0.5 font-sans text-[10px] text-ink-500">
                 esc
               </kbd>
             </div>
@@ -165,12 +146,12 @@ export function BuscaGlobal() {
                 const Icone = ICONES[tipo as keyof typeof ICONES];
                 return (
                   <div key={tipo}>
-                    <p className="sticky top-0 bg-ink-900/90 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-500 backdrop-blur">
+                    <p className="sticky top-0 z-10 bg-ink-850/95 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-500 backdrop-blur">
                       {ROTULOS[tipo as keyof typeof ROTULOS]}
                     </p>
                     {itens.map((r) => {
                       const indice = visiveis.indexOf(r);
-                      const ativo = indice === selecionado;
+                      const ativo = indice === indiceAtivo;
                       return (
                         <button
                           key={`${r.tipo}-${r.id}`}
@@ -178,12 +159,12 @@ export function BuscaGlobal() {
                           onMouseEnter={() => setSelecionado(indice)}
                           className={cn(
                             "flex w-full items-center gap-2.5 px-4 py-2 text-left transition",
-                            ativo ? "bg-brand-500/14" : "hover:bg-white/4",
+                            ativo ? "bg-brand-500/14" : "hover:bg-ink-850",
                           )}
                         >
                           <span className={cn(
                             "grid size-7 shrink-0 place-items-center rounded-lg",
-                            ativo ? "bg-brand-500/20 text-brand-300" : "bg-white/6 text-ink-400",
+                            ativo ? "bg-brand-500/20 text-brand-300" : "bg-ink-800 text-ink-400",
                           )}>
                             <Icone className="size-3.5" />
                           </span>
@@ -205,14 +186,15 @@ export function BuscaGlobal() {
             </div>
 
             {visiveis.length > 0 && (
-              <div className="flex items-center gap-3 border-t border-white/6 px-4 py-2 text-[10px] text-ink-600">
+              <div className="flex items-center gap-3 border-t border-[var(--linha)] px-4 py-2 text-[10px] text-ink-500">
                 <span>↑↓ navegar</span>
                 <span>↵ abrir</span>
-                <span className="ml-auto">{visiveis.length} resultado(s)</span>
+                <span className="ml-auto tabular-nums">{visiveis.length} resultado(s)</span>
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

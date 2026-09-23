@@ -13,8 +13,16 @@ export function Comanda({ pedido }: { pedido: Pedido }) {
   return (
     <div className="comanda hidden print:block">
       <div style={{ textAlign: "center", marginBottom: 8 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1 }}>LUXX PODS</h1>
-        <p style={{ fontSize: 10 }}>CUPOM NÃO FISCAL · COMANDA DE PEDIDO</p>
+        {/* a marca impressa em preto chapado, que é o que a térmica consegue.
+            Sem next/image: a otimização não vale para uma impressão 80mm e o
+            arquivo precisa estar no DOM antes do diálogo de impressão abrir. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/marca/wordmark-preto.png"
+          alt="Luxx Pods"
+          style={{ height: 22, width: "auto", margin: "0 auto 4px", display: "block" }}
+        />
+        <p style={{ fontSize: 10, letterSpacing: 0.5 }}>CUPOM NÃO FISCAL · COMANDA DE PEDIDO</p>
       </div>
 
       <hr />

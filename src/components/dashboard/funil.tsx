@@ -7,7 +7,7 @@ export function FunilPedidos({ etapas }: { etapas: EtapaFunil[] }) {
   const topo = Math.max(...abertas.map((e) => e.leads), 1);
 
   return (
-    <div className="space-y-1 px-5 py-4">
+    <div className="space-y-1 px-4 py-3.5">
       {abertas.map((etapa, i) => {
         const anterior = i > 0 ? abertas[i - 1].leads : etapa.leads;
         const perda = anterior > 0 ? ((anterior - etapa.leads) / anterior) * 100 : 0;
@@ -25,7 +25,7 @@ export function FunilPedidos({ etapas }: { etapas: EtapaFunil[] }) {
                 )}
               </div>
             )}
-            <div className="group relative flex items-center gap-3 overflow-hidden rounded-lg bg-white/3 px-3 py-2 transition hover:bg-white/6">
+            <div className="group relative flex items-center gap-3 overflow-hidden rounded-md bg-ink-850/70 px-3 py-2 transition-colors hover:bg-ink-800">
               <div
                 className="absolute inset-y-0 left-0 opacity-20 transition-all duration-500 group-hover:opacity-30"
                 style={{ width: `${largura}%`, background: etapa.cor }}
@@ -33,7 +33,7 @@ export function FunilPedidos({ etapas }: { etapas: EtapaFunil[] }) {
               <span className="relative size-2 shrink-0 rounded-full" style={{ background: etapa.cor }} />
               <span className="relative flex-1 truncate text-xs font-medium text-ink-200">{etapa.nome}</span>
               <span className="relative text-[11px] tabular-nums text-ink-500">{brl(etapa.valor)}</span>
-              <span className="relative w-8 text-right text-sm font-bold tabular-nums text-ink-100">
+              <span className="numero relative w-8 text-right text-[13px] text-ink-100">
                 {num(etapa.leads)}
               </span>
             </div>

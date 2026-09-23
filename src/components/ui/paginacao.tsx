@@ -57,7 +57,7 @@ export function Paginacao({
   const paginas = janelaDePaginas(pagina, totalPaginas);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/6 px-4 py-2.5">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--linha)] px-4 py-2.5">
       <p className="text-[11px] tabular-nums text-ink-500">
         <span className="font-medium text-ink-300">{num(primeiro)}–{num(ultimo)}</span>
         {" de "}
@@ -71,7 +71,7 @@ export function Paginacao({
             <select
               value={tamanho}
               onChange={(e) => onTamanho(Number(e.target.value))}
-              className="h-7 cursor-pointer rounded-md bg-white/4 px-1.5 text-[11px] text-ink-200 ring-1 ring-inset ring-white/10 focus:outline-none focus:ring-2 focus:ring-brand-400/50 [&>option]:bg-ink-850"
+              className="h-7 cursor-pointer rounded-md bg-ink-850 px-1.5 text-[11px] text-ink-200 ring-1 ring-inset ring-[var(--linha)] focus:outline-none focus:ring-2 focus:ring-brand-500/60 [&>option]:bg-ink-850"
             >
               {TAMANHOS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
@@ -99,7 +99,7 @@ export function Paginacao({
                     "h-7 min-w-7 rounded-md px-1.5 text-[11px] font-medium tabular-nums transition",
                     p === pagina
                       ? "bg-brand-500 text-white"
-                      : "text-ink-400 hover:bg-white/8 hover:text-ink-200",
+                      : "text-ink-400 hover:bg-ink-800 hover:text-ink-200",
                   )}
                 >
                   {p}
@@ -134,7 +134,7 @@ function BotaoPagina({
       disabled={desabilitado}
       title={titulo}
       aria-label={titulo}
-      className="grid size-7 place-items-center rounded-md text-ink-400 transition hover:bg-white/8 hover:text-ink-200 disabled:pointer-events-none disabled:opacity-25"
+      className="grid size-7 place-items-center rounded-md text-ink-400 transition hover:bg-ink-800 hover:text-ink-200 disabled:pointer-events-none disabled:opacity-25"
     >
       {children}
     </button>

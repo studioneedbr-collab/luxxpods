@@ -8,6 +8,7 @@ import { Campo, Modal, Switch } from "@/components/ui/modal";
 import { brl, cn } from "@/lib/utils";
 import type { ContaBancaria, Lancamento } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { CampoMoeda } from "@/components/ui";
 
 const vazio: Partial<ContaBancaria> = {
   nome: "", banco: "", tipo: "corrente", saldo_inicial: 0, status: "ativo",
@@ -78,7 +79,7 @@ export function TelaContas({
 
             return (
               <Panel key={c.id} className="overflow-hidden">
-                <div className="flex items-start gap-3 border-b border-white/6 px-5 py-3.5">
+                <div className="flex items-start gap-3 border-b border-[var(--linha)] px-5 py-3.5">
                   <span className={cn(
                     "grid size-9 shrink-0 place-items-center rounded-xl",
                     c.tipo === "caixa"
@@ -113,14 +114,14 @@ export function TelaContas({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-px border-t border-white/6 bg-white/4">
-                  <div className="bg-ink-900/70 px-4 py-2.5">
+                <div className="grid grid-cols-2 gap-px border-t border-[var(--linha)] bg-ink-850">
+                  <div className="bg-ink-900 px-4 py-2.5">
                     <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-ink-500">
                       <TrendingUp className="size-2.5" /> Entradas
                     </p>
                     <p className="mt-0.5 text-sm font-semibold tabular-nums text-ok-400">{brl(entradas)}</p>
                   </div>
-                  <div className="bg-ink-900/70 px-4 py-2.5">
+                  <div className="bg-ink-900 px-4 py-2.5">
                     <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-ink-500">
                       <TrendingDown className="size-2.5" /> Saídas
                     </p>
@@ -128,7 +129,7 @@ export function TelaContas({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-white/6 px-5 py-2.5">
+                <div className="flex items-center justify-between border-t border-[var(--linha)] px-5 py-2.5">
                   <Badge tom={c.status === "ativo" ? "ok" : "neutro"} ponto>{c.status}</Badge>
                   <span className="text-[11px] capitalize text-ink-500">{c.tipo}</span>
                 </div>
@@ -200,8 +201,8 @@ function FormConta({
             <Input value={f.conta ?? ""} onChange={(e) => set("conta", e.target.value)} />
           </Campo>
           <Campo rotulo="Saldo inicial (R$)">
-            <Input type="number" step="0.01" value={f.saldo_inicial ?? 0}
-              onChange={(e) => set("saldo_inicial", Number(e.target.value))} />
+            <CampoMoeda valor={f.saldo_inicial ?? 0}
+              aoMudar={(v) => set("saldo_inicial", v)} />
           </Campo>
         </div>
 

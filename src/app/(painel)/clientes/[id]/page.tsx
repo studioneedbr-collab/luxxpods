@@ -68,7 +68,7 @@ export default async function FichaCliente({
         <div className="space-y-3">
           <Panel>
             <div className="flex flex-col items-center gap-2 px-5 py-5 text-center">
-              <span className="grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-bold text-white">
+              <span className="grid size-16 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-bold text-white">
                 {iniciais(cliente.nome)}
               </span>
               <div>
@@ -82,7 +82,7 @@ export default async function FichaCliente({
               </div>
             </div>
 
-            <dl className="divide-y divide-white/4 border-t border-white/6">
+            <dl className="divide-y divide-[var(--linha)] border-t border-[var(--linha)]">
               {[
                 ["Canal de origem", cliente.canal_origem ? CANAL[cliente.canal_origem].rotulo : "—"],
                 ["Origem", cliente.origem ?? "—"],
@@ -107,7 +107,7 @@ export default async function FichaCliente({
             {enderecos.length === 0 ? (
               <p className="px-5 py-6 text-center text-xs text-ink-500">Nenhum endereço salvo</p>
             ) : (
-              <ul className="divide-y divide-white/4">
+              <ul className="divide-y divide-[var(--linha)]">
                 {enderecos.map((e, i) => (
                   <li key={i} className="px-5 py-3 text-xs">
                     <p className="font-medium text-ink-100">{e.rua}, {e.numero}</p>
@@ -124,7 +124,7 @@ export default async function FichaCliente({
             <Panel>
               <PanelHeader titulo="Costuma comprar" icone={Package}
                 descricao="Use para sugerir na próxima conversa" />
-              <ul className="divide-y divide-white/4">
+              <ul className="divide-y divide-[var(--linha)]">
                 {maisComprados.map(([nome, qtd]) => (
                   <li key={nome} className="flex items-center justify-between gap-3 px-5 py-2">
                     <span className="min-w-0 truncate text-xs text-ink-200">{nome}</span>
@@ -203,11 +203,11 @@ export default async function FichaCliente({
             {conversas.length === 0 ? (
               <Vazio icone={MessageCircle} titulo="Nenhuma conversa" />
             ) : (
-              <ul className="divide-y divide-white/4">
+              <ul className="divide-y divide-[var(--linha)]">
                 {conversas.map((c) => (
                   <li key={c.id}>
                     <Link href={`/chats?c=${c.id}`}
-                      className="flex items-center gap-3 px-5 py-3 transition hover:bg-white/4">
+                      className="flex items-center gap-3 px-5 py-3 transition hover:bg-ink-850">
                       <span className="grid size-8 shrink-0 place-items-center rounded-lg"
                         style={{ background: `${CANAL[c.canal].cor}22`, color: CANAL[c.canal].cor }}>
                         {c.canal === "instagram" ? <AtSign className="size-3.5" /> : <MessageCircle className="size-3.5" />}
@@ -256,7 +256,7 @@ function Cartao({
   };
   return (
     <Panel className="flex items-center gap-3 p-4">
-      <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl bg-white/5", cores[tom])}>
+      <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl bg-ink-850", cores[tom])}>
         <Icone className="size-4" />
       </span>
       <div className="min-w-0">

@@ -8,6 +8,7 @@ import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { brl, cn, num, pct } from "@/lib/utils";
 import type { Produto } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { CampoMoeda } from "@/components/ui";
 
 export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
   const [produtos, setProdutos] = useState(iniciais);
@@ -83,7 +84,7 @@ export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar produto, modelo ou SKU…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={marca} onChange={(e) => setMarca(e.target.value)}>
@@ -202,7 +203,7 @@ function ModalEdicao({
         className="panel w-full max-w-md animate-in-up overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/6 px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-[var(--linha)] px-5 py-3.5">
           <div>
             <h3 className="text-sm font-semibold text-ink-100">Editar produto</h3>
             <p className="text-[11px] text-ink-500">{produto.marca} · {produto.sku}</p>
@@ -219,14 +220,14 @@ function ModalEdicao({
 
           <div className="grid grid-cols-2 gap-3">
             <Campo rotulo="Custo (R$)">
-              <Input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} />
+              <CampoMoeda valor={Number(custo) || 0} aoMudar={(v) => setCusto(String(v))} />
             </Campo>
             <Campo rotulo="Preço de venda (R$)">
-              <Input type="number" step="0.01" value={preco} onChange={(e) => setPreco(e.target.value)} />
+              <CampoMoeda valor={Number(preco) || 0} aoMudar={(v) => setPreco(String(v))} />
             </Campo>
           </div>
 
-          <div className="flex items-center justify-between rounded-lg bg-white/4 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-lg bg-ink-850 px-3 py-2.5">
             <span className="text-xs text-ink-400">Margem estimada</span>
             <span className={cn(
               "text-sm font-bold tabular-nums",
@@ -241,7 +242,7 @@ function ModalEdicao({
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
               rows={2}
-              className="w-full rounded-lg bg-white/4 px-3 py-2 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+              className="w-full rounded-lg bg-ink-850 px-3 py-2 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             />
           </Campo>
 
@@ -251,7 +252,7 @@ function ModalEdicao({
           </p>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-white/6 px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-[var(--linha)] px-5 py-3">
           <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
           <Button
             variante="primario"

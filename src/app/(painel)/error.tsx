@@ -16,7 +16,7 @@ export default function ErroDaTela({
   return (
     <Panel className="mx-auto max-w-lg overflow-hidden">
       <div className="flex items-start gap-4 px-6 py-6">
-        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-bad-500/12 text-bad-400 ring-1 ring-inset ring-bad-500/20">
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-bad-500/12 text-bad-400 ring-1 ring-inset ring-bad-500/20">
           <AlertTriangle className="size-5" />
         </span>
         <div className="min-w-0">
@@ -31,7 +31,7 @@ export default function ErroDaTela({
         </div>
       </div>
 
-      <div className="flex flex-wrap justify-end gap-2 border-t border-white/6 px-6 py-3.5">
+      <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--linha)] px-6 py-3.5">
         <Link href="/">
           <Button variante="fantasma"><Home className="size-3.5" /> Ir para o dashboard</Button>
         </Link>

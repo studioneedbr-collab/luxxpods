@@ -164,17 +164,17 @@ export function Inbox({
     <div className="panel grid h-[calc(100vh-108px)] grid-cols-1 overflow-hidden lg:grid-cols-[320px_1fr_280px] xl:grid-cols-[340px_1fr_300px]">
       {/* ------------------------------- LISTA ------------------------------- */}
       <div className={cn(
-        "flex min-h-0 flex-col border-r border-white/6",
+        "flex min-h-0 flex-col border-r border-[var(--linha)]",
         mobileAberto && "hidden lg:flex",
       )}>
-        <div className="shrink-0 space-y-2.5 border-b border-white/6 p-3">
+        <div className="shrink-0 space-y-2.5 border-b border-[var(--linha)] p-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar conversa, nome ou telefone"
-              className="h-8 w-full rounded-lg bg-white/4 pl-8 pr-3 text-xs text-ink-100 ring-1 ring-inset ring-white/8 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+              className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-xs text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             />
           </div>
           <div className="no-scrollbar flex gap-1 overflow-x-auto">
@@ -186,7 +186,7 @@ export function Inbox({
                   "shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition",
                   filtro === f.chave
                     ? "bg-brand-500/18 text-brand-200 ring-1 ring-inset ring-brand-500/30"
-                    : "text-ink-500 hover:bg-white/6 hover:text-ink-300",
+                    : "text-ink-500 hover:bg-ink-800 hover:text-ink-300",
                 )}
               >
                 {f.rotulo}
@@ -204,7 +204,7 @@ export function Inbox({
           {filtradas.length === 0 && (
             <Vazio icone={MessageCircle} titulo="Nenhuma conversa" descricao="Ajuste os filtros ou aguarde novos contatos." />
           )}
-          <ul className="divide-y divide-white/4">
+          <ul className="divide-y divide-[var(--linha)]">
             {filtradas.map((c) => {
               const on = c.id === ativaId;
               const canal = CANAL[c.canal];
@@ -214,13 +214,13 @@ export function Inbox({
                     onClick={() => abrir(c)}
                     className={cn(
                       "flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition",
-                      on ? "bg-brand-500/12" : "hover:bg-white/4",
+                      on ? "bg-brand-500/12" : "hover:bg-ink-850",
                     )}
                   >
                     <span className="relative shrink-0">
                       <span className={cn(
                         "grid size-9 place-items-center rounded-full text-[11px] font-bold",
-                        on ? "bg-brand-500 text-white" : "bg-white/8 text-ink-300",
+                        on ? "bg-brand-500 text-white" : "bg-ink-800 text-ink-300",
                       )}>
                         {iniciais(c.cliente?.nome)}
                       </span>
@@ -282,14 +282,14 @@ export function Inbox({
           />
         ) : (
           <>
-            <div className="flex shrink-0 items-center gap-2.5 border-b border-white/6 px-3 py-2.5">
+            <div className="flex shrink-0 items-center gap-2.5 border-b border-[var(--linha)] px-3 py-2.5">
               <button
                 onClick={() => setMobileAberto(false)}
-                className="grid size-8 place-items-center rounded-lg text-ink-400 hover:bg-white/6 lg:hidden"
+                className="grid size-8 place-items-center rounded-lg text-ink-400 hover:bg-ink-800 lg:hidden"
               >
                 <ChevronLeft className="size-4" />
               </button>
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/8 text-[11px] font-bold text-ink-200">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ink-800 text-[11px] font-bold text-ink-200">
                 {iniciais(ativa.cliente?.nome)}
               </span>
               <div className="min-w-0 flex-1">
@@ -338,13 +338,13 @@ export function Inbox({
               <div ref={fim} />
             </div>
 
-            <form onSubmit={enviar} className="flex shrink-0 items-center gap-2 border-t border-white/6 p-3">
+            <form onSubmit={enviar} className="flex shrink-0 items-center gap-2 border-t border-[var(--linha)] p-3">
               <input
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
                 placeholder={ativa.bot_ativo ? "Assuma a conversa para responder…" : "Escreva sua mensagem…"}
                 disabled={ativa.bot_ativo || enviando}
-                className="h-10 flex-1 rounded-xl bg-white/5 px-3.5 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50 disabled:opacity-50"
+                className="h-10 flex-1 rounded-xl bg-ink-850 px-3.5 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:opacity-50"
               />
               <Button
                 type="submit"
@@ -365,7 +365,7 @@ export function Inbox({
       </div>
 
       {/* ------------------------------- FICHA ------------------------------- */}
-      <aside className="hidden min-h-0 flex-col overflow-y-auto border-l border-white/6 lg:flex">
+      <aside className="hidden min-h-0 flex-col overflow-y-auto border-l border-[var(--linha)] lg:flex">
         {ativa?.cliente ? <Ficha conversa={ativa} /> : (
           <div className="grid h-full place-items-center px-6 text-center text-xs text-ink-500">
             Ficha do cliente
@@ -386,7 +386,7 @@ function EsqueletoConversa() {
           <div
             className={cn(
               "skeleton h-9",
-              i % 2 === 0 ? "rounded-2xl rounded-bl-sm" : "rounded-2xl rounded-br-sm",
+              i % 2 === 0 ? "rounded-xl rounded-bl-sm" : "rounded-xl rounded-br-sm",
             )}
             style={{ width: largura }}
           />
@@ -409,7 +409,7 @@ function Bolha({ mensagem, anterior }: { mensagem: Mensagem; anterior?: Mensagem
       <>
         {novoDia && <Separador data={mensagem.created_at} />}
         <div className="flex justify-center py-1">
-          <span className="rounded-full bg-white/5 px-3 py-1 text-[10px] text-ink-500">
+          <span className="rounded-full bg-ink-850 px-3 py-1 text-[10px] text-ink-500">
             {mensagem.conteudo}
           </span>
         </div>
@@ -424,12 +424,12 @@ function Bolha({ mensagem, anterior }: { mensagem: Mensagem; anterior?: Mensagem
       {novoDia && <Separador data={mensagem.created_at} />}
       <div className={cn("flex animate-in-up", meu ? "justify-end" : "justify-start")}>
         <div className={cn(
-          "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+          "max-w-[78%] rounded-xl px-3.5 py-2 text-sm leading-relaxed",
           meu
             ? bot
               ? "rounded-br-sm bg-brand-500/22 text-brand-50 ring-1 ring-inset ring-brand-500/25"
               : "rounded-br-sm bg-brand-500 text-white"
-            : "rounded-bl-sm bg-white/7 text-ink-100",
+            : "rounded-bl-sm bg-ink-800 text-ink-100",
         )}>
           {bot && (
             <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-brand-300">
@@ -457,11 +457,11 @@ function Bolha({ mensagem, anterior }: { mensagem: Mensagem; anterior?: Mensagem
 function Separador({ data }: { data: string }) {
   return (
     <div className="flex items-center gap-3 py-2">
-      <span className="h-px flex-1 bg-white/6" />
+      <span className="h-px flex-1 bg-ink-800" />
       <span className="text-[10px] uppercase tracking-wide text-ink-500">
         {new Date(data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "2-digit" })}
       </span>
-      <span className="h-px flex-1 bg-white/6" />
+      <span className="h-px flex-1 bg-ink-800" />
     </div>
   );
 }
@@ -472,7 +472,7 @@ function Ficha({ conversa }: { conversa: Conversa }) {
   return (
     <div className="space-y-4 p-4">
       <div className="text-center">
-        <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-base font-bold text-white">
+        <span className="mx-auto grid size-14 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-base font-bold text-white">
           {iniciais(c.nome)}
         </span>
         <p className="mt-2 text-sm font-semibold text-ink-100">{c.nome}</p>
@@ -489,7 +489,7 @@ function Ficha({ conversa }: { conversa: Conversa }) {
         <Mini rotulo="Total comprado" valor={brl(c.total_comprado)} className="col-span-2" />
       </div>
 
-      <div className="space-y-2 border-t border-white/6 pt-3 text-[11px]">
+      <div className="space-y-2 border-t border-[var(--linha)] pt-3 text-[11px]">
         <Linha rotulo="Canal" valor={CANAL[conversa.canal].rotulo} />
         <Linha rotulo="Origem" valor={c.origem ?? "—"} />
         <Linha rotulo="Primeiro contato" valor={new Date(c.created_at).toLocaleDateString("pt-BR")} />
@@ -497,7 +497,7 @@ function Ficha({ conversa }: { conversa: Conversa }) {
         <Linha rotulo="Etapa do funil" valor={ESTADO_CONVERSA[conversa.estado].rotulo} />
       </div>
 
-      <div className="border-t border-white/6 pt-3">
+      <div className="border-t border-[var(--linha)] pt-3">
         <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-ink-300">
           <ShoppingBag className="size-3" /> Ações rápidas
         </p>
@@ -520,7 +520,7 @@ function Ficha({ conversa }: { conversa: Conversa }) {
 
 function Mini({ rotulo, valor, className }: { rotulo: string; valor: string; className?: string }) {
   return (
-    <div className={cn("rounded-lg bg-white/4 px-2.5 py-2", className)}>
+    <div className={cn("rounded-lg bg-ink-850 px-2.5 py-2", className)}>
       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
       <p className="mt-0.5 text-sm font-bold tabular-nums text-ink-100">{valor}</p>
     </div>

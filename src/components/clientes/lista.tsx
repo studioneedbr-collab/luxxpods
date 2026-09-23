@@ -52,7 +52,7 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome, telefone ou @instagram…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={segmento} onChange={(e) => setSegmento(e.target.value)}>
@@ -113,7 +113,7 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
                 <Tr key={c.id}>
                   <Td>
                     <div className="flex items-center gap-2.5">
-                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/8 text-[10px] font-bold text-ink-300">
+                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-ink-800 text-[10px] font-bold text-ink-300">
                         {iniciais(c.nome)}
                       </span>
                       <div className="min-w-0">

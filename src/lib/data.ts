@@ -20,6 +20,22 @@ async function sb() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
 }
 
+/**
+ * O que fazer quando a consulta falha COM o banco conectado.
+ *
+ * Cair na base de demonstração aqui seria o pior modo de falha possível num
+ * sistema de dinheiro: a tela mostraria 16 pedidos fictícios como se fossem
+ * reais, e ninguém desconfiaria. Então o erro sobe — a tela de erro já
+ * existe e diz que não carregou, que é a verdade.
+ */
+function aoFalhar(consulta: string, erro: { message: string } | null): never {
+  const detalhe = erro?.message ?? "sem detalhe";
+  console.error(`[luxx] consulta "${consulta}" falhou: ${detalhe}`);
+  throw new Error(
+    `Não consegui carregar ${consulta}. O banco respondeu: ${detalhe}`,
+  );
+}
+
 // ---------------------------------------------------------------- DASHBOARD
 export async function getMetricas(inicio: Date, fim: Date): Promise<Metricas> {
   const c = await sb();
@@ -27,7 +43,7 @@ export async function getMetricas(inicio: Date, fim: Date): Promise<Metricas> {
   const { data, error } = await c.rpc("dashboard_metricas", {
     p_store_id: STORE_ID, p_inicio: inicio.toISOString(), p_fim: fim.toISOString(),
   });
-  if (error || !data) return demoMetricas(inicio, fim);
+  if (error || !data) aoFalhar("as métricas do período", error);
   return data as Metricas;
 }
 
@@ -37,7 +53,7 @@ export async function getSerie(inicio: Date, fim: Date): Promise<SeriePonto[]> {
   const { data, error } = await c.rpc("dashboard_serie", {
     p_store_id: STORE_ID, p_inicio: inicio.toISOString(), p_fim: fim.toISOString(),
   });
-  if (error || !data) return demoSerie(inicio, fim);
+  if (error || !data) aoFalhar("a série do período", error);
   return (data as SeriePonto[]).map((p) => ({
     dia: String(p.dia),
     faturamento: Number(p.faturamento),
@@ -51,7 +67,7 @@ export async function getFunil(): Promise<EtapaFunil[]> {
   if (!c) return demoFunil();
   const { data, error } = await c
     .from("v_funil").select("*").eq("store_id", STORE_ID).order("ordem");
-  if (error || !data) return demoFunil();
+  if (error || !data) aoFalhar("o funil de leads", error);
   return data.map((e: Record<string, unknown>) => ({
     stage_id: String(e.stage_id), nome: String(e.nome), slug: String(e.slug),
     ordem: Number(e.ordem), cor: String(e.cor), tipo: String(e.tipo),
@@ -66,7 +82,7 @@ export async function getCatalogo(): Promise<ItemCatalogo[]> {
   const { data, error } = await c
     .from("v_catalogo").select("*").eq("store_id", STORE_ID)
     .order("marca").order("produto").order("sabor");
-  if (error || !data) return demo().catalogo;
+  if (error || !data) aoFalhar("o catálogo", error);
   return data as unknown as ItemCatalogo[];
 }
 
@@ -77,7 +93,7 @@ export async function getProdutos(): Promise<Produto[]> {
     .from("products")
     .select("id,nome,modelo,puffs,sku,preco,custo,status,destaque,imagem_url,descricao,brand_id,brands(nome)")
     .eq("store_id", STORE_ID).is("deleted_at", null).order("ordem");
-  if (error || !data) return demo().produtos;
+  if (error || !data) aoFalhar("os produtos", error);
 
   const catalogo = await getCatalogo();
   return data.map((p: Record<string, unknown>) => {
@@ -105,7 +121,7 @@ export async function getResumoEstoque(): Promise<ResumoEstoque> {
   if (!c) return demoResumoEstoque();
   const { data, error } = await c
     .from("v_estoque_resumo").select("*").eq("store_id", STORE_ID).maybeSingle();
-  if (error || !data) return demoResumoEstoque();
+  if (error || !data) aoFalhar("o resumo do estoque", error);
   return {
     skus: Number(data.skus), pecas: Number(data.pecas),
     custo_estoque: Number(data.custo_estoque),
@@ -121,7 +137,7 @@ export async function getMovimentos(limite = 60): Promise<Movimento[]> {
     .from("inventory_movements")
     .select("id,tipo,quantidade,saldo_anterior,saldo_posterior,referencia_tipo,observacao,created_at,product_flavors(products(nome),flavors(nome))")
     .eq("store_id", STORE_ID).order("created_at", { ascending: false }).limit(limite);
-  if (error || !data) return demo().movimentos.slice(0, limite);
+  if (error || !data) aoFalhar("as movimentações de estoque", error);
   return data.map((m: Record<string, unknown>) => {
     const pf = m.product_flavors as { products?: { nome?: string }; flavors?: { nome?: string } } | null;
     return {
@@ -146,7 +162,7 @@ export async function getConversas(): Promise<Conversa[]> {
     .eq("store_id", STORE_ID)
     .order("ultima_mensagem_em", { ascending: false, nullsFirst: false })
     .limit(150);
-  if (error || !data) return demo().conversas;
+  if (error || !data) aoFalhar("as conversas", error);
   return data.map((r: Record<string, unknown>) => ({
     ...(r as unknown as Conversa),
     cliente: (r.customers as Cliente) ?? null,
@@ -160,8 +176,8 @@ export async function getMensagens(conversationId: string): Promise<Mensagem[]> 
     .from("messages")
     .select("id,conversation_id,sender_type,tipo,conteudo,arquivo_url,status,created_at")
     .eq("conversation_id", conversationId).order("created_at").limit(400);
-  if (error || !data) return [];
-  return data as unknown as Mensagem[];
+  if (error) aoFalhar("as mensagens da conversa", error);
+  return (data ?? []) as unknown as Mensagem[];
 }
 
 // --------------------------------------------------------------------- LEADS
@@ -172,7 +188,7 @@ export async function getLeads(): Promise<Lead[]> {
     .from("leads")
     .select("id,customer_id,conversation_id,stage_id,origem,canal,valor_estimado,status,ordem,created_at,customers(*)")
     .eq("store_id", STORE_ID).order("ordem").limit(300);
-  if (error || !data) return demo().leads;
+  if (error || !data) aoFalhar("os leads", error);
   return data.map((r: Record<string, unknown>) => ({
     ...(r as unknown as Lead),
     cliente: (r.customers as Cliente) ?? null,
@@ -189,7 +205,7 @@ export async function getPedidos(limite = 100): Promise<Pedido[]> {
   const { data, error } = await c
     .from("orders").select("*").eq("store_id", STORE_ID)
     .order("created_at", { ascending: false }).limit(limite);
-  if (error || !data) return demo().pedidos;
+  if (error || !data) aoFalhar("os pedidos", error);
   return data as unknown as Pedido[];
 }
 
@@ -199,9 +215,15 @@ export async function getPedido(id: string): Promise<Pedido | null> {
     const p = demo().pedidos.find((x) => x.id === id || x.numero_pedido === id);
     return p ? { ...p, itens: demo().itens[p.id] ?? [] } : null;
   }
+  // uuid e número público são colunas de tipos diferentes: escolher a coluna
+  // pelo formato evita injeção no filtro e o erro de conversão de tipo
+  const ehUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
   const { data } = await c
     .from("orders").select("*, order_items(*)")
-    .or(`id.eq.${id},numero_pedido.eq.${id}`).maybeSingle();
+    .eq("store_id", STORE_ID)
+    .eq(ehUuid ? "id" : "numero_pedido", id)
+    .maybeSingle();
   if (!data) return null;
   const { order_items, ...pedido } = data as Record<string, unknown>;
   return { ...(pedido as unknown as Pedido), itens: (order_items as PedidoItem[]) ?? [] };
@@ -217,7 +239,7 @@ export async function getClientes(limite = 200): Promise<Cliente[]> {
   const { data, error } = await c
     .from("customers").select("*").eq("store_id", STORE_ID).is("deleted_at", null)
     .order("ultima_interacao", { ascending: false, nullsFirst: false }).limit(limite);
-  if (error || !data) return demo().clientes;
+  if (error || !data) aoFalhar("os clientes", error);
   return data as unknown as Cliente[];
 }
 
@@ -228,7 +250,7 @@ export async function getTarefas(): Promise<Tarefa[]> {
   const { data, error } = await c
     .from("tasks").select("*").eq("store_id", STORE_ID)
     .order("created_at", { ascending: false }).limit(100);
-  if (error || !data) return demo().tarefas;
+  if (error || !data) aoFalhar("as tarefas", error);
   return data as unknown as Tarefa[];
 }
 

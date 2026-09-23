@@ -11,6 +11,7 @@ import { PRIORIDADE } from "@/lib/labels";
 import { cn, dataHora, tempoRelativo } from "@/lib/utils";
 import type { Tarefa } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { CampoData } from "@/components/ui";
 
 const ORIGEM = {
   bot: { rotulo: "Criada pelo bot", icone: Bot },
@@ -100,7 +101,7 @@ export function TelaTarefas({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar tarefa…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
@@ -129,21 +130,21 @@ export function TelaTarefas({
               <Plus className="size-3.5" /> Criar tarefa
             </Button>} />
         ) : (
-          <ul className="divide-y divide-white/4">
+          <ul className="divide-y divide-[var(--linha)]">
             {filtradas.map((t) => {
               const origem = ORIGEM[t.criada_por as keyof typeof ORIGEM] ?? ORIGEM.sistema;
               const concluida = t.status === "concluida";
               const atrasada = !concluida && t.vencimento && +new Date(t.vencimento) < agora;
 
               return (
-                <li key={t.id} className="flex items-start gap-3 px-5 py-3.5 transition hover:bg-white/3">
+                <li key={t.id} className="flex items-start gap-3 px-5 py-3.5 transition hover:bg-ink-850/50">
                   <button
                     onClick={() => alternar(t)}
                     className={cn(
                       "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md ring-1 transition",
                       concluida
                         ? "bg-ok-500/20 text-ok-400 ring-ok-500/30"
-                        : "bg-white/4 text-transparent ring-white/15 hover:ring-brand-400/50",
+                        : "bg-ink-850 text-transparent ring-[var(--linha-forte)] hover:ring-brand-400/50",
                     )}
                   >
                     <Check className="size-3" />
@@ -234,11 +235,9 @@ export function TelaTarefas({
                 </Select>
               </Campo>
               <Campo rotulo="Vencimento">
-                <Input type="datetime-local"
-                  value={(editando.vencimento ?? "").slice(0, 16)}
-                  onChange={(e) => setEditando((p) => ({
-                    ...p!, vencimento: e.target.value || null,
-                  }))} />
+                <CampoData comHora
+                  valor={(editando.vencimento ?? "").slice(0, 16) || null}
+                  aoMudar={(v) => setEditando((p) => ({ ...p!, vencimento: v }))} />
               </Campo>
             </div>
           </div>

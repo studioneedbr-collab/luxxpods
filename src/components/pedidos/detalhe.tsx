@@ -127,7 +127,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
                       "grid size-7 place-items-center rounded-full text-[10px] font-bold transition",
                       atual ? "bg-brand-500 text-white ring-4 ring-brand-500/20"
                         : feito ? "bg-ok-500/20 text-ok-400"
-                          : "bg-white/6 text-ink-600",
+                          : "bg-ink-800 text-ink-600",
                     )}>
                       {feito && !atual ? <CheckCircle2 className="size-3.5" /> : i + 1}
                     </span>
@@ -141,7 +141,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
                   {i < FLUXO_PEDIDO.length - 1 && (
                     <span className={cn(
                       "mx-1 mb-5 h-0.5 flex-1 rounded-full transition",
-                      i < etapa ? "bg-ok-500/40" : "bg-white/8",
+                      i < etapa ? "bg-ok-500/40" : "bg-ink-800",
                     )} />
                   )}
                 </div>
@@ -155,7 +155,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
         <Panel className="lg:col-span-2">
           <PanelHeader titulo="Itens do pedido" icone={Package}
             descricao="Valores registrados no momento da venda" />
-          <div className="divide-y divide-white/4">
+          <div className="divide-y divide-[var(--linha)]">
             {(pedido.itens ?? []).map((item) => (
               <div key={item.id} className="flex items-center gap-3 px-5 py-3">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-xs font-bold text-brand-300">
@@ -177,11 +177,11 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
               <p className="px-5 py-8 text-center text-xs text-ink-500">Sem itens registrados</p>
             )}
           </div>
-          <div className="space-y-1.5 border-t border-white/6 px-5 py-4">
+          <div className="space-y-1.5 border-t border-[var(--linha)] px-5 py-4">
             <Linha rotulo="Produtos" valor={brl(pedido.subtotal)} />
             {pedido.desconto > 0 && <Linha rotulo="Desconto" valor={`− ${brl(pedido.desconto)}`} tom="ok" />}
             <Linha rotulo="Entrega" valor={brl(pedido.taxa_entrega)} />
-            <div className="flex items-center justify-between border-t border-white/6 pt-2.5">
+            <div className="flex items-center justify-between border-t border-[var(--linha)] pt-2.5">
               <span className="text-sm font-semibold text-ink-200">Total</span>
               <span className="text-lg font-bold tabular-nums text-ink-100">{brl(pedido.total)}</span>
             </div>
@@ -265,7 +265,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Motivo do cancelamento"
-              className="mt-3 h-9 w-full rounded-lg bg-white/4 px-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+              className="mt-3 h-9 w-full rounded-lg bg-ink-850 px-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             />
             <div className="mt-4 flex justify-end gap-2">
               <Button variante="fantasma" onClick={() => setCancelando(false)}>Voltar</Button>

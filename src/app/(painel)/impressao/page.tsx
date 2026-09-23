@@ -17,19 +17,19 @@ export default async function ImpressaoPage() {
         <PanelHeader titulo="Impressora" icone={Printer}
           descricao="Comanda 80mm gerada a partir do pedido confirmado"
           acao={<Badge tom="warn" ponto>nenhuma impressora configurada</Badge>} />
-        <div className="grid gap-px bg-white/4 sm:grid-cols-3">
+        <div className="grid gap-px bg-ink-850 sm:grid-cols-3">
           {[
             ["Impressora padrão", "não configurada"],
             ["Vias por pedido", "1"],
             ["Impressão automática", "ativada"],
           ].map(([r, v]) => (
-            <div key={r} className="bg-ink-900/70 px-5 py-4">
+            <div key={r} className="bg-ink-900 px-5 py-4">
               <p className="text-[10px] uppercase tracking-wide text-ink-500">{r}</p>
               <p className="mt-0.5 text-sm font-medium text-ink-200">{v}</p>
             </div>
           ))}
         </div>
-        <div className="flex items-start gap-2.5 border-t border-white/6 px-5 py-3.5">
+        <div className="flex items-start gap-2.5 border-t border-[var(--linha)] px-5 py-3.5">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warn-400" />
           <p className="text-[11px] leading-relaxed text-ink-400">
             Enquanto a impressora não está ligada ao sistema, a comanda pode ser impressa

@@ -18,8 +18,8 @@ export function EmBreve({
 }) {
   return (
     <Panel className="mx-auto max-w-2xl overflow-hidden">
-      <div className="flex items-start gap-4 border-b border-white/6 px-6 py-5">
-        <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-500/12 text-brand-300 ring-1 ring-inset ring-brand-500/20">
+      <div className="flex items-start gap-4 border-b border-[var(--linha)] px-6 py-5">
+        <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-300 ring-1 ring-inset ring-brand-500/20">
           <Icone className="size-5" />
         </span>
         <div className="min-w-0">
@@ -33,8 +33,8 @@ export function EmBreve({
         </div>
       </div>
 
-      <div className="grid gap-px bg-white/4 sm:grid-cols-2">
-        <div className="bg-ink-900/70 p-5">
+      <div className="grid gap-px bg-ink-850 sm:grid-cols-2">
+        <div className="bg-ink-900 p-5">
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
             Já pronto no banco
           </p>
@@ -48,7 +48,7 @@ export function EmBreve({
           </ul>
         </div>
 
-        <div className="bg-ink-900/70 p-5">
+        <div className="bg-ink-900 p-5">
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
             Falta a interface
           </p>

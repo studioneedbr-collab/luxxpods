@@ -95,7 +95,7 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por cliente, pedido ou motivo…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
@@ -190,13 +190,13 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
               <Badge tom="neutro">{vendo.quantidade} unidade{vendo.quantidade > 1 ? "s" : ""}</Badge>
             </div>
 
-            <div className="rounded-lg bg-white/4 px-3 py-2.5">
+            <div className="rounded-lg bg-ink-850 px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-ink-500">Produto</p>
               <p className="mt-0.5 text-sm font-medium text-ink-100">{vendo.produto_nome ?? "—"}</p>
               <p className="text-[11px] text-ink-400">{vendo.sabor_nome ?? ""}</p>
             </div>
 
-            <div className="rounded-lg bg-white/4 px-3 py-2.5">
+            <div className="rounded-lg bg-ink-850 px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-ink-500">Motivo</p>
               <p className="mt-0.5 text-sm text-ink-200">{vendo.motivo ?? "—"}</p>
               {vendo.descricao && (
@@ -204,7 +204,7 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
               )}
             </div>
 
-            <div className="rounded-lg bg-white/4 px-3 py-2.5">
+            <div className="rounded-lg bg-ink-850 px-3 py-2.5">
               <p className="mb-1.5 text-[10px] uppercase tracking-wide text-ink-500">Linha do tempo</p>
               <ul className="space-y-1.5 text-[11px]">
                 <li className="flex justify-between">
@@ -250,7 +250,7 @@ function Cartao({ rotulo, valor, tom = "neutro", icone: Icone }: {
   };
   return (
     <Panel className="flex items-center gap-3 p-4">
-      <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg bg-white/5", cores[tom])}>
+      <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg bg-ink-850", cores[tom])}>
         <Icone className="size-4" />
       </span>
       <div className="min-w-0">

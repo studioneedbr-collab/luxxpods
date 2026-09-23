@@ -17,6 +17,7 @@ import { brl, cn, num } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { BotaoExportar } from "@/components/ui/botao-exportar";
 import { dataCurtaExport } from "@/lib/exportar";
+import { CampoData, CampoMoeda } from "@/components/ui";
 import type {
   CategoriaFinanceira, ContaBancaria, Lancamento, PagamentoMetodo,
 } from "@/lib/types";
@@ -136,7 +137,7 @@ export function TelaLancamentos({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder={receber ? "Buscar por cliente, pedido ou descrição…" : "Buscar por fornecedor, categoria ou descrição…"}
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
@@ -348,8 +349,7 @@ function FormLancamento({
             <Input value={f.contraparte ?? ""} onChange={(e) => set("contraparte", e.target.value)} />
           </Campo>
           <Campo rotulo="Valor (R$)">
-            <Input type="number" step="0.01" value={f.valor ?? 0}
-              onChange={(e) => set("valor", Number(e.target.value))} />
+            <CampoMoeda valor={f.valor ?? 0} aoMudar={(v) => set("valor", v)} />
           </Campo>
         </div>
 
@@ -372,8 +372,8 @@ function FormLancamento({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo rotulo="Vencimento">
-            <Input type="date" value={(f.vencimento ?? "").slice(0, 10)}
-              onChange={(e) => set("vencimento", e.target.value || null)} />
+            <CampoData valor={(f.vencimento ?? "").slice(0, 10) || null}
+              aoMudar={(v) => set("vencimento", v)} />
           </Campo>
           <Campo rotulo="Forma de pagamento">
             <Select value={f.forma_pagamento ?? ""} className="w-full"
@@ -399,7 +399,7 @@ function FormLancamento({
         </Campo>
 
         {f.vencimento && (
-          <p className="flex items-center gap-2 rounded-lg bg-white/4 px-3 py-2 text-[11px] text-ink-400">
+          <p className="flex items-center gap-2 rounded-lg bg-ink-850 px-3 py-2 text-[11px] text-ink-400">
             <CalendarClock className="size-3.5 shrink-0 text-ink-500" />
             Vence em {new Date(`${f.vencimento}T12:00:00`).toLocaleDateString("pt-BR", {
               day: "2-digit", month: "long", year: "numeric",

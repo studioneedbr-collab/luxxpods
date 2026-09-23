@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   Bell, MessageCircle, ListChecks, Package, ShoppingBag, Wallet, RefreshCcw,
@@ -24,7 +25,9 @@ export function Notificacoes() {
   const [aberto, setAberto] = useState(false);
   const [lista, setLista] = useState<Notificacao[]>([]);
   const [urgentes, setUrgentes] = useState(0);
+  const [ancora, setAncora] = useState({ top: 0, right: 0 });
   const caixa = useRef<HTMLDivElement>(null);
+  const gatilho = useRef<HTMLButtonElement>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -47,26 +50,40 @@ export function Notificacoes() {
   useEffect(() => {
     if (!aberto) return;
     const fora = (e: MouseEvent) => {
-      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
+      const alvo = e.target as Node;
+      if (caixa.current?.contains(alvo) || gatilho.current?.contains(alvo)) return;
+      setAberto(false);
     };
+    const reposicionar = () => {
+      const r = gatilho.current?.getBoundingClientRect();
+      if (r) setAncora({ top: r.bottom + 8, right: window.innerWidth - r.right });
+    };
+    reposicionar();
     document.addEventListener("mousedown", fora);
-    return () => document.removeEventListener("mousedown", fora);
+    window.addEventListener("resize", reposicionar);
+    window.addEventListener("scroll", reposicionar, true);
+    return () => {
+      document.removeEventListener("mousedown", fora);
+      window.removeEventListener("resize", reposicionar);
+      window.removeEventListener("scroll", reposicionar, true);
+    };
   }, [aberto]);
 
   return (
-    <div className="relative" ref={caixa}>
+    <>
       <button
+        ref={gatilho}
         onClick={() => { setAberto((v) => !v); if (!aberto) carregar(); }}
         aria-label={`Notificações${lista.length ? `: ${lista.length}` : ""}`}
         className={cn(
           "relative grid size-8 place-items-center rounded-lg transition",
-          aberto ? "bg-white/8 text-ink-100" : "text-ink-400 hover:bg-white/6 hover:text-ink-200",
+          aberto ? "bg-ink-800 text-ink-100" : "text-ink-400 hover:bg-ink-800 hover:text-ink-200",
         )}
       >
         <Bell className="size-4" />
         {lista.length > 0 && (
           <span className={cn(
-            "absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[9px] font-bold text-white ring-2 ring-ink-950",
+            "absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[9px] font-bold text-white ring-2 ring-ink-990",
             urgentes > 0 ? "bg-bad-500" : "bg-brand-500",
           )}>
             {lista.length > 9 ? "9+" : lista.length}
@@ -74,9 +91,13 @@ export function Notificacoes() {
         )}
       </button>
 
-      {aberto && (
-        <div className="panel absolute right-0 top-10 z-50 w-[min(92vw,360px)] animate-in-up overflow-hidden shadow-2xl">
-          <div className="flex items-center justify-between border-b border-white/6 px-4 py-2.5">
+      {aberto && createPortal(
+        <div
+          ref={caixa}
+          style={{ top: ancora.top, right: ancora.right }}
+          className="flutua fixed z-[100] w-[min(92vw,360px)] animate-in-up overflow-hidden"
+        >
+          <div className="flex items-center justify-between border-b border-[var(--linha)] px-4 py-2.5">
             <h3 className="text-xs font-semibold text-ink-100">Notificações</h3>
             {urgentes > 0 && (
               <span className="rounded-full bg-bad-500/14 px-2 py-0.5 text-[10px] font-semibold text-bad-400 ring-1 ring-inset ring-bad-500/25">
@@ -88,14 +109,14 @@ export function Notificacoes() {
           <div className="max-h-[60vh] overflow-y-auto">
             {lista.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-                <span className="grid size-10 place-items-center rounded-2xl bg-ok-500/12 text-ok-400">
+                <span className="grid size-10 place-items-center rounded-xl bg-ok-500/12 text-ok-400">
                   <Check className="size-4" />
                 </span>
                 <p className="text-xs font-medium text-ink-200">Nada pendente</p>
                 <p className="text-[11px] text-ink-500">A operação está em dia.</p>
               </div>
             ) : (
-              <ul className="divide-y divide-white/4">
+              <ul className="divide-y divide-[var(--linha)]">
                 {lista.map((n) => {
                   const Icone = ICONES[n.tipo];
                   return (
@@ -103,7 +124,7 @@ export function Notificacoes() {
                       <Link
                         href={n.href}
                         onClick={() => setAberto(false)}
-                        className="flex items-start gap-2.5 px-4 py-2.5 transition hover:bg-white/4"
+                        className="flex items-start gap-2.5 px-4 py-2.5 transition hover:bg-ink-850"
                       >
                         <span className={cn(
                           "mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ring-1 ring-inset",
@@ -135,7 +156,7 @@ export function Notificacoes() {
             )}
           </div>
 
-          <div className="border-t border-white/6 px-4 py-2">
+          <div className="border-t border-[var(--linha)] px-4 py-2">
             <button
               onClick={carregar}
               className="text-[11px] font-medium text-brand-300 transition hover:text-brand-200"
@@ -143,8 +164,9 @@ export function Notificacoes() {
               Atualizar agora
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }

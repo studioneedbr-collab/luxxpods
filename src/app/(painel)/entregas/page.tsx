@@ -45,13 +45,13 @@ export default async function EntregasPage() {
         {fila.length === 0 ? (
           <Vazio icone={Bike} titulo="Nenhuma entrega na fila" descricao="Os pedidos confirmados aparecem aqui automaticamente." />
         ) : (
-          <div className="grid gap-px bg-white/4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-px bg-ink-850 md:grid-cols-2 xl:grid-cols-3">
             {fila.map((p) => {
               const st = STATUS_PEDIDO[p.status_pedido];
               const receber = p.status_pagamento !== "aprovado";
               return (
                 <Link key={p.id} href={`/pedidos/${p.id}`}
-                  className="bg-ink-900/70 p-4 transition hover:bg-ink-800">
+                  className="bg-ink-900 p-4 transition hover:bg-ink-800">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-ink-100">{p.cliente_nome}</p>
@@ -78,7 +78,7 @@ export default async function EntregasPage() {
                     {telefone(p.cliente_telefone)}
                   </p>
 
-                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/6 pt-2.5">
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--linha)] pt-2.5">
                     <span className="flex items-center gap-1.5 text-[11px] text-ink-400">
                       {p.forma_pagamento === "pix"
                         ? <QrCode className="size-3" />
@@ -114,10 +114,10 @@ export default async function EntregasPage() {
         {entreguesHoje.length === 0 ? (
           <Vazio icone={Package} titulo="Nenhuma entrega concluída hoje" />
         ) : (
-          <ul className="divide-y divide-white/4">
+          <ul className="divide-y divide-[var(--linha)]">
             {entreguesHoje.map((p) => (
               <li key={p.id}>
-                <Link href={`/pedidos/${p.id}`} className="flex items-center gap-3 px-5 py-2.5 transition hover:bg-white/4">
+                <Link href={`/pedidos/${p.id}`} className="flex items-center gap-3 px-5 py-2.5 transition hover:bg-ink-850">
                   <span className="text-[11px] tabular-nums text-ink-500">{hora(p.entregue_em)}</span>
                   <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink-200">{p.cliente_nome}</span>
                   <span className="text-[11px] tabular-nums text-ink-500">{p.numero_pedido}</span>

@@ -12,12 +12,19 @@ async function sb() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
 }
 
+/** Erro do banco não vira dado de demonstração — ver a nota em data.ts. */
+function aoFalhar(consulta: string, erro: { message: string } | null): never {
+  const detalhe = erro?.message ?? "sem detalhe";
+  console.error(`[luxx] consulta "${consulta}" falhou: ${detalhe}`);
+  throw new Error(`Não consegui carregar ${consulta}. O banco respondeu: ${detalhe}`);
+}
+
 export async function getCupons(): Promise<Cupom[]> {
   const c = await sb();
   if (!c) return demo2().cupons;
   const { data, error } = await c.from("coupons").select("*")
     .eq("store_id", STORE_ID).order("created_at", { ascending: false });
-  if (error || !data) return demo2().cupons;
+  if (error || !data) aoFalhar("os cupons", error);
   return data as unknown as Cupom[];
 }
 
@@ -27,7 +34,7 @@ export async function getUpsell(): Promise<RegraUpsell[]> {
   const { data, error } = await c.from("upsell_rules")
     .select("*, origem:products!upsell_rules_produto_origem_fkey(nome), destino:products!upsell_rules_produto_destino_fkey(nome)")
     .eq("store_id", STORE_ID).order("prioridade");
-  if (error || !data) return demo2().upsell;
+  if (error || !data) aoFalhar("as regras de upsell", error);
 
   const { data: eventos } = await c.from("upsell_events")
     .select("rule_id, aceita, valor_gerado").eq("store_id", STORE_ID);
@@ -51,7 +58,7 @@ export async function getTrocas(): Promise<Troca[]> {
   const { data, error } = await c.from("exchanges")
     .select("*, customers(nome), orders(numero_pedido), order_items(produto_nome, sabor_nome)")
     .eq("store_id", STORE_ID).order("created_at", { ascending: false });
-  if (error || !data) return demo2().trocas;
+  if (error || !data) aoFalhar("as trocas", error);
   return data.map((t: Record<string, unknown>) => ({
     ...(t as unknown as Troca),
     cliente_nome: (t.customers as { nome?: string } | null)?.nome ?? null,
@@ -66,7 +73,7 @@ export async function getFornecedores(): Promise<Fornecedor[]> {
   if (!c) return demo2().fornecedores;
   const { data, error } = await c.from("suppliers").select("*")
     .eq("store_id", STORE_ID).is("deleted_at", null).order("nome");
-  if (error || !data) return demo2().fornecedores;
+  if (error || !data) aoFalhar("os fornecedores", error);
   return data as unknown as Fornecedor[];
 }
 
@@ -75,13 +82,17 @@ export async function getNotasEntrada(): Promise<NotaEntrada[]> {
   if (!c) return demo2().notas;
   const { data, error } = await c.from("purchase_entries")
     .select("*, suppliers(nome), purchase_entry_items(quantidade)")
-    .eq("store_id", STORE_ID).order("data", { ascending: false });
-  if (error || !data) return demo2().notas;
+    .eq("store_id", STORE_ID).order("data", { ascending: false }).limit(200);
+  if (error || !data) aoFalhar("as notas de entrada", error);
   return data.map((n: Record<string, unknown>) => {
     const itens = (n.purchase_entry_items as Array<{ quantidade: number }>) ?? [];
     return {
       ...(n as unknown as NotaEntrada),
       fornecedor_nome: (n.suppliers as { nome?: string } | null)?.nome ?? null,
+      cotacao: n.cotacao != null ? Number(n.cotacao) : null,
+      freteiro_pct: Number(n.freteiro_pct ?? 0),
+      valor_total: Number(n.valor_total ?? 0),
+      estoque_aplicado: Boolean(n.estoque_aplicado),
       itens_count: itens.length,
       pecas: itens.reduce((a, i) => a + Number(i.quantidade), 0),
     };
@@ -93,7 +104,7 @@ export async function getContasBancarias(): Promise<ContaBancaria[]> {
   if (!c) return demo2().contas;
   const { data, error } = await c.from("bank_accounts").select("*")
     .eq("store_id", STORE_ID).order("nome");
-  if (error || !data) return demo2().contas;
+  if (error || !data) aoFalhar("as contas bancárias", error);
 
   const { data: ar } = await c.from("accounts_receivable")
     .select("bank_account_id, valor, status").eq("store_id", STORE_ID).eq("status", "pago");
@@ -117,7 +128,7 @@ export async function getCategoriasFinanceiras(): Promise<CategoriaFinanceira[]>
   if (!c) return demo2().categorias;
   const { data, error } = await c.from("financial_categories").select("*")
     .eq("store_id", STORE_ID).order("tipo").order("nome");
-  if (error || !data) return demo2().categorias;
+  if (error || !data) aoFalhar("as categorias financeiras", error);
   return data.map((x) => ({ ...(x as unknown as CategoriaFinanceira), lancamentos: 0, total: 0 }));
 }
 
@@ -166,7 +177,7 @@ export async function getUsuarios(): Promise<Usuario[]> {
   if (!c) return demo2().usuarios;
   const { data, error } = await c.from("profiles")
     .select("*, roles(slug, nome)").is("deleted_at", null).order("nome");
-  if (error || !data) return demo2().usuarios;
+  if (error || !data) aoFalhar("os usuários", error);
   return data.map((u: Record<string, unknown>) => ({
     ...(u as unknown as Usuario),
     role_slug: (u.roles as { slug?: string } | null)?.slug ?? "atendimento",
@@ -179,7 +190,7 @@ export async function getEventos(): Promise<EventoCalendario[]> {
   if (!c) return demo2().eventos;
   const { data, error } = await c.from("calendar_events")
     .select("*, profiles(nome)").eq("store_id", STORE_ID).order("inicio");
-  if (error || !data) return demo2().eventos;
+  if (error || !data) aoFalhar("o calendário", error);
   return data.map((e: Record<string, unknown>) => ({
     ...(e as unknown as EventoCalendario),
     responsavel: (e.profiles as { nome?: string } | null)?.nome ?? null,

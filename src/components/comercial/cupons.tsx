@@ -11,6 +11,7 @@ import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { brl, cn, num, pct } from "@/lib/utils";
 import type { Cupom } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { CampoData, CampoMoeda } from "@/components/ui";
 
 const vazio: Partial<Cupom> = {
   codigo: "", descricao: "", tipo_desconto: "percentual", valor: 10,
@@ -83,7 +84,7 @@ export function TelaCupons({ cupons: iniciais }: { cupons: Cupom[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por código ou descrição…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Button variante="primario" onClick={() => setEditando({ ...vazio })}>
@@ -242,12 +243,16 @@ function FormCupom({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo rotulo={f.tipo_desconto === "percentual" ? "Desconto (%)" : "Desconto (R$)"}>
-            <Input type="number" step="0.01" value={f.valor ?? 0}
-              onChange={(e) => set("valor", Number(e.target.value))} />
+            {f.tipo_desconto === "percentual" ? (
+              <Input type="number" min={0} max={100} value={f.valor ?? 0}
+                onChange={(e) => set("valor", Number(e.target.value))} />
+            ) : (
+              <CampoMoeda valor={f.valor ?? 0} aoMudar={(v) => set("valor", v)} />
+            )}
           </Campo>
           <Campo rotulo="Valor mínimo do pedido (R$)" dica="0 = sem mínimo">
-            <Input type="number" step="0.01" value={f.valor_minimo ?? 0}
-              onChange={(e) => set("valor_minimo", Number(e.target.value))} />
+            <CampoMoeda valor={f.valor_minimo ?? 0}
+              aoMudar={(v) => set("valor_minimo", v)} />
           </Campo>
         </div>
 
@@ -264,12 +269,12 @@ function FormCupom({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo rotulo="Início da validade">
-            <Input type="date" value={(f.inicio ?? "").slice(0, 10)}
-              onChange={(e) => set("inicio", e.target.value || null)} />
+            <CampoData valor={(f.inicio ?? "").slice(0, 10) || null}
+              aoMudar={(v) => set("inicio", v)} />
           </Campo>
           <Campo rotulo="Fim da validade">
-            <Input type="date" value={(f.fim ?? "").slice(0, 10)}
-              onChange={(e) => set("fim", e.target.value || null)} />
+            <CampoData valor={(f.fim ?? "").slice(0, 10) || null}
+              aoMudar={(v) => set("fim", v)} />
           </Campo>
         </div>
 

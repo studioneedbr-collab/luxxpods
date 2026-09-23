@@ -106,7 +106,7 @@ export default async function PainelAtendimento({
               <Barra valor={conversas.length ? (comHumano / conversas.length) * 100 : 0} tom="warn" className="mt-1.5" />
             </div>
 
-            <div className="border-t border-white/6 pt-3">
+            <div className="border-t border-[var(--linha)] pt-3">
               <p className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">Canais de entrada</p>
               {porCanal.length > 0 ? <GraficoRosca dados={porCanal} altura={160} />
                 : <p className="py-6 text-center text-xs text-ink-500">Sem conversas</p>}
@@ -120,14 +120,14 @@ export default async function PainelAtendimento({
           <PanelHeader titulo="Esperando resposta" icone={Zap}
             descricao="Mais antigas primeiro"
             acao={<Link href="/chats" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">abrir chats</Link>} />
-          <ul className="divide-y divide-white/4">
+          <ul className="divide-y divide-[var(--linha)]">
             {naoRespondidas.length === 0 && (
               <li className="px-5 py-8 text-center text-xs text-ink-500">Tudo respondido ✅</li>
             )}
             {naoRespondidas.map((c) => (
               <li key={c.id}>
-                <Link href={`/chats?c=${c.id}`} className="flex items-center gap-2.5 px-5 py-2.5 transition hover:bg-white/4">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/8 text-[10px] font-bold text-ink-300">
+                <Link href={`/chats?c=${c.id}`} className="flex items-center gap-2.5 px-5 py-2.5 transition hover:bg-ink-850">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-ink-800 text-[10px] font-bold text-ink-300">
                     {iniciais(c.cliente?.nome)}
                   </span>
                   <div className="min-w-0 flex-1">
@@ -174,12 +174,12 @@ export default async function PainelAtendimento({
       <Panel>
         <PanelHeader titulo="Conversas recentes" icone={MessagesSquare}
           acao={<Link href="/chats" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">ver todas</Link>} />
-        <div className="grid gap-px bg-white/4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-px bg-ink-850 sm:grid-cols-2 lg:grid-cols-3">
           {conversas.slice(0, 9).map((c) => (
             <Link key={c.id} href={`/chats?c=${c.id}`}
-              className="bg-ink-900/70 p-3 transition hover:bg-ink-800">
+              className="bg-ink-900 p-3 transition hover:bg-ink-800">
               <div className="flex items-center gap-2.5">
-                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/8 text-[10px] font-bold text-ink-300">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-ink-800 text-[10px] font-bold text-ink-300">
                   {iniciais(c.cliente?.nome)}
                 </span>
                 <div className="min-w-0 flex-1">

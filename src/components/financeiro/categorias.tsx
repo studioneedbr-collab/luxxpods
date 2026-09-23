@@ -76,9 +76,9 @@ export function TelaCategorias({ categorias: iniciais }: { categorias: Categoria
             {grupo.lista.length === 0 ? (
               <Vazio icone={Tags} titulo="Nenhuma categoria" />
             ) : (
-              <ul className="divide-y divide-white/4">
+              <ul className="divide-y divide-[var(--linha)]">
                 {grupo.lista.map((c) => (
-                  <li key={c.id} className="flex items-center gap-3 px-5 py-2.5 transition hover:bg-white/3">
+                  <li key={c.id} className="flex items-center gap-3 px-5 py-2.5 transition hover:bg-ink-850/50">
                     <span className="size-2.5 shrink-0 rounded-full"
                       style={{ background: c.cor ?? "#9563ff" }} />
                     <div className="min-w-0 flex-1">
@@ -154,7 +154,7 @@ export function TelaCategorias({ categorias: iniciais }: { categorias: Categoria
                     className={cn(
                       "size-7 rounded-lg transition",
                       editando.cor === cor
-                        ? "ring-2 ring-white/70 ring-offset-2 ring-offset-ink-900"
+                        ? "ring-2 ring-ink-100 ring-offset-2 ring-offset-ink-850"
                         : "hover:scale-110",
                     )}
                     style={{ background: cor }}

@@ -1,20 +1,18 @@
+import Link from "next/link";
 import {
-  Banknote, Bike, Bot, MessagesSquare, Package, PiggyBank,
-  Receipt, ShoppingBag, Target, TrendingUp, UserPlus, Users, XCircle,
+  AlertTriangle, Banknote, Bike, Bot, Package, PiggyBank, Receipt,
+  ShoppingBag, Target, TrendingUp, UserPlus,
 } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { FiltroPeriodo } from "@/components/dashboard/filtro-periodo";
 import { FunilPedidos } from "@/components/dashboard/funil";
-import { GraficoFaturamento, GraficoPedidosLeads, GraficoBarras, GraficoRosca } from "@/components/dashboard/charts";
-import { Panel, PanelHeader, Badge, Barra } from "@/components/ui";
+import { GraficoFaturamento, GraficoPedidosLeads } from "@/components/dashboard/charts";
+import { Badge, Barra, Panel, PanelHeader, Secao } from "@/components/ui";
 import { Realtime, PulsoAoVivo } from "@/components/realtime";
 import { resolverPeriodo } from "@/lib/periodo";
-import { brl, num, pct, cn } from "@/lib/utils";
+import { brl, cn, num, pct } from "@/lib/utils";
 import { STATUS_PEDIDO } from "@/lib/labels";
-import {
-  getCatalogo, getFunil, getMetricas, getPedidos, getResumoEstoque, getSerie,
-} from "@/lib/data";
-import Link from "next/link";
+import { getCatalogo, getFunil, getMetricas, getPedidos, getResumoEstoque, getSerie } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +22,6 @@ export default async function Dashboard({
   const sp = await searchParams;
   const periodo = resolverPeriodo(sp.p, sp.de, sp.ate, Number(sp.m ?? 0));
 
-  // período anterior de mesmo tamanho, para a variação
   const duracao = periodo.fim.getTime() - periodo.inicio.getTime();
   const antInicio = new Date(periodo.inicio.getTime() - duracao - 1);
   const antFim = new Date(periodo.inicio.getTime() - 1);
@@ -39,234 +36,188 @@ export default async function Dashboard({
     getCatalogo(),
   ]);
 
-  const variacao = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : a > 0 ? 100 : null);
+  const variacao = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : null);
   const margem = m.faturamento > 0 ? (m.lucro_bruto / m.faturamento) * 100 : 0;
+  const participacaoBot = m.faturamento > 0 ? (m.faturamento_bot / m.faturamento) * 100 : 0;
 
-  // ranking de produtos no período
-  const noPeriodo = pedidos.filter(
-    (p) => +new Date(p.created_at) >= +periodo.inicio &&
-           +new Date(p.created_at) <= +periodo.fim &&
-           p.status_pedido !== "cancelado",
-  );
+  const emAndamento = pedidos
+    .filter((p) => ["aguardando_pagamento", "confirmado", "em_separacao", "saiu_para_entrega"]
+      .includes(p.status_pedido))
+    .slice(0, 6);
 
-  const porMarca = new Map<string, number>();
-  catalogo.forEach((c) => {
-    if (!c.marca) return;
-    porMarca.set(c.marca, (porMarca.get(c.marca) ?? 0) + c.estoque_total);
-  });
-
-  const porCanal = [
-    { nome: "WhatsApp", valor: noPeriodo.filter((p) => p.canal === "whatsapp").length },
-    { nome: "Instagram", valor: noPeriodo.filter((p) => p.canal === "instagram").length },
-    { nome: "Manual", valor: noPeriodo.filter((p) => p.canal === "manual").length },
-  ].filter((c) => c.valor > 0);
-
-  const porPagamento = [
-    { nome: "PIX", valor: noPeriodo.filter((p) => p.forma_pagamento === "pix").length },
-    { nome: "Dinheiro", valor: noPeriodo.filter((p) => p.forma_pagamento === "dinheiro").length },
-  ].filter((c) => c.valor > 0);
-
-  const estoqueBaixo = catalogo
-    .filter((c) => c.estoque_disponivel <= c.estoque_minimo)
+  const criticos = catalogo
+    .filter((c) => c.estoque_disponivel <= c.estoque_minimo && c.sabor_ativo)
     .sort((a, b) => a.estoque_disponivel - b.estoque_disponivel)
     .slice(0, 6);
 
-  const emAndamento = pedidos.filter((p) =>
-    ["confirmado", "em_separacao", "saiu_para_entrega", "aguardando_pagamento"].includes(p.status_pedido),
-  ).slice(0, 7);
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Realtime tabelas={["orders", "leads", "conversations", "messages", "inventory"]} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="relative flex flex-wrap items-center justify-between gap-3">
         <FiltroPeriodo rotulo={periodo.rotulo} />
         <PulsoAoVivo />
       </div>
 
-      {/* ---------------- indicadores principais ---------------- */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard rotulo="Faturamento" valor={brl(m.faturamento)} icone={Banknote} tom="ok"
-          variacao={variacao(m.faturamento, anterior.faturamento)}
-          sub={`${num(m.pedidos)} pedidos`} destaque />
-        <StatCard rotulo="Lucro bruto estimado" valor={brl(m.lucro_bruto)} icone={PiggyBank} tom="brand"
-          variacao={variacao(m.lucro_bruto, anterior.lucro_bruto)}
-          sub={`margem ${pct(margem)}`} />
-        <StatCard rotulo="Ticket médio" valor={brl(m.ticket_medio)} icone={Receipt} tom="info"
-          variacao={variacao(m.ticket_medio, anterior.ticket_medio)}
-          sub={`CMV ${brl(m.cmv)}`} />
-        <StatCard rotulo="Taxa de conversão" valor={pct(m.taxa_conversao)} icone={Target} tom="gold"
-          sub={`${num(m.leads_ganhos)} de ${num(m.leads)} leads`} />
-      </div>
+      {/* ------------------------- o resultado do período ------------------------ */}
+      <Secao titulo="Resultado" descricao={periodo.rotulo}>
+        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard rotulo="Faturamento" valor={brl(m.faturamento)} icone={Banknote} tom="ok" destaque
+            variacao={variacao(m.faturamento, anterior.faturamento)}
+            sub={`${num(m.pedidos)} pedidos`} />
+          <StatCard rotulo="Lucro bruto" valor={brl(m.lucro_bruto)} icone={PiggyBank} tom="brand"
+            variacao={variacao(m.lucro_bruto, anterior.lucro_bruto)}
+            sub={`margem de ${pct(margem, 0)}`} />
+          <StatCard rotulo="Ticket médio" valor={brl(m.ticket_medio)} icone={Receipt}
+            variacao={variacao(m.ticket_medio, anterior.ticket_medio)}
+            sub={`CMV ${brl(m.cmv)}`} />
+          <StatCard rotulo="Conversão" valor={pct(m.taxa_conversao, 0)} icone={Target} tom="gold"
+            sub={`${num(m.leads_ganhos)} de ${num(m.leads)} leads`} />
+        </div>
+      </Secao>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard rotulo="Pedidos" valor={num(m.pedidos)} icone={ShoppingBag} tom="brand"
-          variacao={variacao(m.pedidos, anterior.pedidos)}
-          sub={`${num(m.pedidos_entregues)} entregues`} />
-        <StatCard rotulo="Em rota" valor={num(m.pedidos_despachados)} icone={Bike} tom="info"
-          sub="saíram para entrega" />
-        <StatCard rotulo="Clientes novos" valor={num(m.clientes_novos)} icone={UserPlus} tom="ok"
-          variacao={variacao(m.clientes_novos, anterior.clientes_novos)}
-          sub={`${num(m.clientes_total)} na base`} />
-        <StatCard rotulo="Cancelamentos" valor={pct(m.taxa_cancelamento)} icone={XCircle} tom="bad"
-          sub={`${num(m.pedidos_cancelados)} pedidos`} />
-      </div>
-
-      {/* ---------------- gráficos ---------------- */}
-      <div className="grid gap-3 xl:grid-cols-3">
-        <Panel className="xl:col-span-2">
-          <PanelHeader
-            titulo="Faturamento no período"
-            descricao={`${periodo.rotulo} · ${brl(m.faturamento)} acumulado`}
-            icone={TrendingUp}
-            acao={<Badge tom="ok">{pct(margem)} de margem</Badge>}
-          />
-          <div className="p-2 pr-4">
-            <GraficoFaturamento dados={serie} />
-          </div>
+      {/* ------------------------------ os gráficos ----------------------------- */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Panel className="overflow-hidden xl:col-span-2">
+          <PanelHeader titulo="Faturamento por dia" icone={TrendingUp}
+            descricao={`${brl(m.faturamento)} no período`}
+            acao={<Badge tom={margem >= 40 ? "ok" : "warn"}>{pct(margem, 0)} de margem</Badge>} />
+          <div className="p-2 pr-4"><GraficoFaturamento dados={serie} /></div>
         </Panel>
 
-        <Panel>
-          <PanelHeader titulo="Funil de pedidos" descricao="Leads abertos por etapa" icone={Target} />
+        <Panel className="overflow-hidden">
+          <PanelHeader titulo="Funil" icone={Target} descricao="Leads abertos por etapa" />
           <FunilPedidos etapas={funil} />
         </Panel>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-3">
-        <Panel className="xl:col-span-2">
-          <PanelHeader titulo="Leads x Pedidos" descricao="Volume diário de aquisição e conversão" icone={Users} />
-          <div className="p-2 pr-4">
-            <GraficoPedidosLeads dados={serie} />
-          </div>
-        </Panel>
-
-        <Panel>
-          <PanelHeader titulo="Chatbot" descricao="Atendimento automático" icone={Bot} />
-          <div className="space-y-3 px-5 py-4">
-            <LinhaMetrica rotulo="Mensagens recebidas" valor={num(m.mensagens_recebidas)} />
-            <LinhaMetrica rotulo="Conversas abertas" valor={num(m.conversas_abertas)} />
-            <LinhaMetrica rotulo="Aguardando cliente" valor={num(m.conversas_aguardando)} />
-            <LinhaMetrica rotulo="Não respondidas" valor={num(m.conversas_nao_respondidas)}
-              alerta={m.conversas_nao_respondidas > 0} />
-            <LinhaMetrica rotulo="1ª resposta (média)" valor={`${num(m.tempo_primeira_resposta)} min`} />
-            <div className="border-t border-white/6 pt-3">
-              <p className="text-[11px] uppercase tracking-wide text-ink-500">Faturamento originado pelo bot</p>
-              <p className="mt-1 text-xl font-bold tabular-nums text-ok-400">{brl(m.faturamento_bot)}</p>
-              <Barra
-                valor={m.faturamento > 0 ? (m.faturamento_bot / m.faturamento) * 100 : 0}
-                tom="ok" className="mt-2"
-              />
-              <p className="mt-1.5 text-[11px] text-ink-500">
-                {pct(m.faturamento > 0 ? (m.faturamento_bot / m.faturamento) * 100 : 0)} do total
-              </p>
-            </div>
-          </div>
-        </Panel>
-      </div>
-
-      {/* ---------------- operação ---------------- */}
-      <div className="grid gap-3 xl:grid-cols-3">
-        <Panel>
-          <PanelHeader titulo="Pedidos em andamento" descricao="Precisam de ação agora" icone={ShoppingBag}
-            acao={<Link href="/pedidos" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">ver todos</Link>} />
-          <ul className="divide-y divide-white/4">
-            {emAndamento.length === 0 && (
-              <li className="px-5 py-8 text-center text-xs text-ink-500">Nenhum pedido em aberto 🎉</li>
+      {/* --------------------------- o que pede ação --------------------------- */}
+      <Secao
+        titulo="Precisa de ação"
+        descricao="O que está parado esperando alguém da operação"
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel className="overflow-hidden">
+            <PanelHeader titulo="Pedidos em andamento" icone={ShoppingBag}
+              descricao={`${num(emAndamento.length)} aguardando`}
+              acao={
+                <Link href="/pedidos" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">
+                  todos
+                </Link>
+              } />
+            {emAndamento.length === 0 ? (
+              <p className="px-4 py-8 text-center text-xs text-ink-500">Nenhum pedido em aberto</p>
+            ) : (
+              <ul className="divide-y divide-[var(--linha)]">
+                {emAndamento.map((p) => {
+                  const st = STATUS_PEDIDO[p.status_pedido];
+                  return (
+                    <li key={p.id}>
+                      <Link href={`/pedidos/${p.id}`}
+                        className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ink-850/60">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium text-ink-100">{p.cliente_nome}</span>
+                          <span className="block font-mono text-[10px] text-ink-500">{p.numero_pedido}</span>
+                        </span>
+                        <Badge tom={st.tom}>{st.rotulo}</Badge>
+                        <span className="numero w-16 text-right text-[13px] text-ink-100">
+                          {brl(p.total)}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-            {emAndamento.map((p) => {
-              const st = STATUS_PEDIDO[p.status_pedido];
-              return (
-                <li key={p.id}>
-                  <Link href={`/pedidos/${p.id}`} className="flex items-center gap-3 px-5 py-2.5 transition hover:bg-white/4">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium text-ink-200">{p.cliente_nome}</p>
-                      <p className="text-[11px] tabular-nums text-ink-500">{p.numero_pedido}</p>
-                    </div>
-                    <Badge tom={st.tom}>{st.rotulo}</Badge>
-                    <span className="w-16 text-right text-xs font-semibold tabular-nums text-ink-100">
-                      {brl(p.total)}
+          </Panel>
+
+          <Panel className="overflow-hidden">
+            <PanelHeader titulo="Estoque no limite" icone={AlertTriangle}
+              descricao={`${num(estoque.sem_estoque)} esgotados · ${num(estoque.estoque_baixo)} no mínimo`}
+              acao={
+                <Link href="/estoque" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">
+                  estoque
+                </Link>
+              } />
+            {criticos.length === 0 ? (
+              <p className="px-4 py-8 text-center text-xs text-ink-500">Estoque saudável</p>
+            ) : (
+              <ul className="divide-y divide-[var(--linha)]">
+                {criticos.map((c) => (
+                  <li key={c.product_flavor_id} className="flex items-center gap-3 px-4 py-2.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-ink-100">{c.produto}</span>
+                      <span className="block truncate text-[11px] text-ink-500">{c.sabor}</span>
                     </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                    <span className={cn(
+                      "numero text-[13px]",
+                      c.estoque_disponivel === 0 ? "text-bad-400" : "text-warn-400",
+                    )}>
+                      {c.estoque_disponivel === 0 ? "esgotado" : `${c.estoque_disponivel} un`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+      </Secao>
+
+      {/* --------------------------- aquisição e bot --------------------------- */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Panel className="overflow-hidden xl:col-span-2">
+          <PanelHeader titulo="Leads e pedidos" icone={UserPlus}
+            descricao="Quantos chegaram e quantos fecharam, por dia" />
+          <div className="p-2 pr-4"><GraficoPedidosLeads dados={serie} /></div>
         </Panel>
 
-        <Panel>
-          <PanelHeader titulo="Estoque crítico" descricao="Abaixo do mínimo configurado" icone={Package}
-            acao={<Link href="/estoque" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">estoque</Link>} />
-          <ul className="divide-y divide-white/4">
-            {estoqueBaixo.length === 0 && (
-              <li className="px-5 py-8 text-center text-xs text-ink-500">Estoque saudável ✅</li>
-            )}
-            {estoqueBaixo.map((c) => (
-              <li key={c.product_flavor_id} className="flex items-center gap-3 px-5 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-ink-200">{c.produto}</p>
-                  <p className="truncate text-[11px] text-ink-500">{c.sabor}</p>
+        <Panel className="overflow-hidden">
+          <PanelHeader titulo="O bot" icone={Bot} descricao="Atendimento automático" />
+          <div className="space-y-4 px-4 py-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-ink-500">
+                Faturamento originado
+              </p>
+              <p className="numero mt-1 text-xl text-ok-400">{brl(m.faturamento_bot)}</p>
+              <Barra valor={participacaoBot} tom="ok" className="mt-2" />
+              <p className="mt-1 text-[11px] text-ink-500">{pct(participacaoBot, 0)} do total</p>
+            </div>
+
+            <dl className="space-y-2 border-t border-[var(--linha)] pt-3">
+              {[
+                ["Mensagens recebidas", num(m.mensagens_recebidas), false],
+                ["Conversas abertas", num(m.conversas_abertas), false],
+                ["Sem resposta", num(m.conversas_nao_respondidas), m.conversas_nao_respondidas > 0],
+                ["1ª resposta", `${num(m.tempo_primeira_resposta)} min`, false],
+              ].map(([rotulo, valor, alerta]) => (
+                <div key={String(rotulo)} className="flex items-center justify-between gap-3">
+                  <dt className="text-xs text-ink-400">{rotulo}</dt>
+                  <dd className={cn(
+                    "numero text-[13px]",
+                    alerta ? "text-warn-400" : "text-ink-200",
+                  )}>
+                    {valor}
+                  </dd>
                 </div>
-                <Badge tom={c.estoque_disponivel === 0 ? "bad" : "warn"}>
-                  {c.estoque_disponivel === 0 ? "esgotado" : `${c.estoque_disponivel} un`}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-          <div className="grid grid-cols-2 gap-px border-t border-white/6 bg-white/4">
-            <div className="bg-ink-900/60 px-4 py-3">
-              <p className="text-[10px] uppercase tracking-wide text-ink-500">Custo do estoque</p>
-              <p className="mt-0.5 text-sm font-bold tabular-nums text-ink-100">{brl(estoque.custo_estoque)}</p>
-            </div>
-            <div className="bg-ink-900/60 px-4 py-3">
-              <p className="text-[10px] uppercase tracking-wide text-ink-500">Venda potencial</p>
-              <p className="mt-0.5 text-sm font-bold tabular-nums text-ok-400">{brl(estoque.valor_venda_potencial)}</p>
-            </div>
+              ))}
+            </dl>
           </div>
         </Panel>
-
-        <div className="grid gap-3">
-          <Panel>
-            <PanelHeader titulo="Origem dos pedidos" descricao="Canal de entrada" icone={MessagesSquare} />
-            <div className="px-3 py-2">
-              {porCanal.length ? <GraficoRosca dados={porCanal} altura={190} />
-                : <p className="py-10 text-center text-xs text-ink-500">Sem pedidos no período</p>}
-            </div>
-          </Panel>
-          <Panel>
-            <PanelHeader titulo="Formas de pagamento" icone={Banknote} />
-            <div className="px-3 py-2">
-              {porPagamento.length ? <GraficoRosca dados={porPagamento} altura={190} />
-                : <p className="py-10 text-center text-xs text-ink-500">Sem pedidos no período</p>}
-            </div>
-          </Panel>
-        </div>
       </div>
 
-      <Panel>
-        <PanelHeader titulo="Peças em estoque por marca" descricao="Distribuição atual do inventário" icone={Package} />
-        <div className="p-3">
-          <GraficoBarras
-            dados={[...porMarca.entries()]
-              .map(([nome, valor]) => ({ marca: nome, qtd: valor }))
-              .sort((a, b) => b.qtd - a.qtd)}
-            chaveX="marca" chaveY="qtd" altura={210}
-          />
+      {/* ------------------------------ o inventário ---------------------------- */}
+      <Secao titulo="Inventário" descricao="Quanto está parado em prateleira">
+        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard rotulo="Peças em estoque" valor={num(estoque.pecas)} icone={Package}
+            sub={`${num(estoque.skus)} SKUs`} />
+          <StatCard rotulo="Custo do estoque" valor={brl(estoque.custo_estoque)} icone={Banknote} />
+          <StatCard rotulo="Venda potencial" valor={brl(estoque.valor_venda_potencial)} tom="ok"
+            icone={TrendingUp}
+            sub={`${brl(estoque.valor_venda_potencial - estoque.custo_estoque)} de lucro`} />
+          <StatCard rotulo="Em rota agora" valor={num(m.pedidos_despachados)} icone={Bike} tom="info"
+            sub={`${num(m.pedidos_entregues)} entregues no período`} />
         </div>
-      </Panel>
-    </div>
-  );
-}
-
-function LinhaMetrica({ rotulo, valor, alerta }: { rotulo: string; valor: string; alerta?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-xs text-ink-400">{rotulo}</span>
-      <span className={cn(
-        "text-sm font-semibold tabular-nums",
-        alerta ? "text-warn-400" : "text-ink-100",
-      )}>
-        {valor}
-      </span>
+      </Secao>
     </div>
   );
 }

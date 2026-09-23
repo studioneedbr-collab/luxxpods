@@ -108,7 +108,7 @@ function Cartao({ aviso, aoFechar }: { aviso: Aviso; aoFechar: () => void }) {
       <button
         onClick={aoFechar}
         aria-label="Fechar aviso"
-        className="grid size-5 shrink-0 place-items-center rounded text-ink-500 transition hover:bg-white/8 hover:text-ink-200"
+        className="grid size-5 shrink-0 place-items-center rounded text-ink-500 transition hover:bg-ink-800 hover:text-ink-200"
       >
         <X className="size-3" />
       </button>

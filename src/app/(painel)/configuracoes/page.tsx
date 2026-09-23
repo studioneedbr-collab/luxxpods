@@ -1,113 +1,186 @@
 import {
   Bot, Building2, Clock, CreditCard, Boxes, Printer, Truck, Image as ImageIcon,
+  Circle, CheckCircle2,
 } from "lucide-react";
-import { Badge, Panel, PanelHeader } from "@/components/ui";
+import { Badge } from "@/components/ui";
+import { cn } from "@/lib/utils";
+
+type Estado = "pronto" | "pendente";
+
+interface Campo {
+  rotulo: string;
+  valor: string;
+  estado?: Estado;
+}
+
+interface Grupo {
+  titulo: string;
+  chave: string;
+  resumo: string;
+  icone: React.ComponentType<{ className?: string }>;
+  campos: Campo[];
+}
 
 /**
- * Tudo que o bot e a operação consultam fica no banco (tabela settings),
- * nunca fixo no código. Esta tela mostra os valores em vigor.
+ * Tudo que o bot e a operação consultam vive na tabela `settings`.
+ * Esta tela mostra o que está valendo agora e o que ainda falta preencher.
  */
-const GRUPOS = [
+const GRUPOS: Grupo[] = [
   {
-    titulo: "Empresa", icone: Building2, chave: "empresa",
+    titulo: "Empresa", chave: "empresa", icone: Building2,
+    resumo: "Aparece na comanda e nas mensagens ao cliente",
     campos: [
-      ["Nome", "Luxx Pods"],
-      ["Telefone", "(33) 99999-0000"],
-      ["Endereço", "Teófilo Otoni - MG"],
-      ["Logo", "não enviada"],
+      { rotulo: "Nome", valor: "Luxx Pods", estado: "pronto" },
+      { rotulo: "Telefone", valor: "(33) 99999-0000", estado: "pronto" },
+      { rotulo: "Endereço", valor: "Teófilo Otoni — MG", estado: "pronto" },
+      { rotulo: "Logo", valor: "enviada", estado: "pronto" },
     ],
   },
   {
-    titulo: "Atendimento", icone: Clock, chave: "atendimento",
+    titulo: "Atendimento", chave: "atendimento", icone: Clock,
+    resumo: "Quando o bot responde e o que ele diz primeiro",
     campos: [
-      ["Horário", "10:00 às 23:59"],
-      ["Mensagem inicial", "Fala! Aqui é da Luxx Pods 🖤 Como posso te ajudar?"],
-      ["Fora do horário", "Estamos fechados agora. Retornamos às 10h!"],
-      ["Follow-up do catálogo", "5 minutos"],
+      { rotulo: "Horário", valor: "10:00 às 23:59", estado: "pronto" },
+      { rotulo: "Primeira mensagem", valor: "Fala! Aqui é da Luxx Pods 🖤", estado: "pronto" },
+      { rotulo: "Fora do horário", valor: "Estamos fechados. Voltamos às 10h!", estado: "pronto" },
+      { rotulo: "Follow-up do catálogo", valor: "5 minutos", estado: "pronto" },
     ],
   },
   {
-    titulo: "Chatbot", icone: Bot, chave: "chatbot",
+    titulo: "Chatbot", chave: "chatbot", icone: Bot,
+    resumo: "Comportamento do robô na conversa",
     campos: [
-      ["Bot ativo", "sim"],
-      ["Validar maioridade", "sim"],
-      ["Nome do bot", "Luxx"],
-      ["Tom de voz", "comercial e direto"],
-      ["Transferir para humano quando não souber", "sim"],
+      { rotulo: "Bot ativo", valor: "sim", estado: "pronto" },
+      { rotulo: "Validar maioridade", valor: "sim", estado: "pronto" },
+      { rotulo: "Nome do bot", valor: "Luxx", estado: "pronto" },
+      { rotulo: "Passa para humano quando trava", valor: "sim", estado: "pronto" },
     ],
   },
   {
-    titulo: "Catálogo", icone: ImageIcon, chave: "catalogo",
+    titulo: "Catálogo", chave: "catalogo", icone: ImageIcon,
+    resumo: "A imagem que o bot envia quando o cliente pede o catálogo",
     campos: [
-      ["Arquivo PNG do catálogo", "não configurado"],
-      ["Envio automático", "sim"],
-      ["Mostrar itens esgotados", "não"],
+      { rotulo: "Arquivo PNG", valor: "não enviado", estado: "pendente" },
+      { rotulo: "Envio automático", valor: "sim", estado: "pronto" },
+      { rotulo: "Mostrar esgotados", valor: "não", estado: "pronto" },
     ],
   },
   {
-    titulo: "Entrega", icone: Truck, chave: "entrega",
+    titulo: "Entrega", chave: "entrega", icone: Truck,
+    resumo: "Taxa e prazo informados no fechamento",
     campos: [
-      ["Taxa padrão", "R$ 5,00"],
-      ["Entrega grátis acima de", "R$ 150,00"],
-      ["Prazo estimado", "45 minutos"],
-      ["Bairros atendidos", "todos"],
+      { rotulo: "Taxa padrão", valor: "R$ 5,00", estado: "pronto" },
+      { rotulo: "Grátis acima de", valor: "R$ 150,00", estado: "pronto" },
+      { rotulo: "Prazo estimado", valor: "45 minutos", estado: "pronto" },
+      { rotulo: "Bairros atendidos", valor: "todos", estado: "pronto" },
     ],
   },
   {
-    titulo: "Pagamentos", icone: CreditCard, chave: "pagamentos",
+    titulo: "Pagamentos", chave: "pagamentos", icone: CreditCard,
+    resumo: "Formas aceitas e a conta que recebe o PIX",
     campos: [
-      ["PIX", "ativo"],
-      ["Dinheiro", "ativo"],
-      ["Cartão", "inativo"],
-      ["Gateway PIX", "não configurado"],
+      { rotulo: "PIX", valor: "ativo", estado: "pronto" },
+      { rotulo: "Dinheiro", valor: "ativo", estado: "pronto" },
+      { rotulo: "Cartão", valor: "inativo", estado: "pronto" },
+      { rotulo: "Gateway PIX", valor: "não configurado", estado: "pendente" },
     ],
   },
   {
-    titulo: "Estoque", icone: Boxes, chave: "estoque",
+    titulo: "Estoque", chave: "estoque", icone: Boxes,
+    resumo: "Reserva do carrinho e ponto de reposição",
     campos: [
-      ["Tempo de reserva do carrinho", "15 minutos"],
-      ["Estoque mínimo padrão", "3 unidades"],
-      ["Bloquear venda sem estoque", "sim"],
+      { rotulo: "Reserva do carrinho", valor: "15 minutos", estado: "pronto" },
+      { rotulo: "Estoque mínimo padrão", valor: "3 unidades", estado: "pronto" },
+      { rotulo: "Bloquear venda sem estoque", valor: "sim", estado: "pronto" },
     ],
   },
   {
-    titulo: "Impressão", icone: Printer, chave: "impressao",
+    titulo: "Impressão", chave: "impressao", icone: Printer,
+    resumo: "Comanda emitida quando o pedido é confirmado",
     campos: [
-      ["Impressora padrão", "não configurada"],
-      ["Vias por pedido", "1"],
-      ["Impressão automática ao confirmar", "sim"],
+      { rotulo: "Impressora padrão", valor: "não configurada", estado: "pendente" },
+      { rotulo: "Vias por pedido", valor: "1", estado: "pronto" },
+      { rotulo: "Imprimir automaticamente", valor: "sim", estado: "pronto" },
     ],
   },
 ];
 
 export default function ConfiguracoesPage() {
-  return (
-    <div className="space-y-3">
-      <Panel className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-        <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-400">
-          Nenhum destes valores está fixo no código. Todos ficam na tabela{" "}
-          <code className="rounded bg-white/6 px-1 py-0.5 text-[11px] text-brand-300">settings</code>,
-          por loja, e o chatbot lê direto de lá a cada atendimento.
-        </p>
-        <Badge tom="warn">Edição inline no MVP 2</Badge>
-      </Panel>
+  const pendentes = GRUPOS.flatMap((g) =>
+    g.campos.filter((c) => c.estado === "pendente").map((c) => ({ grupo: g.titulo, ...c })));
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        {GRUPOS.map((g) => (
-          <Panel key={g.chave}>
-            <PanelHeader titulo={g.titulo} icone={g.icone}
-              descricao={`settings.${g.chave}`} />
-            <dl className="divide-y divide-white/4">
-              {g.campos.map(([rotulo, valor]) => (
-                <div key={rotulo} className="flex items-start justify-between gap-4 px-5 py-2.5">
-                  <dt className="shrink-0 text-xs text-ink-500">{rotulo}</dt>
-                  <dd className="min-w-0 text-right text-xs font-medium text-ink-200">{valor}</dd>
+  return (
+    <div className="mx-auto max-w-5xl space-y-6">
+      {/* o que falta, antes do que já está feito */}
+      {pendentes.length > 0 && (
+        <div className="chapa realce overflow-hidden">
+          <span className="realce-barra bg-warn-500" />
+          <div className="px-5 py-4">
+            <h2 className="display text-sm font-semibold text-ink-100">
+              {pendentes.length} ajuste{pendentes.length > 1 ? "s" : ""} pendente{pendentes.length > 1 ? "s" : ""}
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-400">
+              A operação funciona sem eles, mas estes pontos limitam o que o bot consegue fazer sozinho.
+            </p>
+            <ul className="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+              {pendentes.map((p) => (
+                <li key={`${p.grupo}-${p.rotulo}`} className="flex items-baseline gap-2 text-xs">
+                  <Circle className="size-2 shrink-0 translate-y-0.5 text-warn-400" />
+                  <span className="text-ink-300">{p.rotulo}</span>
+                  <span className="text-ink-600">·</span>
+                  <span className="text-ink-500">{p.grupo}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-5">
+        {GRUPOS.map((grupo) => (
+          <section key={grupo.chave}>
+            <div className="flex items-baseline gap-2.5 pb-2">
+              <grupo.icone className="size-4 shrink-0 translate-y-0.5 text-ink-500" />
+              <div className="min-w-0">
+                <h2 className="display text-[13px] font-semibold text-ink-100">{grupo.titulo}</h2>
+                <p className="text-[11px] text-ink-500">{grupo.resumo}</p>
+              </div>
+              <code className="ml-auto shrink-0 font-mono text-[10px] text-ink-600">
+                settings.{grupo.chave}
+              </code>
+            </div>
+
+            <dl className="chapa divide-y divide-[var(--linha)] overflow-hidden">
+              {grupo.campos.map((campo) => (
+                <div
+                  key={campo.rotulo}
+                  className="flex items-center justify-between gap-4 px-4 py-2.5"
+                >
+                  <dt className="shrink-0 text-xs text-ink-400">{campo.rotulo}</dt>
+                  <dd className={cn(
+                    "flex min-w-0 items-center gap-2 text-right text-xs",
+                    campo.estado === "pendente" ? "text-warn-400" : "text-ink-200",
+                  )}>
+                    <span className="truncate">{campo.valor}</span>
+                    {campo.estado === "pronto"
+                      ? <CheckCircle2 className="size-3 shrink-0 text-ok-500/70" />
+                      : <Circle className="size-3 shrink-0 text-warn-500/70" />}
+                  </dd>
                 </div>
               ))}
             </dl>
-          </Panel>
+          </section>
         ))}
       </div>
+
+      <p className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-500">
+        <Badge tom="brand">nada fixo no código</Badge>
+        <span className="min-w-0">
+          Taxa, prazos, mensagens, tempo de reserva e etapas do funil ficam no banco, por loja.
+          Mudar aqui muda o atendimento na próxima mensagem — sem publicar versão nova.
+          A edição pela tela entra junto com a conexão ao Supabase.
+        </span>
+      </p>
     </div>
   );
 }

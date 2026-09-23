@@ -99,16 +99,19 @@ function construir(): BaseMvp2 {
   const notas: NotaEntrada[] = [
     { id: "not-1", supplier_id: "for-1", fornecedor_nome: "Distribuidora Vapor SP",
       numero_documento: "NF 10482", data: dataISO(-14), valor_total: 6840,
-      observacao: "Reposição mensal", status: "finalizada",
+      observacao: "Reposição mensal", situacao: "concluida", estoque_aplicado: true,
+      cotacao: null, freteiro_pct: 4, vencimento: dataISO(-4),
       itens_count: 12, pecas: 120, created_at: dias(-14) },
     { id: "not-2", supplier_id: "for-2", fornecedor_nome: "Import Pods BH",
       numero_documento: "NF 3391", data: dataISO(-5), valor_total: 3150,
-      observacao: null, status: "finalizada",
+      observacao: null, situacao: "conferencia", estoque_aplicado: false,
+      cotacao: 5.42, freteiro_pct: 0, vencimento: dataISO(10),
       itens_count: 6, pecas: 45, created_at: dias(-5) },
     { id: "not-3", supplier_id: "for-1", fornecedor_nome: "Distribuidora Vapor SP",
-      numero_documento: null, data: dataISO(0), valor_total: 0,
-      observacao: "Aguardando conferência da carga", status: "rascunho",
-      itens_count: 0, pecas: 0, created_at: dias(0) },
+      numero_documento: "NF 10620", data: dataISO(0), valor_total: 2480,
+      observacao: "Chega na quinta pela transportadora", situacao: "transito",
+      estoque_aplicado: false, cotacao: null, freteiro_pct: 4,
+      vencimento: dataISO(20), itens_count: 4, pecas: 60, created_at: dias(0) },
   ];
 
   const contas: ContaBancaria[] = [

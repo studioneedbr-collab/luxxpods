@@ -62,7 +62,7 @@ export default async function RelatorioChatbotPage({
               <Barra valor={participacao} tom="ok" className="mt-2" />
               <p className="mt-1 text-[11px] text-ink-500">{pct(participacao)} do faturamento total</p>
             </div>
-            <div className="space-y-2 border-t border-white/6 pt-3">
+            <div className="space-y-2 border-t border-[var(--linha)] pt-3">
               <Table>
                 <tbody>
                   {[

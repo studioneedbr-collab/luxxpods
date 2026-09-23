@@ -10,6 +10,7 @@ import { Campo, Confirmar, Modal, Textarea } from "@/components/ui/modal";
 import { cn, hora } from "@/lib/utils";
 import type { EventoCalendario } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { CampoData } from "@/components/ui";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const CORES = ["#9563ff", "#38bdf8", "#34d399", "#fbbf24", "#f87171", "#f5c451"];
@@ -85,7 +86,7 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
   return (
     <div className="grid gap-3 xl:grid-cols-[1fr_330px]">
       <Panel className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/6 px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--linha)] px-5 py-3.5">
           <div className="flex items-center gap-2">
             <span className="grid size-8 place-items-center rounded-lg bg-brand-500/12 text-brand-300">
               <CalendarDays className="size-4" />
@@ -141,7 +142,7 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
                       ? "border-brand-400/60 bg-brand-500/14"
                       : ehHoje
                         ? "border-brand-400/40 bg-brand-500/8"
-                        : "border-white/5 bg-white/[0.015] hover:border-white/12 hover:bg-white/4",
+                        : "border-[var(--linha)] bg-ink-950/60 hover:border-[var(--linha-forte)] hover:bg-ink-850",
                   )}
                 >
                   <span className={cn(
@@ -188,7 +189,7 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
             {doDia.length === 0 ? (
               <p className="px-5 py-6 text-center text-xs text-ink-500">Nada agendado</p>
             ) : (
-              <ul className="divide-y divide-white/4">
+              <ul className="divide-y divide-[var(--linha)]">
                 {doDia.map((e) => (
                   <li key={e.id} className="flex items-center gap-3 px-5 py-2.5">
                     <span className="size-2 shrink-0 rounded-full" style={{ background: e.cor }} />
@@ -212,9 +213,9 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
             <Vazio icone={Repeat} titulo="Nenhuma rotina"
               descricao="Cadastre conferência de estoque, fechamento de caixa e compras." />
           ) : (
-            <ul className="divide-y divide-white/4">
+            <ul className="divide-y divide-[var(--linha)]">
               {ativos.map((e) => (
-                <li key={e.id} className="flex items-center gap-3 px-5 py-3 transition hover:bg-white/3">
+                <li key={e.id} className="flex items-center gap-3 px-5 py-3 transition hover:bg-ink-850/50">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: e.cor }} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium text-ink-200">{e.titulo}</p>
@@ -270,12 +271,12 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
             </Campo>
             <div className="grid gap-3 sm:grid-cols-2">
               <Campo rotulo="Início">
-                <Input type="datetime-local" value={(editando.inicio ?? "").slice(0, 16)}
-                  onChange={(e) => setEditando((p) => ({ ...p!, inicio: e.target.value }))} />
+                <CampoData comHora valor={(editando.inicio ?? "").slice(0, 16) || null}
+                  aoMudar={(v) => setEditando((p) => ({ ...p!, inicio: v ?? p!.inicio }))} />
               </Campo>
               <Campo rotulo="Fim">
-                <Input type="datetime-local" value={(editando.fim ?? "").slice(0, 16)}
-                  onChange={(e) => setEditando((p) => ({ ...p!, fim: e.target.value || null }))} />
+                <CampoData comHora valor={(editando.fim ?? "").slice(0, 16) || null}
+                  aoMudar={(v) => setEditando((p) => ({ ...p!, fim: v }))} />
               </Campo>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -299,7 +300,7 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
                     className={cn(
                       "size-7 rounded-lg transition",
                       editando.cor === cor
-                        ? "ring-2 ring-white/70 ring-offset-2 ring-offset-ink-900"
+                        ? "ring-2 ring-ink-100 ring-offset-2 ring-offset-ink-850"
                         : "hover:scale-110",
                     )}
                     style={{ background: cor }} />

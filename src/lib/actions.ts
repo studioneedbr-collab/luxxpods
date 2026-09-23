@@ -6,7 +6,8 @@ import { STORE_ID, supabaseConfigurado } from "./supabase/config";
 import {
   demoAjustarEstoque, demoAlternarBot, demoAlternarProduto, demoAlternarSabor,
   demoAlterarStatusPedido, demoEnviarMensagem, demoMarcarLido, demoMoverLead,
-  demoSalvarProduto,
+  demoSalvarProduto, demoFecharLeadDoPedido, demoReabrirLeadDoPedido,
+  demoStatusPedido, demoCriarPedido,
 } from "./demo";
 import type { PedidoStatus } from "./types";
 
@@ -129,12 +130,61 @@ export async function moverLead(leadId: string, stageId: string): Promise<Result
 
 /* ---------------------------------------------------------------- PEDIDOS */
 
+/**
+ * O pedido só anda para frente, uma etapa por vez.
+ *
+ * Sem esta trava dá para chamar o Server Action direto e levar um pedido
+ * "pendente" a "entregue": o estoque nunca baixaria e a conta a receber
+ * nunca nasceria, mas o pedido constaria como entregue.
+ */
+const PROXIMO_PERMITIDO: Record<PedidoStatus, PedidoStatus[]> = {
+  pendente:             ["aguardando_pagamento", "confirmado", "cancelado"],
+  aguardando_pagamento: ["confirmado", "cancelado"],
+  confirmado:           ["em_separacao", "cancelado"],
+  em_separacao:         ["saiu_para_entrega", "cancelado"],
+  saiu_para_entrega:    ["entregue", "cancelado"],
+  entregue:             [],
+  cancelado:            [],
+};
+
+/**
+ * O lead é o ATENDIMENTO, não o cliente: quando a venda fecha, ele sai do
+ * funil. Se o cliente chamar de novo, o webhook abre um atendimento novo.
+ */
 export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus): Promise<Resultado> {
   const c = await cli();
+
   if (!c) {
+    const atual = demoStatusPedido(pedidoId);
+    if (atual && !PROXIMO_PERMITIDO[atual].includes(status)) {
+      return { ok: false, erro: `Um pedido ${atual} não pode ir direto para ${status}.` };
+    }
     demoAlterarStatusPedido(pedidoId, status);
-  } else if (status === "confirmado") {
-    const { error } = await c.rpc("confirmar_pedido", { p_order_id: pedidoId });
+    if (status === "entregue") demoFecharLeadDoPedido(pedidoId);
+    if (status === "cancelado") demoReabrirLeadDoPedido(pedidoId);
+    revalidatePath("/pedidos");
+    revalidatePath("/kanban");
+    revalidatePath(`/pedidos/${pedidoId}`);
+    return { ok: true };
+  }
+
+  const { data: user } = await c.auth.getUser();
+  const usuarioId = user?.user?.id ?? null;
+
+  const { data: pedido } = await c
+    .from("orders").select("status_pedido, forma_pagamento, status_pagamento")
+    .eq("id", pedidoId).maybeSingle();
+  if (!pedido) return { ok: false, erro: "Pedido não encontrado." };
+
+  const atual = pedido.status_pedido as PedidoStatus;
+  if (!PROXIMO_PERMITIDO[atual].includes(status)) {
+    return { ok: false, erro: `Um pedido ${atual} não pode ir direto para ${status}.` };
+  }
+
+  if (status === "confirmado") {
+    const { error } = await c.rpc("confirmar_pedido", {
+      p_order_id: pedidoId, p_usuario_id: usuarioId,
+    });
     if (error) return { ok: false, erro: error.message };
   } else {
     const campos: Record<string, string> = {};
@@ -142,11 +192,28 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     if (status === "em_separacao") campos.separado_em = agora;
     if (status === "saiu_para_entrega") campos.despachado_em = agora;
     if (status === "entregue") campos.entregue_em = agora;
+
     const { error } = await c.from("orders")
       .update({ status_pedido: status, ...campos }).eq("id", pedidoId);
     if (error) return { ok: false, erro: error.message };
+
+    // Dinheiro na entrega: entregar É receber. Sem isto a tela mostrava
+    // "pago" por um instante e o financeiro nunca via o dinheiro entrar.
+    if (status === "entregue" && pedido.forma_pagamento === "dinheiro"
+        && pedido.status_pagamento !== "aprovado") {
+      const { error: erroPagamento } = await c.rpc("receber_na_entrega", {
+        p_order_id: pedidoId, p_usuario_id: usuarioId,
+      });
+      if (erroPagamento) {
+        return {
+          ok: false,
+          erro: `Pedido entregue, mas o recebimento não foi registrado: ${erroPagamento.message}`,
+        };
+      }
+    }
   }
   revalidatePath("/pedidos");
+  revalidatePath("/kanban");
   revalidatePath(`/pedidos/${pedidoId}`);
   return { ok: true };
 }
@@ -155,9 +222,11 @@ export async function cancelarPedido(pedidoId: string, motivo: string): Promise<
   const c = await cli();
   if (!c) {
     demoAlterarStatusPedido(pedidoId, "cancelado");
+    demoReabrirLeadDoPedido(pedidoId);
   } else {
+    const { data: user } = await c.auth.getUser();
     const { error } = await c.rpc("cancelar_pedido", {
-      p_order_id: pedidoId, p_motivo: motivo,
+      p_order_id: pedidoId, p_motivo: motivo, p_usuario_id: user?.user?.id ?? null,
     });
     if (error) return { ok: false, erro: error.message };
   }
@@ -178,11 +247,14 @@ export async function ajustarEstoque(pfId: string, novoTotal: number, observacao
     const atual = Number(inv?.quantidade_total ?? 0);
     const delta = novoTotal - atual;
     if (delta !== 0) {
+      const { data: user } = await c.auth.getUser();
       const { error } = await c.rpc("mover_estoque", {
         p_product_flavor_id: pfId,
         p_tipo: delta > 0 ? "ajuste_positivo" : "ajuste_negativo",
         p_quantidade: Math.abs(delta),
         p_referencia_tipo: "ajuste_manual",
+        p_referencia_id: pfId,
+        p_usuario_id: user?.user?.id ?? null,
         p_observacao: observacao ?? "Ajuste manual pelo painel",
       });
       if (error) return { ok: false, erro: error.message };
@@ -223,4 +295,109 @@ export async function salvarProduto(
   revalidatePath("/produtos");
   revalidatePath("/catalogo");
   return { ok: true };
+}
+
+/* ---------------------------------------------------------------- CARRINHO
+ * Reservar o item ao colocar no carrinho é o que impede dois clientes
+ * fecharem a última peça. Se o estoque não der, a reserva falha e nada
+ * é gravado — o cliente descobre agora, não na hora de separar.
+ * ------------------------------------------------------------------------ */
+
+export interface ItemPedido {
+  product_flavor_id: string;
+  quantidade: number;
+}
+
+export interface DadosPedido {
+  customer_id: string | null;
+  conversation_id: string | null;
+  address_id: string | null;
+  /** endereço digitado na hora, quando o cliente ainda não tem nenhum salvo */
+  endereco?: {
+    bairro: string; rua: string; numero: string;
+    complemento?: string; referencia?: string;
+  };
+  itens: ItemPedido[];
+  forma_pagamento: "pix" | "dinheiro";
+  troco_para?: number | null;
+  observacoes?: string | null;
+}
+
+/**
+ * Cria o pedido inteiro numa transação: carrinho, reserva, pedido, itens,
+ * financeiro e impressão. Se qualquer passo falhar, nada fica gravado.
+ */
+export async function criarPedido(
+  dados: DadosPedido,
+): Promise<Resultado & { id?: string; numero?: string }> {
+  if (dados.itens.length === 0) {
+    return { ok: false, erro: "Adicione ao menos um produto ao pedido." };
+  }
+  if (dados.forma_pagamento === "dinheiro" && dados.troco_para != null && dados.troco_para < 0) {
+    return { ok: false, erro: "Valor do troco inválido." };
+  }
+
+  const c = await cli();
+
+  if (!c) {
+    const r = demoCriarPedido(dados);
+    if (!r.ok) return r;
+    revalidatePath("/pedidos");
+    revalidatePath("/kanban");
+    revalidatePath("/estoque");
+    return r;
+  }
+
+  const { data: user } = await c.auth.getUser();
+  const usuarioId = user?.user?.id ?? null;
+
+  // 1) endereço novo, quando o cliente ainda não tem nenhum salvo
+  let addressId = dados.address_id;
+  if (!addressId && dados.endereco && dados.customer_id) {
+    const { data: end, error } = await c.from("customer_addresses")
+      .insert({ customer_id: dados.customer_id, ...dados.endereco, principal: true })
+      .select("id").single();
+    if (error) return { ok: false, erro: `Não consegui salvar o endereço: ${error.message}` };
+    addressId = end.id;
+  }
+
+  // 2) carrinho
+  const { data: cart, error: erroCarrinho } = await c.rpc("abrir_carrinho", {
+    p_conversation_id: dados.conversation_id,
+    p_customer_id: dados.customer_id,
+    p_store_id: STORE_ID,
+  });
+  if (erroCarrinho || !cart) {
+    return { ok: false, erro: erroCarrinho?.message ?? "Não consegui abrir o carrinho" };
+  }
+
+  // 3) itens, um a um: a reserva de cada um pode falhar por falta de estoque
+  for (const item of dados.itens) {
+    const { error } = await c.rpc("adicionar_ao_carrinho", {
+      p_cart_id: cart.id,
+      p_product_flavor_id: item.product_flavor_id,
+      p_quantidade: item.quantidade,
+    });
+    if (error) return { ok: false, erro: error.message };
+  }
+
+  // 4) o carrinho vira pedido
+  const { data: pedido, error: erroPedido } = await c.rpc("criar_pedido", {
+    p_cart_id: cart.id,
+    p_address_id: addressId,
+    p_forma_pagamento: dados.forma_pagamento,
+    p_troco_para: dados.troco_para ?? null,
+    p_observacoes: dados.observacoes ?? null,
+    p_atendente_id: usuarioId,
+    p_origem: dados.conversation_id ? "bot" : "operador",
+  });
+  if (erroPedido || !pedido) {
+    return { ok: false, erro: erroPedido?.message ?? "Não consegui criar o pedido" };
+  }
+
+  revalidatePath("/pedidos");
+  revalidatePath("/kanban");
+  revalidatePath("/estoque");
+  revalidatePath("/entregas");
+  return { ok: true, id: pedido.id, numero: pedido.numero_pedido };
 }

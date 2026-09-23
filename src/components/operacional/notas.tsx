@@ -2,17 +2,22 @@
 
 import { useMemo, useState, useTransition } from "react";
 import {
-  CheckCircle2, FileInput, Package, Plus, Search, Truck, X,
+  ArrowRight, CheckCircle2, ClipboardCheck, FileInput, Package, Plus,
+  RotateCcw, Search, Truck, X, DollarSign, AlertTriangle,
 } from "lucide-react";
-import { lancarEntrada, salvarFornecedor } from "@/lib/actions-mvp2";
 import {
-  Badge, Button, Input, Panel, PanelHeader, Select, Table, Td, Th, Tr, Vazio,
+  concluirNota, criarNota, reabrirNota, salvarFornecedor, situacaoNota,
+} from "@/lib/actions-mvp2";
+import {
+  Badge, Button, CampoData, CampoMoeda, Input, Panel, Secao, Select,
+  Table, Td, Th, Tr, Vazio, CampoMascara,
 } from "@/components/ui";
-import { Campo, Modal, Textarea } from "@/components/ui/modal";
+import { Campo, Confirmar, Modal, Textarea } from "@/components/ui/modal";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
-import { brl, cn, num } from "@/lib/utils";
-import type { Fornecedor, ItemCatalogo, NotaEntrada } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import type { BadgeTom } from "@/components/ui";
+import { brl, cn, num } from "@/lib/utils";
+import type { Fornecedor, ItemCatalogo, NotaEntrada, NotaSituacao } from "@/lib/types";
 
 interface ItemNota {
   product_flavor_id: string;
@@ -20,6 +25,16 @@ interface ItemNota {
   quantidade: number;
   custo_unitario: number;
 }
+
+const SITUACAO: Record<NotaSituacao, { rotulo: string; tom: BadgeTom; explica: string }> = {
+  transito:   { rotulo: "Em trânsito", tom: "info",
+                explica: "Mercadoria a caminho. Nada entrou no estoque ainda." },
+  conferencia:{ rotulo: "Em conferência", tom: "warn",
+                explica: "Chegou e está sendo conferida. O estoque só sobe ao concluir." },
+  concluida:  { rotulo: "Concluída", tom: "ok",
+                explica: "Estoque atualizado, custo médio recalculado e conta a pagar criada." },
+  cancelada:  { rotulo: "Cancelada", tom: "bad", explica: "Nota descartada." },
+};
 
 export function TelaNotas({
   notas: iniciais, fornecedores: fornIniciais, catalogo,
@@ -31,30 +46,37 @@ export function TelaNotas({
   const [notas, setNotas] = useState(iniciais);
   const [fornecedores, setFornecedores] = useState(fornIniciais);
   const [busca, setBusca] = useState("");
+  const [filtro, setFiltro] = useState("todas");
   const [nova, setNova] = useState(false);
   const [novoForn, setNovoForn] = useState(false);
+  const [concluindo, setConcluindo] = useState<NotaEntrada | null>(null);
+  const [reabrindo, setReabrindo] = useState<NotaEntrada | null>(null);
   const [, iniciar] = useTransition();
   const toast = useToast();
 
   const filtradas = useMemo(() => {
     const t = busca.trim().toLowerCase();
-    if (!t) return notas;
-    return notas.filter((n) =>
-      (n.fornecedor_nome ?? "").toLowerCase().includes(t) ||
-      (n.numero_documento ?? "").toLowerCase().includes(t));
-  }, [notas, busca]);
+    return notas.filter((n) => {
+      if (filtro === "abertas" && ["concluida", "cancelada"].includes(n.situacao)) return false;
+      if (filtro !== "todas" && filtro !== "abertas" && n.situacao !== filtro) return false;
+      if (!t) return true;
+      return [n.fornecedor_nome, n.numero_documento]
+        .some((v) => (v ?? "").toLowerCase().includes(t));
+    });
+  }, [notas, busca, filtro]);
 
   const { visiveis, props: paginacao } = usePaginacao(filtradas, 25);
 
-  const totais = {
-    finalizadas: notas.filter((n) => n.status === "finalizada").length,
-    valor: notas.filter((n) => n.status === "finalizada").reduce((a, n) => a + n.valor_total, 0),
-    pecas: notas.filter((n) => n.status === "finalizada").reduce((a, n) => a + n.pecas, 0),
-  };
+  const aCaminho = notas.filter((n) => n.situacao === "transito");
+  const conferindo = notas.filter((n) => n.situacao === "conferencia");
+  const concluidas = notas.filter((n) => n.situacao === "concluida");
 
-  function criarNota(dados: {
-    supplier_id: string | null; numero_documento: string;
-    data: string; observacao: string; itens: ItemNota[];
+  /* ---------------------------------------------------------------- ações */
+
+  function lancar(dados: {
+    supplier_id: string | null; numero_documento: string; data: string;
+    observacao: string; cotacao: number | null; freteiro_pct: number;
+    vencimento: string | null; itens: ItemNota[];
   }) {
     const valor = dados.itens.reduce((a, i) => a + i.quantidade * i.custo_unitario, 0);
     const pecas = dados.itens.reduce((a, i) => a + i.quantidade, 0);
@@ -65,18 +87,24 @@ export function TelaNotas({
       supplier_id: dados.supplier_id, fornecedor_nome: fornecedor?.nome ?? null,
       numero_documento: dados.numero_documento || null, data: dados.data,
       valor_total: valor, observacao: dados.observacao || null,
-      status: "finalizada", itens_count: dados.itens.length, pecas,
+      situacao: "transito", estoque_aplicado: false,
+      cotacao: dados.cotacao, freteiro_pct: dados.freteiro_pct,
+      vencimento: dados.vencimento,
+      itens_count: dados.itens.length, pecas,
       created_at: new Date().toISOString(),
     }, ...l]);
     setNova(false);
 
     iniciar(async () => {
-      const r = await lancarEntrada(
+      const r = await criarNota(
         {
           supplier_id: dados.supplier_id,
           numero_documento: dados.numero_documento || null,
           data: dados.data,
           observacao: dados.observacao || null,
+          cotacao: dados.cotacao,
+          freteiro_pct: dados.freteiro_pct,
+          vencimento: dados.vencimento,
         },
         dados.itens.map((i) => ({
           product_flavor_id: i.product_flavor_id,
@@ -85,14 +113,49 @@ export function TelaNotas({
         })),
       );
       if (r.ok) {
+        toast.ok("Nota lançada", `${num(pecas)} peças · ${brl(valor)} — o estoque sobe ao concluir`);
+      } else {
+        setNotas(iniciais);
+        toast.erro("Não consegui lançar a nota", r.erro);
+      }
+    });
+  }
+
+  function mudarSituacao(nota: NotaEntrada, situacao: NotaSituacao) {
+    setNotas((l) => l.map((n) => (n.id === nota.id ? { ...n, situacao } : n)));
+    iniciar(async () => {
+      const r = await situacaoNota(nota.id, situacao);
+      if (r.ok) toast.ok(`Nota em ${SITUACAO[situacao].rotulo.toLowerCase()}`);
+      else { setNotas(iniciais); toast.erro("Não consegui mudar a situação", r.erro); }
+    });
+  }
+
+  function concluir(nota: NotaEntrada) {
+    setConcluindo(null);
+    setNotas((l) => l.map((n) => (n.id === nota.id
+      ? { ...n, situacao: "concluida", estoque_aplicado: true } : n)));
+    iniciar(async () => {
+      const r = await concluirNota(nota.id);
+      if (r.ok) {
         toast.ok(
-          `Entrada lançada · ${num(pecas)} peças`,
-          `Estoque atualizado e custo médio recalculado · ${brl(valor)}`,
+          `${num(nota.pecas)} peças entraram no estoque`,
+          "Custo médio recalculado e conta a pagar gerada",
         );
       } else {
         setNotas(iniciais);
-        toast.erro("Não consegui lançar a entrada", r.erro);
+        toast.erro("Não consegui concluir a nota", r.erro);
       }
+    });
+  }
+
+  function reabrir(nota: NotaEntrada) {
+    setReabrindo(null);
+    setNotas((l) => l.map((n) => (n.id === nota.id
+      ? { ...n, situacao: "conferencia", estoque_aplicado: false } : n)));
+    iniciar(async () => {
+      const r = await reabrirNota(nota.id);
+      if (r.ok) toast.ok("Nota reaberta", "O estoque foi estornado e a conta cancelada");
+      else { setNotas(iniciais); toast.erro("Não consegui reabrir", r.erro); }
     });
   }
 
@@ -110,94 +173,186 @@ export function TelaNotas({
     });
   }
 
+  /* ----------------------------------------------------------------- tela */
+
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Cartao rotulo="Notas finalizadas" valor={num(totais.finalizadas)} />
-        <Cartao rotulo="Peças recebidas" valor={num(totais.pecas)} tom="ok" />
-        <Cartao rotulo="Investido em mercadoria" valor={brl(totais.valor)} tom="brand" />
-        <Cartao rotulo="Fornecedores" valor={num(fornecedores.length)} />
+    <div className="space-y-6">
+      {/* o caminho da mercadoria, em vez de cartões soltos */}
+      <div className="chapa overflow-hidden">
+        <div className="grid divide-y divide-[var(--linha)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          {[
+            { etapa: "1", titulo: "Em trânsito", qtd: aCaminho.length, icone: Truck,
+              texto: "a caminho, nada no estoque", tom: "text-info-400" },
+            { etapa: "2", titulo: "Em conferência", qtd: conferindo.length, icone: ClipboardCheck,
+              texto: "chegou, sendo conferida", tom: "text-warn-400" },
+            { etapa: "3", titulo: "Concluídas", qtd: concluidas.length, icone: CheckCircle2,
+              texto: "estoque e financeiro aplicados", tom: "text-ok-400" },
+          ].map((e, i) => (
+            <div key={e.etapa} className="relative flex items-center gap-3 px-4 py-3.5">
+              <e.icone className={cn("size-4 shrink-0", e.tom)} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-ink-100">{e.titulo}</p>
+                <p className="truncate text-[11px] text-ink-500">{e.texto}</p>
+              </div>
+              <span className={cn("numero text-lg", e.qtd > 0 ? e.tom : "text-ink-600")}>
+                {e.qtd}
+              </span>
+              {i < 2 && (
+                <ArrowRight className="absolute -right-2 top-1/2 hidden size-3.5 -translate-y-1/2 text-ink-700 sm:block" />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
-      <Panel className="flex flex-wrap items-center gap-2 p-3">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
-          <input
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por fornecedor ou número da nota…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
-          />
+      <Secao
+        titulo="Notas de entrada"
+        descricao="O estoque só sobe quando a nota é concluída — lançar e dar entrada são atos separados"
+        acao={
+          <div className="flex gap-2">
+            <Button tamanho="sm" onClick={() => setNovoForn(true)}>
+              <Truck className="size-3.5" /> Fornecedor
+            </Button>
+            <Button variante="primario" tamanho="sm" onClick={() => setNova(true)}>
+              <Plus className="size-3.5" /> Lançar nota
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Fornecedor ou número da nota…"
+              className="h-8 w-full rounded-md bg-ink-950 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-600 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            />
+          </div>
+          <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
+            <option value="todas">Todas</option>
+            <option value="abertas">Em aberto</option>
+            <option value="transito">Em trânsito</option>
+            <option value="conferencia">Em conferência</option>
+            <option value="concluida">Concluídas</option>
+          </Select>
         </div>
-        <Button onClick={() => setNovoForn(true)}>
-          <Truck className="size-3.5" /> Novo fornecedor
-        </Button>
-        <Button variante="primario" onClick={() => setNova(true)}>
-          <Plus className="size-3.5" /> Lançar entrada
-        </Button>
-      </Panel>
 
-      <Panel className="overflow-hidden">
-        <PanelHeader titulo="Notas de entrada" icone={FileInput}
-          descricao="Ao finalizar, o estoque sobe e o custo médio é recalculado automaticamente" />
-        {filtradas.length === 0 ? (
-          <Vazio icone={FileInput} titulo="Nenhuma nota lançada"
-            descricao="Lance a entrada da mercadoria para o estoque subir com histórico."
-            acao={<Button variante="primario" tamanho="sm" onClick={() => setNova(true)}>
-              <Plus className="size-3.5" /> Lançar entrada
-            </Button>} />
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Data</Th><Th>Fornecedor</Th><Th>Documento</Th>
-                <Th className="text-center">Itens</Th>
-                <Th className="text-right">Peças</Th>
-                <Th className="text-right">Valor total</Th>
-                <Th className="text-center">Status</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiveis.map((n) => (
-                <Tr key={n.id}>
-                  <Td className="whitespace-nowrap tabular-nums text-ink-300">
-                    {new Date(`${n.data}T12:00:00`).toLocaleDateString("pt-BR")}
-                  </Td>
-                  <Td className="font-medium text-ink-100">{n.fornecedor_nome ?? "—"}</Td>
-                  <Td className="tabular-nums text-ink-400">{n.numero_documento ?? "—"}</Td>
-                  <Td className="text-center tabular-nums text-ink-300">{n.itens_count}</Td>
-                  <Td className="text-right tabular-nums text-ink-200">{num(n.pecas)}</Td>
-                  <Td className="text-right font-semibold tabular-nums text-ink-100">
-                    {brl(n.valor_total)}
-                  </Td>
-                  <Td className="text-center">
-                    <Badge tom={n.status === "finalizada" ? "ok" : n.status === "cancelada" ? "bad" : "warn"}>
-                      {n.status}
-                    </Badge>
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-        <Paginacao {...paginacao} rotulo="notas" />
-      </Panel>
+        <Panel className="overflow-hidden">
+          {filtradas.length === 0 ? (
+            <Vazio icone={FileInput} titulo="Nenhuma nota"
+              descricao="Lance a nota quando a compra for feita — ela fica em trânsito até a mercadoria chegar."
+              acao={<Button variante="primario" tamanho="sm" onClick={() => setNova(true)}>
+                <Plus className="size-3.5" /> Lançar nota
+              </Button>} />
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Data</Th><Th>Fornecedor</Th><Th>Documento</Th>
+                  <Th className="text-right">Peças</Th>
+                  <Th className="text-right">Total</Th>
+                  <Th className="text-center">Situação</Th>
+                  <Th className="text-right">Ação</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiveis.map((n) => {
+                  const st = SITUACAO[n.situacao];
+                  return (
+                    <Tr key={n.id}>
+                      <Td className="whitespace-nowrap tabular-nums text-ink-400">
+                        {new Date(`${n.data}T12:00:00`).toLocaleDateString("pt-BR")}
+                      </Td>
+                      <Td>
+                        <p className="font-medium text-ink-100">{n.fornecedor_nome ?? "—"}</p>
+                        {n.cotacao && (
+                          <p className="text-[11px] text-ink-500">
+                            dólar a {brl(n.cotacao)}
+                          </p>
+                        )}
+                      </Td>
+                      <Td className="font-mono text-[11px] text-ink-400">
+                        {n.numero_documento ?? "—"}
+                      </Td>
+                      <Td className="text-right tabular-nums text-ink-200">{num(n.pecas)}</Td>
+                      <Td className="numero text-right text-ink-100">{brl(n.valor_total)}</Td>
+                      <Td className="text-center">
+                        <Badge tom={st.tom} ponto>{st.rotulo}</Badge>
+                      </Td>
+                      <Td>
+                        <div className="flex justify-end gap-1.5">
+                          {n.situacao === "transito" && (
+                            <Button tamanho="sm" onClick={() => mudarSituacao(n, "conferencia")}>
+                              <ClipboardCheck className="size-3.5" /> Chegou
+                            </Button>
+                          )}
+                          {n.situacao === "conferencia" && (
+                            <Button variante="ok" tamanho="sm" onClick={() => setConcluindo(n)}>
+                              <CheckCircle2 className="size-3.5" /> Concluir
+                            </Button>
+                          )}
+                          {n.situacao === "concluida" && (
+                            <Button tamanho="sm" variante="fantasma" onClick={() => setReabrindo(n)}
+                              title="Estorna o estoque e cancela a conta gerada">
+                              <RotateCcw className="size-3.5" /> Reabrir
+                            </Button>
+                          )}
+                        </div>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          )}
+          <Paginacao {...paginacao} rotulo="notas" />
+        </Panel>
+      </Secao>
 
       {nova && (
         <FormNota
           fornecedores={fornecedores}
           catalogo={catalogo}
           onFechar={() => setNova(false)}
-          onSalvar={criarNota}
+          onSalvar={lancar}
         />
       )}
 
       {novoForn && (
         <FormFornecedor onFechar={() => setNovoForn(false)} onSalvar={criarFornecedor} />
       )}
+
+      <Confirmar
+        aberto={Boolean(concluindo)}
+        titulo={`Concluir a nota de ${concluindo?.fornecedor_nome ?? "fornecedor"}?`}
+        mensagem={
+          `${num(concluindo?.pecas ?? 0)} peças entram no estoque agora, o custo médio de cada ` +
+          `SKU é recalculado${(concluindo?.freteiro_pct ?? 0) > 0 ? ` (com ${concluindo?.freteiro_pct}% de freteiro embutido)` : ""}` +
+          ` e uma conta a pagar de ${brl(concluindo?.valor_total ?? 0)} é criada. Só conclua depois de conferir a carga.`
+        }
+        textoConfirmar="Concluir e dar entrada"
+        onCancelar={() => setConcluindo(null)}
+        onConfirmar={() => concluindo && concluir(concluindo)}
+      />
+
+      <Confirmar
+        aberto={Boolean(reabrindo)}
+        titulo="Reabrir a nota?"
+        mensagem={
+          `As ${num(reabrindo?.pecas ?? 0)} peças saem do estoque com movimentação registrada e a ` +
+          `conta a pagar é cancelada. A nota volta para conferência.`
+        }
+        textoConfirmar="Reabrir e estornar"
+        perigo
+        onCancelar={() => setReabrindo(null)}
+        onConfirmar={() => reabrindo && reabrir(reabrindo)}
+      />
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ FORM */
 
 function FormNota({
   fornecedores, catalogo, onFechar, onSalvar,
@@ -206,14 +361,19 @@ function FormNota({
   catalogo: ItemCatalogo[];
   onFechar: () => void;
   onSalvar: (d: {
-    supplier_id: string | null; numero_documento: string;
-    data: string; observacao: string; itens: ItemNota[];
+    supplier_id: string | null; numero_documento: string; data: string;
+    observacao: string; cotacao: number | null; freteiro_pct: number;
+    vencimento: string | null; itens: ItemNota[];
   }) => void;
 }) {
-  const [supplier, setSupplier] = useState<string>(fornecedores[0]?.id ?? "");
+  const [supplier, setSupplier] = useState(fornecedores[0]?.id ?? "");
   const [documento, setDocumento] = useState("");
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
+  const [vencimento, setVencimento] = useState<string | null>(null);
   const [observacao, setObservacao] = useState("");
+  const [importada, setImportada] = useState(false);
+  const [cotacao, setCotacao] = useState(0);
+  const [freteiro, setFreteiro] = useState(0);
   const [itens, setItens] = useState<ItemNota[]>([]);
   const [busca, setBusca] = useState("");
 
@@ -239,14 +399,15 @@ function FormNota({
 
   const total = itens.reduce((a, i) => a + i.quantidade * i.custo_unitario, 0);
   const pecas = itens.reduce((a, i) => a + i.quantidade, 0);
+  const valorFreteiro = total * (freteiro / 100);
 
   return (
     <Modal
       aberto
       onFechar={onFechar}
       largura="lg"
-      titulo="Lançar entrada de mercadoria"
-      descricao="Ao salvar, cada item entra no estoque com movimentação registrada"
+      titulo="Lançar nota de entrada"
+      descricao="A nota nasce em trânsito — o estoque só muda quando você concluir"
       rodape={
         <>
           <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
@@ -254,17 +415,18 @@ function FormNota({
             variante="primario"
             disabled={itens.length === 0}
             onClick={() => onSalvar({
-              supplier_id: supplier || null, numero_documento: documento, data, observacao, itens,
+              supplier_id: supplier || null, numero_documento: documento, data,
+              observacao, cotacao: importada && cotacao > 0 ? cotacao : null,
+              freteiro_pct: freteiro, vencimento, itens,
             })}
           >
-            <CheckCircle2 className="size-3.5" />
-            Finalizar e dar entrada ({num(pecas)} peças)
+            Lançar ({num(pecas)} peças)
           </Button>
         </>
       }
     >
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <div className="space-y-5">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Campo rotulo="Fornecedor">
             <Select value={supplier} onChange={(e) => setSupplier(e.target.value)} className="w-full">
               <option value="">Sem fornecedor</option>
@@ -274,29 +436,70 @@ function FormNota({
           <Campo rotulo="Número da nota">
             <Input value={documento} onChange={(e) => setDocumento(e.target.value)} placeholder="NF 10482" />
           </Campo>
-          <Campo rotulo="Data">
-            <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
+          <Campo rotulo="Data da compra">
+            <CampoData valor={data} aoMudar={(v) => setData(v ?? data)} />
+          </Campo>
+          <Campo rotulo="Vencimento do pagamento" dica="vira conta a pagar ao concluir">
+            <CampoData valor={vencimento} aoMudar={setVencimento} />
           </Campo>
         </div>
 
+        {/* custos que mudam a margem: freteiro e dólar */}
+        <div className="rounded-lg bg-ink-950 p-3 ring-1 ring-inset ring-[var(--linha)]">
+          <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-medium text-ink-400">
+            <DollarSign className="size-3.5 text-ink-500" />
+            Custos que entram no preço de cada peça
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo rotulo="Freteiro (%)" dica="embutido no custo médio de cada SKU">
+              <Input type="number" min={0} max={100} step={0.5} value={freteiro}
+                onChange={(e) => setFreteiro(Number(e.target.value))} />
+            </Campo>
+            <div>
+              <button
+                type="button"
+                onClick={() => setImportada((v) => !v)}
+                className="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-300"
+              >
+                <span className={cn(
+                  "grid size-3.5 place-items-center rounded-sm transition-colors",
+                  importada ? "bg-brand-500" : "bg-ink-800 ring-1 ring-inset ring-[var(--linha-forte)]",
+                )}>
+                  {importada && <span className="size-1.5 rounded-[1px] bg-white" />}
+                </span>
+                Compra em dólar
+              </button>
+              {importada && (
+                <CampoMoeda valor={cotacao} aoMudar={setCotacao} placeholder="5,42" />
+              )}
+            </div>
+          </div>
+          {freteiro > 0 && total > 0 && (
+            <p className="mt-2 text-[11px] text-ink-500">
+              Freteiro de {brl(valorFreteiro)} — vira uma segunda conta a pagar e entra no custo.
+            </p>
+          )}
+        </div>
+
+        {/* itens */}
         <div>
-          <Campo rotulo="Adicionar produto + sabor" dica="Busque pelo nome do modelo, sabor ou SKU">
+          <Campo rotulo="Adicionar produto + sabor" dica="busque por modelo, sabor ou SKU">
             <Input value={busca} onChange={(e) => setBusca(e.target.value)}
               placeholder="Ignite V300 Watermelon…" />
           </Campo>
           {sugestoes.length > 0 && (
-            <ul className="mt-1 overflow-hidden rounded-lg ring-1 ring-inset ring-white/10">
+            <ul className="mt-1 overflow-hidden rounded-md ring-1 ring-inset ring-[var(--linha-forte)]">
               {sugestoes.map((c) => (
                 <li key={c.product_flavor_id}>
                   <button
                     onClick={() => adicionar(c)}
-                    className="flex w-full items-center gap-2 bg-ink-850 px-3 py-2 text-left transition hover:bg-brand-500/15"
+                    className="flex w-full items-center gap-2 bg-ink-850 px-3 py-2 text-left transition-colors hover:bg-brand-500/15"
                   >
                     <Package className="size-3.5 shrink-0 text-ink-500" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs text-ink-100">{c.produto}</span>
+                      <span className="block truncate text-[13px] text-ink-100">{c.produto}</span>
                       <span className="block truncate text-[11px] text-ink-500">
-                        {c.marca} · {c.sabor} · estoque atual {c.estoque_total}
+                        {c.marca} · {c.sabor} · tem {c.estoque_total} em estoque
                       </span>
                     </span>
                     <span className="shrink-0 text-[11px] tabular-nums text-ink-400">
@@ -310,12 +513,12 @@ function FormNota({
         </div>
 
         {itens.length > 0 && (
-          <div className="overflow-hidden rounded-lg ring-1 ring-inset ring-white/8">
+          <div className="overflow-hidden rounded-md ring-1 ring-inset ring-[var(--linha)]">
             <Table>
               <thead>
                 <tr>
                   <Th>Item</Th>
-                  <Th className="w-24 text-center">Qtd</Th>
+                  <Th className="w-20 text-center">Qtd</Th>
                   <Th className="w-32 text-right">Custo un.</Th>
                   <Th className="text-right">Subtotal</Th>
                   <Th className="w-10" />
@@ -334,20 +537,21 @@ function FormNota({
                       />
                     </Td>
                     <Td className="text-right">
-                      <Input
-                        type="number" step="0.01" value={i.custo_unitario}
-                        onChange={(e) => setItens((l) => l.map((x, j) =>
-                          j === idx ? { ...x, custo_unitario: Number(e.target.value) } : x))}
-                        className="h-7 w-24 text-right"
+                      <CampoMoeda
+                        valor={i.custo_unitario}
+                        aoMudar={(v) => setItens((l) => l.map((x, j) =>
+                          j === idx ? { ...x, custo_unitario: v } : x))}
+                        className="w-28"
                       />
                     </Td>
-                    <Td className="text-right font-semibold tabular-nums text-ink-100">
+                    <Td className="numero text-right text-ink-100">
                       {brl(i.quantidade * i.custo_unitario)}
                     </Td>
                     <Td>
                       <button
                         onClick={() => setItens((l) => l.filter((_, j) => j !== idx))}
-                        className="grid size-6 place-items-center rounded-md text-ink-500 transition hover:bg-bad-500/15 hover:text-bad-400"
+                        aria-label={`Remover ${i.rotulo}`}
+                        className="grid size-6 place-items-center rounded text-ink-600 transition-colors hover:bg-bad-500/15 hover:text-bad-400"
                       >
                         <X className="size-3" />
                       </button>
@@ -356,21 +560,25 @@ function FormNota({
                 ))}
               </tbody>
             </Table>
-            <div className="flex items-center justify-between border-t border-white/6 bg-white/3 px-4 py-2.5">
-              <span className="text-xs text-ink-400">{num(pecas)} peças · {itens.length} itens</span>
-              <span className="text-base font-bold tabular-nums text-ink-100">{brl(total)}</span>
+            <div className="flex items-center justify-between border-t border-[var(--linha)] bg-ink-950 px-4 py-2.5">
+              <span className="text-[11px] text-ink-500">
+                {num(pecas)} peças · {itens.length} itens
+              </span>
+              <span className="numero text-base text-ink-100">{brl(total)}</span>
             </div>
           </div>
         )}
 
         <Campo rotulo="Observação">
           <Textarea rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)}
-            placeholder="Reposição mensal" />
+            placeholder="Chega na quinta pela transportadora" />
         </Campo>
 
-        <p className="rounded-lg bg-brand-500/8 px-3 py-2.5 text-[11px] leading-relaxed text-brand-200 ring-1 ring-inset ring-brand-500/15">
-          Ao finalizar, cada item gera uma movimentação de <strong>entrada</strong> no estoque
-          e o custo médio do SKU é recalculado com base na quantidade e no custo informados.
+        <p className="flex items-start gap-2 rounded-lg bg-info-500/8 px-3 py-2.5 text-[11px] leading-relaxed text-info-400">
+          <AlertTriangle className="mt-px size-3.5 shrink-0" />
+          A nota entra como <strong>em trânsito</strong>. Quando a carga chegar, marque
+          &ldquo;Chegou&rdquo; e confira; só ao <strong>concluir</strong> é que o estoque sobe,
+          o custo médio muda e a conta a pagar é criada.
         </p>
       </div>
     </Modal>
@@ -398,11 +606,13 @@ function FormFornecedor({
             placeholder="Distribuidora Vapor SP" />
         </Campo>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Campo rotulo="CNPJ / documento">
-            <Input value={f.documento ?? ""} onChange={(e) => setF((p) => ({ ...p, documento: e.target.value }))} />
+          <Campo rotulo="CNPJ ou CPF">
+            <CampoMascara tipo="documento" valor={f.documento ?? ""}
+              aoMudar={(v) => setF((p) => ({ ...p, documento: v }))} />
           </Campo>
           <Campo rotulo="Telefone">
-            <Input value={f.telefone ?? ""} onChange={(e) => setF((p) => ({ ...p, telefone: e.target.value }))} />
+            <CampoMascara tipo="telefone" valor={f.telefone ?? ""}
+              aoMudar={(v) => setF((p) => ({ ...p, telefone: v }))} />
           </Campo>
         </div>
         <Campo rotulo="E-mail">
@@ -410,17 +620,5 @@ function FormFornecedor({
         </Campo>
       </div>
     </Modal>
-  );
-}
-
-function Cartao({ rotulo, valor, tom = "neutro" }: {
-  rotulo: string; valor: string; tom?: "neutro" | "ok" | "brand";
-}) {
-  const cores = { neutro: "text-ink-100", ok: "text-ok-400", brand: "text-brand-300" };
-  return (
-    <Panel className="p-4">
-      <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-      <p className={cn("mt-1 text-xl font-bold tabular-nums", cores[tom])}>{valor}</p>
-    </Panel>
   );
 }

@@ -207,12 +207,20 @@ function construir(): Base {
       });
     });
 
+    // só etapas abertas entram no funil; ganho e perdido saem dele
+    const etapasAbertas = ETAPAS_FUNIL.filter((e) => e.tipo === "aberto");
+    const status = i % 7 === 0 ? "ganho" : i % 11 === 0 ? "perdido" : "aberto";
     leads.push({
       id: `lead-${i}`, customer_id: id, conversation_id: convId,
-      stage_id: ETAPAS_FUNIL[i % ETAPAS_FUNIL.length].slug,
+      stage_id: status === "ganho"
+        ? "concluido"
+        : status === "perdido"
+          ? "perdido"
+          : etapasAbertas[i % etapasAbertas.length].slug,
       origem: cliente.origem, canal,
       valor_estimado: 89.9 + (i % 5) * 30,
-      status: i % 7 === 0 ? "ganho" : i % 11 === 0 ? "perdido" : "aberto",
+      status,
+      numero_atendimento: i % 3 === 0 ? 2 : 1,
       ordem: i, created_at: new Date(dt).toISOString(), cliente,
     });
 
@@ -507,4 +515,162 @@ export function demoSalvarProduto(id: string, dados: Partial<Produto>) {
       if (dados.custo !== undefined) { c.custo = dados.custo; c.custo_medio = dados.custo; }
     }
   });
+}
+
+
+/** Venda fechada: o atendimento sai do funil (espelha o trigger do banco). */
+export function demoFecharLeadDoPedido(pedidoId: string) {
+  const d = demo();
+  const pedido = d.pedidos.find((p) => p.id === pedidoId);
+  if (!pedido) return;
+  const lead = d.leads.find((l) => l.conversation_id === pedido.conversation_id);
+  if (!lead || lead.status === "ganho") return;
+  lead.status = "ganho";
+  lead.stage_id = "concluido";
+  lead.order_id = pedido.id;
+  lead.valor_ganho = pedido.total;
+}
+
+/** Pedido cancelado: o atendimento volta para a fila. */
+export function demoReabrirLeadDoPedido(pedidoId: string) {
+  const d = demo();
+  const pedido = d.pedidos.find((p) => p.id === pedidoId);
+  if (!pedido) return;
+  const lead = d.leads.find((l) => l.conversation_id === pedido.conversation_id);
+  if (!lead || lead.status !== "ganho") return;
+  lead.status = "aberto";
+  lead.stage_id = "em-atendimento";
+  lead.order_id = null;
+  lead.valor_ganho = null;
+}
+
+/**
+ * Cliente voltou a chamar depois de um atendimento fechado: abre um novo,
+ * numerado, na primeira coluna do funil.
+ */
+export function demoAbrirAtendimento(conversationId: string): Lead | null {
+  const d = demo();
+  const aberto = d.leads.find(
+    (l) => l.conversation_id === conversationId && l.status === "aberto");
+  if (aberto) return aberto;
+
+  const conversa = d.conversas.find((c) => c.id === conversationId);
+  if (!conversa) return null;
+
+  const anteriores = d.leads.filter((l) => l.customer_id === conversa.customer_id);
+  const novo: Lead = {
+    id: `lead-${Date.now()}`,
+    customer_id: conversa.customer_id,
+    conversation_id: conversationId,
+    stage_id: ETAPAS_FUNIL.find((e) => e.tipo === "aberto")!.slug,
+    origem: "Retorno do cliente",
+    canal: conversa.canal,
+    valor_estimado: 0,
+    status: "aberto",
+    numero_atendimento: anteriores.length + 1,
+    ordem: d.leads.length + 1,
+    created_at: new Date().toISOString(),
+    cliente: conversa.cliente ?? null,
+  };
+  d.leads.push(novo);
+  conversa.lead_id = novo.id;
+  conversa.estado = "INITIAL";
+  return novo;
+}
+
+
+/** Status atual do pedido na base de demonstração, para validar a transição. */
+export function demoStatusPedido(pedidoId: string): PedidoStatus | null {
+  return demo().pedidos.find((p) => p.id === pedidoId)?.status_pedido ?? null;
+}
+
+/** Cria o pedido na base de demonstração, com a mesma checagem de estoque. */
+export function demoCriarPedido(dados: {
+  customer_id: string | null;
+  conversation_id: string | null;
+  address_id: string | null;
+  endereco?: { bairro: string; rua: string; numero: string; complemento?: string; referencia?: string };
+  itens: Array<{ product_flavor_id: string; quantidade: number }>;
+  forma_pagamento: "pix" | "dinheiro";
+  troco_para?: number | null;
+  observacoes?: string | null;
+}): { ok: boolean; erro?: string; id?: string; numero?: string } {
+  const d = demo();
+
+  // confere o estoque de tudo ANTES de gravar qualquer coisa
+  for (const item of dados.itens) {
+    const c = d.catalogo.find((x) => x.product_flavor_id === item.product_flavor_id);
+    if (!c) return { ok: false, erro: "Produto não encontrado no catálogo." };
+    if (!c.vendavel) return { ok: false, erro: `${c.produto} · ${c.sabor} não está disponível.` };
+    if (c.estoque_disponivel < item.quantidade) {
+      return {
+        ok: false,
+        erro: `${c.produto} · ${c.sabor}: só tem ${c.estoque_disponivel} disponível.`,
+      };
+    }
+  }
+
+  const cliente = d.clientes.find((x) => x.id === dados.customer_id);
+  const numero = `LX-${new Date().getFullYear()}-${String(d.pedidos.length + 1).padStart(6, "0")}`;
+  const id = `ped-${Date.now()}`;
+
+  const itens: PedidoItem[] = dados.itens.map((item, i) => {
+    const c = d.catalogo.find((x) => x.product_flavor_id === item.product_flavor_id)!;
+    return {
+      id: `oi-${id}-${i}`,
+      produto_nome: c.produto, sabor_nome: c.sabor, marca_nome: c.marca,
+      quantidade: item.quantidade,
+      preco_unitario: c.preco, custo_unitario: c.custo_medio,
+      subtotal: c.preco * item.quantidade,
+    };
+  });
+
+  const subtotal = itens.reduce((a, i) => a + i.subtotal, 0);
+  const entrega = subtotal >= 150 ? 0 : 5;
+  const total = subtotal + entrega;
+
+  const pedido: Pedido = {
+    id, numero_pedido: numero,
+    cliente_nome: cliente?.nome ?? "Cliente avulso",
+    cliente_telefone: cliente?.telefone ?? null,
+    customer_id: dados.customer_id,
+    conversation_id: dados.conversation_id,
+    canal: dados.conversation_id ? "whatsapp" : "manual",
+    origem: dados.conversation_id ? "bot" : "operador",
+    subtotal, desconto: 0, taxa_entrega: entrega, total,
+    custo_total: itens.reduce((a, i) => a + i.custo_unitario * i.quantidade, 0),
+    forma_pagamento: dados.forma_pagamento,
+    status_pagamento: "aguardando",
+    // dinheiro já pode separar; PIX espera o pagamento cair
+    status_pedido: dados.forma_pagamento === "dinheiro" ? "confirmado" : "aguardando_pagamento",
+    troco_para: dados.troco_para ?? null,
+    valor_troco: dados.troco_para ? dados.troco_para - total : null,
+    observacoes: dados.observacoes ?? null,
+    endereco_snapshot: dados.endereco
+      ? { ...dados.endereco, cidade: "Teófilo Otoni" }
+      : { bairro: "Centro", rua: "—", numero: "—", cidade: "Teófilo Otoni" },
+    created_at: new Date().toISOString(),
+    confirmado_em: dados.forma_pagamento === "dinheiro" ? new Date().toISOString() : null,
+    entregue_em: null,
+    itens,
+  };
+
+  d.pedidos.unshift(pedido);
+  d.itens[id] = itens;
+
+  // baixa o estoque com histórico, como a função do banco faria
+  dados.itens.forEach((item) => {
+    const c = d.catalogo.find((x) => x.product_flavor_id === item.product_flavor_id)!;
+    demoAjustarEstoque(item.product_flavor_id, c.estoque_total - item.quantidade,
+      `Venda ${numero}`);
+  });
+
+  if (cliente) {
+    cliente.total_pedidos += 1;
+    cliente.total_comprado += total;
+    cliente.ticket_medio = cliente.total_comprado / cliente.total_pedidos;
+    cliente.ultima_compra = pedido.created_at;
+  }
+
+  return { ok: true, id, numero };
 }

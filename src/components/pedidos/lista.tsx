@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Banknote, MessageCircle, AtSign, Search, ShoppingBag, QrCode, Filter } from "lucide-react";
-import { Badge, Panel, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
+import { Banknote, MessageCircle, AtSign, Search, ShoppingBag, QrCode, Filter, Plus } from "lucide-react";
+import { Badge, Button, Panel, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { STATUS_PAGAMENTO, STATUS_PEDIDO, METODO_PAGAMENTO } from "@/lib/labels";
 import { brl, cn, dataHora, num } from "@/lib/utils";
@@ -58,7 +58,7 @@ export function ListaPedidos({
           </p>
           <button
             onClick={() => setBusca("")}
-            className="rounded-md px-2 py-0.5 text-[11px] font-medium text-brand-300 transition hover:bg-white/8 hover:text-brand-100"
+            className="rounded-md px-2 py-0.5 text-[11px] font-medium text-brand-300 transition hover:bg-ink-800 hover:text-brand-100"
           >
             ver todos
           </button>
@@ -72,7 +72,7 @@ export function ListaPedidos({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por número, cliente ou telefone…"
-            className="h-9 w-full rounded-lg bg-white/4 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-white/10 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-400/50"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -90,6 +90,11 @@ export function ListaPedidos({
         <Badge tom="brand">{num(totais.qtd)} pedidos</Badge>
         <Badge tom="ok">{brl(totais.valor)}</Badge>
         {totais.receber > 0 && <Badge tom="warn">{brl(totais.receber)} a receber</Badge>}
+        <Link href="/pedidos/novo">
+          <Button variante="primario" tamanho="sm">
+            <Plus className="size-3.5" /> Novo pedido
+          </Button>
+        </Link>
         <BotaoExportar
           itens={filtrados}
           nomeArquivo="pedidos"
@@ -117,7 +122,15 @@ export function ListaPedidos({
 
       <Panel className="overflow-hidden">
         {filtrados.length === 0 ? (
-          <Vazio icone={ShoppingBag} titulo="Nenhum pedido" descricao="Ajuste os filtros acima." />
+          <Vazio icone={ShoppingBag} titulo="Nenhum pedido"
+            descricao="Ajuste os filtros ou registre uma venda de balcão."
+            acao={
+              <Link href="/pedidos/novo">
+                <Button variante="primario" tamanho="sm">
+                  <Plus className="size-3.5" /> Novo pedido
+                </Button>
+              </Link>
+            } />
         ) : (
           <Table>
             <thead>

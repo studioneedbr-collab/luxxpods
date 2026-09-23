@@ -204,6 +204,11 @@ export interface Lead {
   status: string;
   ordem: number;
   created_at: string;
+  /** 1 = primeiro contato do cliente; 2+ = ele voltou */
+  numero_atendimento?: number;
+  /** preenchido quando o atendimento virou venda */
+  order_id?: string | null;
+  valor_ganho?: number | null;
   cliente?: Cliente | null;
 }
 
@@ -302,6 +307,8 @@ export interface Fornecedor {
   status: "ativo" | "inativo";
 }
 
+export type NotaSituacao = "transito" | "conferencia" | "concluida" | "cancelada";
+
 export interface NotaEntrada {
   id: string;
   supplier_id: string | null;
@@ -310,10 +317,30 @@ export interface NotaEntrada {
   data: string;
   valor_total: number;
   observacao: string | null;
-  status: "rascunho" | "finalizada" | "cancelada";
+  situacao: NotaSituacao;
+  estoque_aplicado: boolean;
+  /** cotação do dólar quando a compra é importada */
+  cotacao: number | null;
+  /** percentual do freteiro sobre o total da nota */
+  freteiro_pct: number;
+  vencimento: string | null;
   itens_count: number;
   pecas: number;
+  itens?: NotaItem[];
   created_at: string;
+}
+
+export interface NotaItem {
+  id: string;
+  product_flavor_id: string;
+  produto: string;
+  sabor: string;
+  marca: string | null;
+  quantidade: number;
+  quantidade_conferida: number | null;
+  custo_unitario: number;
+  custo_usd: number | null;
+  subtotal: number;
 }
 
 export interface ContaBancaria {
