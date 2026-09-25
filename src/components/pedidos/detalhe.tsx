@@ -4,9 +4,10 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Banknote, Bike, CheckCircle2, MapPin, MessageCircle, Package,
-  Printer, QrCode, User, X, AlertTriangle, Clock,
+  Printer, QrCode, User, X, AlertTriangle, Clock, Check,
 } from "lucide-react";
-import { alterarStatusPedido, cancelarPedido } from "@/lib/actions";
+import { alterarStatusPedido, cancelarPedido, confirmarPagamentoPix } from "@/lib/actions";
+import { CobrancaPix } from "./pix";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui";
 import { FLUXO_PEDIDO, METODO_PAGAMENTO, STATUS_PAGAMENTO, STATUS_PEDIDO } from "@/lib/labels";
 import { brl, cn, dataHora, telefone } from "@/lib/utils";
@@ -54,6 +55,21 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
     });
   }
 
+  /** Baixa manual do PIX: confere o comprovante e libera o pedido. */
+  function confirmarPix() {
+    setPedido((p) => ({ ...p, status_pagamento: "aprovado" }));
+    iniciar(async () => {
+      const r = await confirmarPagamentoPix(pedido.id);
+      if (r.ok) {
+        toast.ok("PIX confirmado", "O pedido entrou em separação");
+        setPedido((p) => ({ ...p, status_pedido: "confirmado" }));
+      } else {
+        setPedido(inicial);
+        toast.erro("Não consegui confirmar o pagamento", r.erro);
+      }
+    });
+  }
+
   function cancelar() {
     setPedido((p) => ({ ...p, status_pedido: "cancelado" }));
     setCancelando(false);
@@ -75,7 +91,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
         <Link href="/pedidos">
           <Button variante="fantasma" tamanho="sm"><ArrowLeft className="size-3.5" /> Pedidos</Button>
         </Link>
-        <h2 className="text-lg font-bold tabular-nums tracking-tight text-ink-100">{pedido.numero_pedido}</h2>
+        <h2 className="text-[19px] font-bold tabular-nums tracking-tight text-ink-100">{pedido.numero_pedido}</h2>
         <Badge tom={st.tom} ponto>{st.rotulo}</Badge>
         <Badge tom={pg.tom}>{METODO_PAGAMENTO[pedido.forma_pagamento]} · {pg.rotulo}</Badge>
 
@@ -104,7 +120,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
       {aReceber && pedido.status_pedido !== "cancelado" && (
         <div className="flex items-center gap-2.5 rounded-xl border border-warn-500/25 bg-warn-500/8 px-4 py-3 print:hidden">
           <AlertTriangle className="size-4 shrink-0 text-warn-400" />
-          <p className="text-xs text-warn-300">
+          <p className="text-[11px] text-warn-300">
             <span className="font-semibold">Receber na entrega: {brl(pedido.total)}</span>
             {pedido.troco_para
               ? ` — cliente vai pagar com ${brl(pedido.troco_para)}, levar ${brl(pedido.valor_troco ?? 0)} de troco.`
@@ -158,23 +174,23 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
           <div className="divide-y divide-[var(--linha)]">
             {(pedido.itens ?? []).map((item) => (
               <div key={item.id} className="flex items-center gap-3 px-5 py-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-xs font-bold text-brand-300">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-[11px] font-bold text-brand-300">
                   {item.quantidade}×
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink-100">{item.produto_nome}</p>
+                  <p className="truncate text-[13px] font-medium text-ink-100">{item.produto_nome}</p>
                   <p className="truncate text-[11px] text-ink-500">
                     {item.marca_nome} · {item.sabor_nome}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold tabular-nums text-ink-100">{brl(item.subtotal)}</p>
+                  <p className="text-[13px] font-semibold tabular-nums text-ink-100">{brl(item.subtotal)}</p>
                   <p className="text-[11px] tabular-nums text-ink-500">{brl(item.preco_unitario)} un</p>
                 </div>
               </div>
             ))}
             {(pedido.itens ?? []).length === 0 && (
-              <p className="px-5 py-8 text-center text-xs text-ink-500">Sem itens registrados</p>
+              <p className="px-5 py-8 text-center text-[11px] text-ink-500">Sem itens registrados</p>
             )}
           </div>
           <div className="space-y-1.5 border-t border-[var(--linha)] px-5 py-4">
@@ -182,8 +198,8 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
             {pedido.desconto > 0 && <Linha rotulo="Desconto" valor={`− ${brl(pedido.desconto)}`} tom="ok" />}
             <Linha rotulo="Entrega" valor={brl(pedido.taxa_entrega)} />
             <div className="flex items-center justify-between border-t border-[var(--linha)] pt-2.5">
-              <span className="text-sm font-semibold text-ink-200">Total</span>
-              <span className="text-lg font-bold tabular-nums text-ink-100">{brl(pedido.total)}</span>
+              <span className="text-[13px] font-semibold text-ink-200">Total</span>
+              <span className="text-[19px] font-bold tabular-nums text-ink-100">{brl(pedido.total)}</span>
             </div>
             {pedido.custo_total > 0 && (
               <p className="pt-1 text-right text-[11px] tabular-nums text-ink-500">
@@ -196,8 +212,8 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
         <div className="space-y-3">
           <Panel>
             <PanelHeader titulo="Cliente" icone={User} />
-            <div className="space-y-2 px-5 py-4 text-xs">
-              <p className="text-sm font-semibold text-ink-100">{pedido.cliente_nome}</p>
+            <div className="space-y-2 px-5 py-4 text-[11px]">
+              <p className="text-[13px] font-semibold text-ink-100">{pedido.cliente_nome}</p>
               <p className="tabular-nums text-ink-400">{telefone(pedido.cliente_telefone)}</p>
               {pedido.customer_id && (
                 <Link href={`/clientes/${pedido.customer_id}`}
@@ -210,7 +226,7 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
 
           <Panel>
             <PanelHeader titulo="Entrega" icone={MapPin} />
-            <div className="space-y-1 px-5 py-4 text-xs text-ink-300">
+            <div className="space-y-1 px-5 py-4 text-[11px] text-ink-300">
               {pedido.endereco_snapshot ? (
                 <>
                   <p className="font-medium text-ink-100">
@@ -226,10 +242,14 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
             </div>
           </Panel>
 
+          {pedido.forma_pagamento === "pix" && pedido.status_pagamento !== "aprovado" && (
+            <CobrancaPix pedidoId={pedido.id} numeroPedido={pedido.numero_pedido} />
+          )}
+
           <Panel>
             <PanelHeader titulo="Pagamento"
               icone={pedido.forma_pagamento === "pix" ? QrCode : Banknote} />
-            <div className="space-y-2 px-5 py-4 text-xs">
+            <div className="space-y-2 px-5 py-4 text-[11px]">
               <Linha rotulo="Forma" valor={METODO_PAGAMENTO[pedido.forma_pagamento]} />
               <Linha rotulo="Situação" valor={pg.rotulo} tom={pedido.status_pagamento === "aprovado" ? "ok" : "warn"} />
               {pedido.troco_para && (
@@ -237,6 +257,19 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
                   <Linha rotulo="Cliente paga com" valor={brl(pedido.troco_para)} />
                   <Linha rotulo="Troco" valor={brl(pedido.valor_troco ?? 0)} tom="warn" />
                 </>
+              )}
+
+              {pedido.forma_pagamento === "pix" && pedido.status_pagamento !== "aprovado"
+               && pedido.status_pedido !== "cancelado" && (
+                <Button
+                  variante="ok"
+                  tamanho="sm"
+                  className="mt-1 w-full justify-center"
+                  disabled={salvando}
+                  onClick={confirmarPix}
+                >
+                  <Check className="size-3.5" /> Confirmar recebimento do PIX
+                </Button>
               )}
             </div>
           </Panel>
@@ -257,15 +290,15 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm print:hidden"
           onClick={() => setCancelando(false)}>
           <div className="panel w-full max-w-sm animate-in-up p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold text-ink-100">Cancelar {pedido.numero_pedido}?</h3>
-            <p className="mt-1 text-xs text-ink-400">
+            <h3 className="text-[13px] font-semibold text-ink-100">Cancelar {pedido.numero_pedido}?</h3>
+            <p className="mt-1 text-[11px] text-ink-400">
               O estoque dos itens volta automaticamente e o lançamento financeiro é cancelado.
             </p>
             <input
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Motivo do cancelamento"
-              className="mt-3 h-9 w-full rounded-lg bg-ink-850 px-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+              className="mt-3 h-9 w-full rounded-lg bg-ink-850 px-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             />
             <div className="mt-4 flex justify-end gap-2">
               <Button variante="fantasma" onClick={() => setCancelando(false)}>Voltar</Button>

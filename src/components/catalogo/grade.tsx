@@ -1,13 +1,21 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle, Boxes, Check, Minus, Package, Plus, Search, Ban, CircleCheck,
+  Trash2, Droplets,
 } from "lucide-react";
 import { ajustarEstoque, alternarSabor } from "@/lib/actions";
-import { Badge, Panel, Select, Table, Td, Th, Tr, Vazio, Barra } from "@/components/ui";
-import { brl, cn, num, pct } from "@/lib/utils";
-import type { ItemCatalogo } from "@/lib/types";
+import { criarSabor, excluirSabor } from "@/lib/actions-cadastro";
+import {
+  Badge, Button, Input, Panel, Select, Table, Td, Th, Tr, Vazio, Barra,
+} from "@/components/ui";
+import { Campo, Confirmar, Modal } from "@/components/ui/modal";
+import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
+import { brl, cn, dataHora, num, pct } from "@/lib/utils";
+import type { ItemCatalogo, Movimento } from "@/lib/types";
+import { MOVIMENTO } from "@/lib/labels";
 import { useToast } from "@/components/ui/toast";
 import { BotaoExportar } from "@/components/ui/botao-exportar";
 
@@ -21,6 +29,10 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [visao, setVisao] = useState<Visao>("grade");
   const [salvando, iniciar] = useTransition();
+  const [novoSabor, setNovoSabor] = useState<{ produtoId: string; produto: string } | null>(null);
+  const [excluindo, setExcluindo] = useState<ItemCatalogo | null>(null);
+  const [vendoHistorico, setVendoHistorico] = useState<ItemCatalogo | null>(null);
+  const router = useRouter();
   const toast = useToast();
 
   const marcas = useMemo(
@@ -89,6 +101,34 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
     });
   }
 
+  function adicionarSabor(produtoId: string, nome: string) {
+    setNovoSabor(null);
+    iniciar(async () => {
+      const r = await criarSabor(produtoId, nome);
+      if (r.ok) {
+        toast.ok(`Sabor "${nome}" adicionado`, "Dê entrada no estoque para o bot começar a oferecer");
+        router.refresh();
+      } else {
+        toast.erro("Não consegui adicionar o sabor", r.erro);
+      }
+    });
+  }
+
+  function removerSabor(item: ItemCatalogo) {
+    setExcluindo(null);
+    setDados((l) => l.filter((d) => d.product_flavor_id !== item.product_flavor_id));
+    iniciar(async () => {
+      const r = await excluirSabor(item.product_flavor_id);
+      if (r.ok) toast.ok("Sabor removido", `${item.produto} · ${item.sabor}`);
+      else {
+        setDados(itens);
+        toast.erro("Não consegui remover", r.erro);
+      }
+    });
+  }
+
+  const { visiveis, props: paginacao } = usePaginacao(filtrados, 50);
+
   const resumo = {
     skus: filtrados.length,
     pecas: filtrados.reduce((a, d) => a + d.estoque_total, 0),
@@ -105,7 +145,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar produto, sabor ou SKU…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
 
@@ -149,7 +189,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
               key={v}
               onClick={() => setVisao(v)}
               className={cn(
-                "rounded-md px-2.5 py-1.5 text-xs font-medium capitalize transition",
+                "rounded-md px-2.5 py-1.5 text-[11px] font-medium capitalize transition",
                 visao === v ? "bg-brand-500 text-white" : "text-ink-400 hover:text-ink-200",
               )}
             >
@@ -180,17 +220,17 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
         return (
           <Panel key={p.product_id} className="overflow-hidden">
             <div className="flex flex-wrap items-center gap-3 border-b border-[var(--linha)] px-4 py-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500/25 to-brand-700/10 text-xs font-bold text-brand-200 ring-1 ring-inset ring-brand-500/20">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500/25 to-brand-700/10 text-[11px] font-bold text-brand-200 ring-1 ring-inset ring-brand-500/20">
                 {(p.marca ?? "?").slice(0, 2).toUpperCase()}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink-100">{p.produto}</p>
+                <p className="truncate text-[13px] font-semibold text-ink-100">{p.produto}</p>
                 <p className="text-[11px] text-ink-500">
                   {p.marca} · {p.puffs ? `${num(p.puffs)} puffs` : "—"} · {grupo.length} sabores
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-bold tabular-nums text-ink-100">{brl(p.preco)}</p>
+                <p className="text-[13px] font-bold tabular-nums text-ink-100">{brl(p.preco)}</p>
                 <p className="text-[11px] tabular-nums text-ink-500">
                   custo {brl(p.custo)} · margem {pct(p.preco > 0 ? ((p.preco - p.custo) / p.preco) * 100 : 0, 0)}
                 </p>
@@ -199,6 +239,14 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                 {disponiveis > 0 ? `${disponiveis} disponíveis` : "sem sabores"}
               </Badge>
               <Badge tom="neutro">{num(total)} un</Badge>
+              <Button
+                tamanho="sm"
+                variante="fantasma"
+                onClick={() => setNovoSabor({ produtoId: p.product_id, produto: p.produto })}
+                title={`Adicionar sabor a ${p.produto}`}
+              >
+                <Plus className="size-3.5" /> sabor
+              </Button>
             </div>
 
             <div className="grid gap-px bg-ink-850 sm:grid-cols-2 xl:grid-cols-3">
@@ -210,26 +258,38 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className={cn(
-                          "truncate text-xs font-medium",
+                          "truncate text-[11px] font-medium",
                           item.sabor_ativo ? "text-ink-200" : "text-ink-500 line-through",
                         )}>
                           {item.sabor}
                         </p>
                         <p className="truncate text-[10px] tabular-nums text-ink-500">{item.sku}</p>
                       </div>
-                      <button
-                        onClick={() => mudarAtivo(item)}
-                        disabled={salvando}
-                        title={item.sabor_ativo ? "Desativar sabor" : "Ativar sabor"}
-                        className={cn(
-                          "grid size-6 shrink-0 place-items-center rounded-md transition",
-                          item.sabor_ativo
-                            ? "bg-ok-500/15 text-ok-400 hover:bg-ok-500/25"
-                            : "bg-ink-800 text-ink-500 hover:bg-ink-700",
-                        )}
-                      >
-                        {item.sabor_ativo ? <Check className="size-3" /> : <Ban className="size-3" />}
-                      </button>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          onClick={() => mudarAtivo(item)}
+                          disabled={salvando}
+                          title={item.sabor_ativo ? "Desativar sabor" : "Ativar sabor"}
+                          aria-label={item.sabor_ativo ? `Desativar ${item.sabor}` : `Ativar ${item.sabor}`}
+                          className={cn(
+                            "grid size-6 place-items-center rounded-md transition-colors",
+                            item.sabor_ativo
+                              ? "bg-ok-500/15 text-ok-400 hover:bg-ok-500/25"
+                              : "bg-ink-800 text-ink-500 hover:bg-ink-700",
+                          )}
+                        >
+                          {item.sabor_ativo ? <Check className="size-3" /> : <Ban className="size-3" />}
+                        </button>
+                        <button
+                          onClick={() => setExcluindo(item)}
+                          disabled={salvando}
+                          title="Remover sabor deste produto"
+                          aria-label={`Remover ${item.sabor}`}
+                          className="grid size-6 place-items-center rounded-md text-ink-600 transition-colors hover:bg-bad-500/15 hover:text-bad-400"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-2 flex items-center gap-1.5">
@@ -240,14 +300,18 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                       >
                         <Minus className="size-3" />
                       </button>
-                      <span className={cn(
-                        "min-w-[46px] rounded-md px-2 py-1 text-center text-xs font-bold tabular-nums",
-                        zerado ? "bg-bad-500/12 text-bad-400"
-                          : critico ? "bg-warn-500/12 text-warn-400"
-                            : "bg-ink-800 text-ink-100",
-                      )}>
+                      <button
+                        onClick={() => setVendoHistorico(item)}
+                        title="Ver as movimentações deste sabor"
+                        className={cn(
+                          "min-w-[46px] rounded-md px-2 py-1 text-center text-[11px] font-bold tabular-nums transition-colors",
+                          zerado ? "bg-bad-500/12 text-bad-400 hover:bg-bad-500/20"
+                            : critico ? "bg-warn-500/12 text-warn-400 hover:bg-warn-500/20"
+                              : "bg-ink-800 text-ink-100 hover:bg-ink-700",
+                        )}
+                      >
                         {item.estoque_disponivel}
-                      </span>
+                      </button>
                       <button
                         onClick={() => mudarEstoque(item, +1)}
                         disabled={salvando}
@@ -275,6 +339,35 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
         );
       })}
 
+      {vendoHistorico && (
+        <HistoricoSabor
+          item={vendoHistorico}
+          onFechar={() => setVendoHistorico(null)}
+        />
+      )}
+
+      {novoSabor && (
+        <FormSabor
+          produto={novoSabor.produto}
+          onFechar={() => setNovoSabor(null)}
+          onSalvar={(nome) => adicionarSabor(novoSabor.produtoId, nome)}
+        />
+      )}
+
+      <Confirmar
+        aberto={Boolean(excluindo)}
+        titulo={`Remover ${excluindo?.sabor}?`}
+        mensagem={
+          excluindo && excluindo.estoque_total > 0
+            ? `Ainda há ${excluindo.estoque_total} unidade(s) deste sabor em estoque. Zere o estoque antes, ou apenas desative para o bot parar de oferecer.`
+            : `O sabor sai de ${excluindo?.produto}. Os pedidos antigos continuam mostrando o que foi vendido.`
+        }
+        textoConfirmar="Remover"
+        perigo
+        onCancelar={() => setExcluindo(null)}
+        onConfirmar={() => excluindo && removerSabor(excluindo)}
+      />
+
       {visao === "lista" && filtrados.length > 0 && (
         <Panel className="overflow-hidden">
           <Table>
@@ -290,7 +383,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((d) => (
+              {visiveis.map((d) => (
                 <Tr key={d.product_flavor_id}>
                   <Td className="text-ink-400">{d.marca}</Td>
                   <Td className="font-medium text-ink-100">{d.produto}</Td>
@@ -303,7 +396,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
                   </Td>
                   <Td className="text-center">
                     <span className={cn(
-                      "rounded-md px-2 py-0.5 text-xs font-bold tabular-nums",
+                      "rounded-md px-2 py-0.5 text-[11px] font-bold tabular-nums",
                       d.estoque_disponivel <= 0 ? "bg-bad-500/12 text-bad-400"
                         : d.estoque_disponivel <= d.estoque_minimo ? "bg-warn-500/12 text-warn-400"
                           : "text-ink-100",
@@ -321,6 +414,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
               ))}
             </tbody>
           </Table>
+          <Paginacao {...paginacao} rotulo="itens" />
         </Panel>
       )}
     </div>
@@ -344,8 +438,152 @@ function Mini({
       </span>
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-        <p className="text-base font-bold tabular-nums text-ink-100">{valor}</p>
+        <p className="text-[15px] font-bold tabular-nums text-ink-100">{valor}</p>
       </div>
     </Panel>
+  );
+}
+
+/** Sabor novo para um modelo. Entra zerado — o estoque vem pela nota. */
+function FormSabor({
+  produto, onFechar, onSalvar,
+}: { produto: string; onFechar: () => void; onSalvar: (nome: string) => void }) {
+  const [nome, setNome] = useState("");
+
+  return (
+    <Modal
+      aberto
+      onFechar={onFechar}
+      largura="sm"
+      titulo="Adicionar sabor"
+      descricao={produto}
+      rodape={
+        <>
+          <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
+          <Button variante="primario" disabled={!nome.trim()} onClick={() => onSalvar(nome.trim())}>
+            <Check className="size-3.5" /> Adicionar
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo rotulo="Nome do sabor" dica="como o cliente vai ver na conversa">
+          <Input value={nome} onChange={(e) => setNome(e.target.value)}
+            placeholder="Watermelon Ice" autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter" && nome.trim()) onSalvar(nome.trim()); }} />
+        </Campo>
+
+        <p className="flex items-start gap-2 rounded-md bg-ink-850 px-3 py-2.5 text-[11px] leading-relaxed text-ink-400">
+          <Droplets className="mt-px size-3.5 shrink-0 text-ink-500" />
+          O sabor nasce com estoque zero, então o bot ainda não oferece.
+          Dê entrada pela nota de mercadoria ou ajuste aqui no catálogo.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * O histórico daquele SKU, aberto pelo próprio número do estoque.
+ * Ver o saldo sem ver como ele chegou ali é o que faz ninguém confiar no
+ * número — aqui cada entrada e saída aparece com o antes e o depois.
+ */
+function HistoricoSabor({
+  item, onFechar,
+}: { item: ItemCatalogo; onFechar: () => void }) {
+  const [movimentos, setMovimentos] = useState<Movimento[] | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/movimentos?pf=${item.product_flavor_id}`)
+      .then((r) => r.json())
+      .then((d) => { if (vivo) setMovimentos(d.movimentos ?? []); })
+      .catch(() => { if (vivo) setMovimentos([]); });
+    return () => { vivo = false; };
+  }, [item.product_flavor_id]);
+
+  return (
+    <Modal
+      aberto
+      onFechar={onFechar}
+      largura="lg"
+      titulo={`${item.produto} · ${item.sabor}`}
+      descricao="Toda entrada e saída, com o saldo antes e depois"
+      rodape={<Button variante="fantasma" onClick={onFechar}>Fechar</Button>}
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            ["Em estoque", num(item.estoque_total), "text-ink-100"],
+            ["Reservado", num(item.estoque_reservado), "text-warn-400"],
+            ["Disponível", num(item.estoque_disponivel), "text-ok-400"],
+            ["Mínimo", num(item.estoque_minimo), "text-ink-400"],
+          ].map(([rotulo, valor, cor]) => (
+            <div key={rotulo} className="rounded-md bg-ink-950 px-3 py-2.5">
+              <p className="rotulo truncate">{rotulo}</p>
+              <p className={cn("numero mt-0.5 text-[15px]", cor)}>{valor}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-md bg-ink-950 px-3 py-2.5">
+            <p className="rotulo">Custo médio</p>
+            <p className="numero mt-0.5 text-[15px] text-ink-200">{brl(item.custo_medio)}</p>
+          </div>
+          <div className="rounded-md bg-ink-950 px-3 py-2.5">
+            <p className="rotulo">Preço de venda</p>
+            <p className="numero mt-0.5 text-[15px] text-ink-100">{brl(item.preco)}</p>
+          </div>
+        </div>
+
+        {movimentos === null ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => <div key={i} className="skeleton h-9 rounded-md" />)}
+          </div>
+        ) : movimentos.length === 0 ? (
+          <Vazio icone={Package} titulo="Sem movimentações"
+            descricao="Este sabor ainda não teve entrada nem saída registrada." />
+        ) : (
+          <div className="overflow-hidden rounded-md ring-1 ring-inset ring-[var(--linha)]">
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Quando</Th><Th>Tipo</Th>
+                  <Th className="text-right">Qtd</Th>
+                  <Th className="text-right">Antes</Th>
+                  <Th className="text-right">Depois</Th>
+                  <Th>Observação</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {movimentos.map((m) => {
+                  const mv = MOVIMENTO[m.tipo];
+                  return (
+                    <Tr key={m.id}>
+                      <Td className="whitespace-nowrap text-[11px] tabular-nums text-ink-400">
+                        {dataHora(m.created_at)}
+                      </Td>
+                      <Td><Badge tom={mv.tom}>{mv.rotulo}</Badge></Td>
+                      <Td className={cn(
+                        "text-right font-semibold tabular-nums",
+                        mv.sinal > 0 ? "text-ok-400" : mv.sinal < 0 ? "text-bad-400" : "text-ink-300",
+                      )}>
+                        {mv.sinal > 0 ? "+" : mv.sinal < 0 ? "−" : ""}{m.quantidade}
+                      </Td>
+                      <Td className="text-right tabular-nums text-ink-500">{m.saldo_anterior}</Td>
+                      <Td className="text-right tabular-nums text-ink-200">{m.saldo_posterior}</Td>
+                      <Td className="max-w-[200px] truncate text-[11px] text-ink-500">
+                        {m.observacao ?? "—"}
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }

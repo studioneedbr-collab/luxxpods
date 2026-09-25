@@ -9,8 +9,8 @@ export default function NaoEncontrado() {
           <span className="mx-auto grid size-12 place-items-center rounded-xl bg-brand-500/12 text-brand-300 ring-1 ring-inset ring-brand-500/20">
             <Compass className="size-5" />
           </span>
-          <h1 className="mt-4 text-lg font-semibold text-ink-100">Página não encontrada</h1>
-          <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-ink-400">
+          <h1 className="mt-4 text-[19px] font-semibold text-ink-100">Página não encontrada</h1>
+          <p className="mx-auto mt-1.5 max-w-xs text-[11px] leading-relaxed text-ink-400">
             O endereço acessado não existe no sistema. Pode ter sido um link antigo
             ou um pedido que já foi removido.
           </p>
@@ -18,7 +18,7 @@ export default function NaoEncontrado() {
         <div className="border-t border-[var(--linha)] px-6 py-3.5">
           <Link
             href="/"
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-500 px-4 text-sm font-medium text-white shadow-lg shadow-brand-500/20 transition hover:bg-brand-400"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-500 px-4 text-[13px] font-medium text-white shadow-lg shadow-brand-500/20 transition hover:bg-brand-400"
           >
             <Home className="size-3.5" /> Voltar ao dashboard
           </Link>

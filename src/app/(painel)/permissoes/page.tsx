@@ -65,7 +65,7 @@ const GRUPOS: Array<{
 export default function PermissoesPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <p className="text-xs leading-relaxed text-ink-400">
+      <p className="text-[11px] leading-relaxed text-ink-400">
         Cada perfil libera um conjunto de ações. O administrador ainda pode conceder ou
         revogar uma permissão específica para uma pessoa, sem mudar o perfil dela.
       </p>

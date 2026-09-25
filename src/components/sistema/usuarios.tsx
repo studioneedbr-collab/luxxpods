@@ -151,7 +151,7 @@ export function TelaUsuarios({
               <div className="flex items-baseline justify-between gap-2">
                 <h3 className="display text-[13px] font-semibold text-ink-100">{p.nome}</h3>
                 <span className={cn(
-                  "numero text-sm",
+                  "numero text-[13px]",
                   p.total > 0 ? "text-brand-300" : "text-ink-600",
                 )}>
                   {p.total}

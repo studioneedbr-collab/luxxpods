@@ -72,7 +72,7 @@ export function TelaUpsell({
       </div>
 
       <Panel className="flex flex-wrap items-center justify-between gap-2 p-3">
-        <p className="text-xs text-ink-400">
+        <p className="text-[11px] text-ink-400">
           O bot apresenta a oferta de maior prioridade antes de pedir o endereço.
         </p>
         <Button variante="primario" onClick={() => setEditando({ ...vazio, prioridade: regras.length + 1 })}>
@@ -95,11 +95,11 @@ export function TelaUpsell({
             return (
               <Panel key={r.id} className="overflow-hidden">
                 <div className="flex items-start gap-3 border-b border-[var(--linha)] px-5 py-3.5">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-xs font-bold text-brand-300">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-[11px] font-bold text-brand-300">
                     {r.prioridade}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-ink-100">{r.nome}</p>
+                    <p className="truncate text-[13px] font-semibold text-ink-100">{r.nome}</p>
                     <p className="truncate text-[11px] text-ink-500">
                       {r.produto_origem_nome ?? "qualquer produto"}
                       {" → "}
@@ -120,7 +120,7 @@ export function TelaUpsell({
                 </div>
 
                 <div className="px-5 py-3">
-                  <div className="rounded-xl rounded-bl-sm bg-brand-500/18 px-3.5 py-2 text-xs leading-relaxed text-brand-50 ring-1 ring-inset ring-brand-500/20">
+                  <div className="rounded-xl rounded-bl-sm bg-brand-500/18 px-3.5 py-2 text-[11px] leading-relaxed text-brand-50 ring-1 ring-inset ring-brand-500/20">
                     <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-brand-300">
                       <Zap className="size-2.5" /> mensagem do bot
                     </p>
@@ -143,7 +143,7 @@ export function TelaUpsell({
                   ].map(([rot, val, cor]) => (
                     <div key={rot} className="bg-ink-900 px-3 py-2.5">
                       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rot}</p>
-                      <p className={cn("mt-0.5 text-sm font-bold tabular-nums", cor)}>{val}</p>
+                      <p className={cn("mt-0.5 text-[13px] font-bold tabular-nums", cor)}>{val}</p>
                     </div>
                   ))}
                 </div>
@@ -275,7 +275,7 @@ function FormUpsell({
             <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-ink-500">
               <Target className="size-3" /> Prévia no WhatsApp
             </p>
-            <div className="rounded-xl rounded-bl-sm bg-brand-500/18 px-3.5 py-2 text-sm leading-relaxed text-brand-50 ring-1 ring-inset ring-brand-500/20">
+            <div className="rounded-xl rounded-bl-sm bg-brand-500/18 px-3.5 py-2 text-[13px] leading-relaxed text-brand-50 ring-1 ring-inset ring-brand-500/20">
               {f.mensagem}
             </div>
           </div>
@@ -294,7 +294,7 @@ function Cartao({ rotulo, valor, tom = "neutro" }: {
   return (
     <Panel className="p-4">
       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-      <p className={cn("mt-1 text-xl font-bold tabular-nums", cores[tom])}>{valor}</p>
+      <p className={cn("mt-1 text-[19px] font-bold tabular-nums", cores[tom])}>{valor}</p>
     </Panel>
   );
 }

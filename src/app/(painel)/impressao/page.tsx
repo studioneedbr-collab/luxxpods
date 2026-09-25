@@ -25,7 +25,7 @@ export default async function ImpressaoPage() {
           ].map(([r, v]) => (
             <div key={r} className="bg-ink-900 px-5 py-4">
               <p className="text-[10px] uppercase tracking-wide text-ink-500">{r}</p>
-              <p className="mt-0.5 text-sm font-medium text-ink-200">{v}</p>
+              <p className="mt-0.5 text-[13px] font-medium text-ink-200">{v}</p>
             </div>
           ))}
         </div>

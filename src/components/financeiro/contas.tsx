@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Landmark, Pencil, Plus, Wallet, TrendingUp, TrendingDown } from "lucide-react";
-import { salvarContaBancaria } from "@/lib/actions-mvp2";
+import {
+  Landmark, Pencil, Plus, Wallet, TrendingUp, TrendingDown, Trash2, Check,
+} from "lucide-react";
+import { excluirContaBancaria, salvarContaBancaria } from "@/lib/actions-mvp2";
 import { Badge, Button, Input, Panel, Select, Vazio } from "@/components/ui";
-import { Campo, Modal, Switch } from "@/components/ui/modal";
+import { Campo, Confirmar, Modal, Switch } from "@/components/ui/modal";
 import { brl, cn } from "@/lib/utils";
 import type { ContaBancaria, Lancamento } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
@@ -19,13 +21,22 @@ export function TelaContas({
 }: { contas: ContaBancaria[]; lancamentos: Lancamento[] }) {
   const [contas, setContas] = useState(iniciais);
   const [editando, setEditando] = useState<Partial<ContaBancaria> | null>(null);
+  const [excluindo, setExcluindo] = useState<ContaBancaria | null>(null);
   const [, iniciar] = useTransition();
   const toast = useToast();
 
   function salvar(dados: Partial<ContaBancaria>) {
     if (!dados.nome?.trim()) return;
     setContas((l) => dados.id
-      ? l.map((c) => (c.id === dados.id ? { ...c, ...dados } as ContaBancaria : c))
+      ? l.map((c) => (c.id === dados.id
+          // o saldo atual é derivado do extrato: mudar o saldo inicial
+          // desloca o atual na mesma medida
+          ? {
+              ...c, ...dados,
+              saldo_atual: c.saldo_atual
+                + (Number(dados.saldo_inicial ?? c.saldo_inicial) - c.saldo_inicial),
+            } as ContaBancaria
+          : c))
       : [...l, {
           ...vazio, ...dados, id: `tmp-${Date.now()}`,
           saldo_atual: Number(dados.saldo_inicial ?? 0),
@@ -34,7 +45,23 @@ export function TelaContas({
     iniciar(async () => {
       const r = await salvarContaBancaria(dados);
       if (r.ok) toast.ok(dados.id ? "Conta atualizada" : "Conta criada", dados.nome);
-      else toast.erro("Não consegui salvar a conta", r.erro);
+      else {
+        setContas(iniciais);
+        toast.erro("Não consegui salvar a conta", r.erro);
+      }
+    });
+  }
+
+  function remover(conta: ContaBancaria) {
+    setExcluindo(null);
+    setContas((l) => l.filter((c) => c.id !== conta.id));
+    iniciar(async () => {
+      const r = await excluirContaBancaria(conta.id);
+      if (r.ok) toast.ok("Conta excluída", conta.nome);
+      else {
+        setContas(iniciais);
+        toast.erro("Não consegui excluir", r.erro);
+      }
     });
   }
 
@@ -48,7 +75,7 @@ export function TelaContas({
         <div>
           <p className="text-[10px] uppercase tracking-wide text-ink-500">Saldo consolidado</p>
           <p className={cn(
-            "mt-0.5 text-2xl font-bold tabular-nums",
+            "mt-0.5 text-[26px] font-bold tabular-nums",
             saldoTotal >= 0 ? "text-ok-400" : "text-bad-400",
           )}>
             {brl(saldoTotal)}
@@ -89,22 +116,28 @@ export function TelaContas({
                     {c.tipo === "caixa" ? <Wallet className="size-4" /> : <Landmark className="size-4" />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-ink-100">{c.nome}</p>
+                    <p className="truncate text-[13px] font-semibold text-ink-100">{c.nome}</p>
                     <p className="truncate text-[11px] text-ink-500">
                       {c.banco ?? "—"}
                       {c.conta ? ` · ${c.agencia ?? ""} / ${c.conta}` : ""}
                     </p>
                   </div>
-                  <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(c)}
-                    aria-label={`Editar ${c.nome}`} title="Editar conta">
-                    <Pencil className="size-3.5" />
-                  </Button>
+                  <div className="flex shrink-0 gap-1">
+                    <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(c)}
+                      aria-label={`Editar ${c.nome}`} title="Editar conta">
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button tamanho="iconeSm" variante="fantasma" onClick={() => setExcluindo(c)}
+                      aria-label={`Excluir ${c.nome}`} title="Excluir conta">
+                      <Trash2 className="size-3.5 text-bad-400" />
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="px-5 py-4">
                   <p className="text-[10px] uppercase tracking-wide text-ink-500">Saldo atual</p>
                   <p className={cn(
-                    "mt-0.5 text-xl font-bold tabular-nums",
+                    "mt-0.5 text-[19px] font-bold tabular-nums",
                     c.saldo_atual >= 0 ? "text-ink-100" : "text-bad-400",
                   )}>
                     {brl(c.saldo_atual)}
@@ -119,13 +152,13 @@ export function TelaContas({
                     <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-ink-500">
                       <TrendingUp className="size-2.5" /> Entradas
                     </p>
-                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-ok-400">{brl(entradas)}</p>
+                    <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-ok-400">{brl(entradas)}</p>
                   </div>
                   <div className="bg-ink-900 px-4 py-2.5">
                     <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-ink-500">
                       <TrendingDown className="size-2.5" /> Saídas
                     </p>
-                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-bad-400">{brl(saidas)}</p>
+                    <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-bad-400">{brl(saidas)}</p>
                   </div>
                 </div>
 
@@ -142,6 +175,19 @@ export function TelaContas({
       {editando && (
         <FormConta conta={editando} onFechar={() => setEditando(null)} onSalvar={salvar} />
       )}
+
+      <Confirmar
+        aberto={Boolean(excluindo)}
+        titulo={`Excluir ${excluindo?.nome}?`}
+        mensagem={
+          "Contas com lançamento não podem ser excluídas — o extrato perderia a " +
+          "contrapartida. Nesse caso, desative a conta para tirá-la dos formulários."
+        }
+        textoConfirmar="Excluir"
+        perigo
+        onCancelar={() => setExcluindo(null)}
+        onConfirmar={() => excluindo && remover(excluindo)}
+      />
     </div>
   );
 }
@@ -166,7 +212,7 @@ function FormConta({
         <>
           <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
           <Button variante="primario" disabled={!f.nome?.trim()} onClick={() => onSalvar(f)}>
-            Salvar
+            <Check className="size-3.5" /> Salvar
           </Button>
         </>
       }

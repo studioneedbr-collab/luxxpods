@@ -109,7 +109,7 @@ export function FiltroPeriodo({ rotulo }: { rotulo: string }) {
               key={a.chave}
               onClick={() => ir(a.chave)}
               className={cn(
-                "rounded px-2.5 py-1 text-[12px] font-medium transition-colors",
+                "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
                 ativo
                   ? "bg-brand-500 text-white"
                   : "text-ink-400 hover:bg-ink-800 hover:text-ink-100",

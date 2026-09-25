@@ -88,7 +88,7 @@ export default async function PainelAtendimento({
           <PanelHeader titulo="Bot x Atendente" icone={Bot} descricao="Quem está conduzindo agora" />
           <div className="space-y-4 px-5 py-4">
             <div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-[11px]">
                 <span className="flex items-center gap-1.5 text-brand-300">
                   <Bot className="size-3.5" /> Chatbot
                 </span>
@@ -97,7 +97,7 @@ export default async function PainelAtendimento({
               <Barra valor={conversas.length ? (comBot / conversas.length) * 100 : 0} tom="brand" className="mt-1.5" />
             </div>
             <div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-[11px]">
                 <span className="flex items-center gap-1.5 text-gold-400">
                   <UserCheck className="size-3.5" /> Atendente humano
                 </span>
@@ -109,7 +109,7 @@ export default async function PainelAtendimento({
             <div className="border-t border-[var(--linha)] pt-3">
               <p className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">Canais de entrada</p>
               {porCanal.length > 0 ? <GraficoRosca dados={porCanal} altura={160} />
-                : <p className="py-6 text-center text-xs text-ink-500">Sem conversas</p>}
+                : <p className="py-6 text-center text-[11px] text-ink-500">Sem conversas</p>}
             </div>
           </div>
         </Panel>
@@ -122,7 +122,7 @@ export default async function PainelAtendimento({
             acao={<Link href="/chats" className="text-[11px] font-medium text-brand-300 hover:text-brand-200">abrir chats</Link>} />
           <ul className="divide-y divide-[var(--linha)]">
             {naoRespondidas.length === 0 && (
-              <li className="px-5 py-8 text-center text-xs text-ink-500">Tudo respondido ✅</li>
+              <li className="px-5 py-8 text-center text-[11px] text-ink-500">Tudo respondido ✅</li>
             )}
             {naoRespondidas.map((c) => (
               <li key={c.id}>
@@ -131,7 +131,7 @@ export default async function PainelAtendimento({
                     {iniciais(c.cliente?.nome)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-ink-200">{c.cliente?.nome ?? "Sem nome"}</p>
+                    <p className="truncate text-[11px] font-medium text-ink-200">{c.cliente?.nome ?? "Sem nome"}</p>
                     <p className="truncate text-[11px] text-ink-500">{c.ultima_mensagem}</p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -152,7 +152,7 @@ export default async function PainelAtendimento({
           <div className="space-y-2 px-5 py-4">
             {porEstado.map((e) => (
               <div key={e.estado}>
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-[11px]">
                   <span className="truncate text-ink-300">{e.rotulo}</span>
                   <span className="font-semibold tabular-nums text-ink-100">{e.qtd}</span>
                 </div>
@@ -183,7 +183,7 @@ export default async function PainelAtendimento({
                   {iniciais(c.cliente?.nome)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-ink-100">{c.cliente?.nome ?? "Sem nome"}</p>
+                  <p className="truncate text-[11px] font-medium text-ink-100">{c.cliente?.nome ?? "Sem nome"}</p>
                   <p className="text-[10px]" style={{ color: CANAL[c.canal].cor }}>{CANAL[c.canal].rotulo}</p>
                 </div>
                 <span className="shrink-0 text-[10px] text-ink-500">{tempoRelativo(c.ultima_mensagem_em)}</span>

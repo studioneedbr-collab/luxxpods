@@ -9,6 +9,18 @@ import type {
   ResumoEstoque, SeriePonto, Tarefa,
 } from "./types";
 
+/** Espelha a tabela `jobs` — a fila também roda na demonstração. */
+interface JobDemo {
+  id: number;
+  tipo: string;
+  payload: Record<string, unknown>;
+  conversation_id: string | null;
+  executar_em: string;
+  status: "pendente" | "processando" | "concluido" | "cancelado" | "erro";
+  tentativas: number;
+  erro: string | null;
+}
+
 function rng(seed: number) {
   return () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -18,7 +30,7 @@ function rng(seed: number) {
   };
 }
 
-const MARCAS = ["Ignite", "Elfbar", "Lost Mary", "Oxbar", "Nikbar", "Elfworld"];
+const MARCAS: string[] = ["Ignite", "Elfbar", "Lost Mary", "Oxbar", "Nikbar", "Elfworld"];
 
 const MODELOS: Array<[string, string, string, number, number, number]> = [
   ["Ignite", "Ignite V300", "V300", 3000, 89.9, 45],
@@ -83,6 +95,7 @@ const STATUS_PEDIDO: PedidoStatus[] = [
 ];
 
 interface Base {
+  jobs: JobDemo[];
   catalogo: ItemCatalogo[];
   produtos: Produto[];
   clientes: Cliente[];
@@ -105,8 +118,11 @@ function construir(): Base {
   const catalogo: ItemCatalogo[] = [];
   MODELOS.forEach(([marca, nome, modelo, puffs, preco, custo], pi) => {
     const qtdSabores = 6 + (pi % 5);
+    // passo ímpar e coprimo com o total: percorre a lista inteira sem repetir
+    // (o passo 5 antes ciclava de 4 em 4 e o mesmo sabor entrava duas vezes)
+    const passo = 7;
     for (let si = 0; si < qtdSabores; si++) {
-      const sabor = SABORES[(pi * 3 + si * 5) % SABORES.length];
+      const sabor = SABORES[(pi * 3 + si * passo) % SABORES.length];
       const k = pi + si + 1;
       const estoque = k % 9 === 0 ? 0 : k % 7 === 0 ? 2 : 4 + Math.floor(r() * 26);
       const reservado = estoque > 6 && k % 5 === 0 ? 1 + Math.floor(r() * 2) : 0;
@@ -293,7 +309,10 @@ function construir(): Base {
     { id: "task-3", titulo: "Conferência de caixa", descricao: "Fechamento diário", prioridade: "media", status: "aberta", vencimento: new Date(agora + 36e5).toISOString(), criada_por: "usuario", created_at: new Date(agora - 108e5).toISOString() },
   ];
 
-  return { catalogo, produtos, clientes, conversas, mensagens, leads, pedidos, itens, movimentos, tarefas };
+  return {
+    jobs: [], catalogo, produtos, clientes, conversas, mensagens, leads,
+    pedidos, itens, movimentos, tarefas,
+  };
 }
 
 export function demo(): Base {
@@ -393,10 +412,12 @@ export function demoEnviarMensagem(
   conversationId: string,
   conteudo: string,
   sender: Mensagem["sender_type"] = "atendente",
+  /** id no provedor — é por ele que se reconhece a entrega repetida */
+  idExterno?: string,
 ) {
   const d = demo();
   const msg: Mensagem = {
-    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: idExterno || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     conversation_id: conversationId,
     sender_type: sender,
     tipo: "texto",
@@ -673,4 +694,228 @@ export function demoCriarPedido(dados: {
   }
 
   return { ok: true, id, numero };
+}
+
+/* ---------------------------------------------------------------- CADASTRO
+ * As mesmas regras que o banco aplica, para a base de demonstração não
+ * aceitar o que o banco recusaria — e a equipe não aprender um fluxo que
+ * vai mudar quando o Supabase entrar.
+ * ------------------------------------------------------------------------ */
+
+const identificador = (prefixo: string) =>
+  `${prefixo}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
+export function demoCriarProduto(dados: {
+  nome: string; modelo?: string | null; brand_id?: string | null;
+  puffs?: number | null; sku?: string | null; preco: number; custo: number;
+  descricao?: string | null; destaque?: boolean;
+}): { ok: boolean; erro?: string; id?: string } {
+  const d = demo();
+  if (d.produtos.some((p) => p.nome.toLowerCase() === dados.nome.trim().toLowerCase())) {
+    return { ok: false, erro: "Já existe um produto com esse nome." };
+  }
+
+  const id = identificador("prod");
+  const marca = dados.brand_id
+    ? MARCAS[Number(dados.brand_id.replace("brand-", ""))] ?? null
+    : null;
+
+  d.produtos.push({
+    id,
+    nome: dados.nome.trim(),
+    modelo: dados.modelo ?? null,
+    marca,
+    brand_id: dados.brand_id ?? null,
+    puffs: dados.puffs ?? null,
+    sku: dados.sku ?? null,
+    preco: dados.preco,
+    custo: dados.custo,
+    status: "ativo",
+    destaque: dados.destaque ?? false,
+    imagem_url: null,
+    descricao: dados.descricao ?? null,
+    sabores: 0,
+    sabores_disponiveis: 0,
+    estoque: 0,
+    margem: dados.preco > 0 ? ((dados.preco - dados.custo) / dados.preco) * 100 : 0,
+  });
+
+  return { ok: true, id };
+}
+
+export function demoExcluirProduto(id: string): { ok: boolean; erro?: string } {
+  const d = demo();
+  const emCasa = d.catalogo
+    .filter((c) => c.product_id === id)
+    .reduce((a, c) => a + c.estoque_total, 0);
+
+  if (emCasa > 0) {
+    return {
+      ok: false,
+      erro: `Ainda há ${emCasa} unidade(s) em estoque. Zere o estoque ou desative o produto.`,
+    };
+  }
+
+  d.produtos = d.produtos.filter((p) => p.id !== id);
+  d.catalogo = d.catalogo.filter((c) => c.product_id !== id);
+  return { ok: true };
+}
+
+export function demoSalvarMarca(dados: { id?: string; nome: string }): {
+  ok: boolean; erro?: string; id?: string;
+} {
+  const d = demo();
+  const nome = dados.nome.trim();
+
+  if (dados.id) {
+    d.produtos.forEach((p) => { if (p.brand_id === dados.id) p.marca = nome; });
+    d.catalogo.forEach((c) => { if (c.brand_id === dados.id) c.marca = nome; });
+    return { ok: true, id: dados.id };
+  }
+
+  if (MARCAS.some((m) => m.toLowerCase() === nome.toLowerCase())) {
+    return { ok: false, erro: "Esta marca já existe." };
+  }
+  MARCAS.push(nome);
+  return { ok: true, id: `brand-${MARCAS.length - 1}` };
+}
+
+export function demoExcluirMarca(id: string): { ok: boolean; erro?: string } {
+  const d = demo();
+  const usados = d.produtos.filter((p) => p.brand_id === id).length;
+  if (usados > 0) {
+    return { ok: false, erro: `A marca ainda tem ${usados} produto(s). Mova ou exclua antes.` };
+  }
+  return { ok: true };
+}
+
+export function demoCriarSabor(
+  produtoId: string, nomeSabor: string, estoqueMinimo = 3,
+): { ok: boolean; erro?: string; id?: string } {
+  const d = demo();
+  const produto = d.produtos.find((p) => p.id === produtoId);
+  if (!produto) return { ok: false, erro: "Produto não encontrado." };
+
+  const jaTem = d.catalogo.some(
+    (c) => c.product_id === produtoId &&
+           c.sabor.toLowerCase() === nomeSabor.toLowerCase());
+  if (jaTem) return { ok: false, erro: "Este produto já tem esse sabor." };
+
+  const id = identificador("pf");
+  d.catalogo.push({
+    product_flavor_id: id,
+    product_id: produtoId,
+    brand_id: produto.brand_id,
+    flavor_id: identificador("flavor"),
+    sku: `${(produto.marca ?? "").replace(/\s/g, "").toUpperCase()}-${nomeSabor.slice(0, 3).toUpperCase()}`,
+    produto: produto.nome,
+    modelo: produto.modelo,
+    puffs: produto.puffs,
+    marca: produto.marca,
+    sabor: nomeSabor,
+    preco: produto.preco,
+    custo: produto.custo,
+    custo_medio: produto.custo,
+    imagem_url: null,
+    estoque_total: 0,
+    estoque_reservado: 0,
+    estoque_disponivel: 0,
+    estoque_minimo: estoqueMinimo,
+    sabor_ativo: true,
+    produto_status: produto.status,
+    vendavel: false,
+  });
+
+  produto.sabores += 1;
+  return { ok: true, id };
+}
+
+export function demoExcluirSabor(pfId: string): { ok: boolean; erro?: string } {
+  const d = demo();
+  const item = d.catalogo.find((c) => c.product_flavor_id === pfId);
+  if (!item) return { ok: true };
+
+  if (item.estoque_total > 0) {
+    return {
+      ok: false,
+      erro: `Ainda há ${item.estoque_total} unidade(s) deste sabor. Zere o estoque ou desative.`,
+    };
+  }
+
+  d.catalogo = d.catalogo.filter((c) => c.product_flavor_id !== pfId);
+  const produto = d.produtos.find((p) => p.id === item.product_id);
+  if (produto) {
+    const sab = d.catalogo.filter((c) => c.product_id === produto.id);
+    produto.sabores = sab.length;
+    produto.sabores_disponiveis = sab.filter((s) => s.estoque_disponivel > 0).length;
+  }
+  return { ok: true };
+}
+
+export function demoSalvarCliente(dados: {
+  id?: string; nome: string; telefone?: string | null; email?: string | null;
+  instagram_username?: string | null; maioridade_validada?: boolean;
+  tags?: string[]; observacoes?: string | null;
+}): { ok: boolean; erro?: string; id?: string } {
+  const d = demo();
+  const telefone = dados.telefone?.replace(/\D/g, "") || null;
+
+  const duplicado = telefone && d.clientes.some(
+    (c) => c.telefone?.replace(/\D/g, "") === telefone && c.id !== dados.id);
+  if (duplicado) return { ok: false, erro: "Já existe um cliente com este telefone." };
+
+  if (dados.id) {
+    const cliente = d.clientes.find((c) => c.id === dados.id);
+    if (!cliente) return { ok: false, erro: "Cliente não encontrado." };
+    Object.assign(cliente, {
+      nome: dados.nome.trim(),
+      telefone,
+      instagram_username: dados.instagram_username ?? cliente.instagram_username,
+      maioridade_validada: dados.maioridade_validada ?? cliente.maioridade_validada,
+      tags: dados.tags ?? cliente.tags,
+      observacoes: dados.observacoes ?? cliente.observacoes,
+    });
+    return { ok: true, id: cliente.id };
+  }
+
+  const id = identificador("cli");
+  d.clientes.unshift({
+    id,
+    nome: dados.nome.trim(),
+    telefone,
+    instagram_username: dados.instagram_username ?? null,
+    canal_origem: "manual",
+    origem: "Cadastro manual",
+    maioridade_validada: dados.maioridade_validada ?? false,
+    tags: dados.tags ?? [],
+    total_pedidos: 0,
+    total_comprado: 0,
+    ticket_medio: 0,
+    ultima_compra: null,
+    ultima_interacao: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+    observacoes: dados.observacoes ?? null,
+  });
+  return { ok: true, id };
+}
+
+export function demoExcluirCliente(id: string): { ok: boolean; erro?: string } {
+  const d = demo();
+  const pedidos = d.pedidos.filter((p) => p.customer_id === id).length;
+  if (pedidos > 0) {
+    return {
+      ok: false,
+      erro: `Este cliente tem ${pedidos} pedido(s). O histórico de venda não pode ser apagado.`,
+    };
+  }
+
+  d.clientes = d.clientes.filter((c) => c.id !== id);
+  d.conversas = d.conversas.filter((c) => c.customer_id !== id);
+  d.leads = d.leads.filter((l) => l.customer_id !== id);
+  return { ok: true };
+}
+
+/** Conversa que originou o pedido — usada para avisar o cliente do status. */
+export function demoConversaDoPedido(pedidoId: string): string | null {
+  return demo().pedidos.find((p) => p.id === pedidoId)?.conversation_id ?? null;
 }

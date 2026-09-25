@@ -9,7 +9,7 @@ import {
   demoExcluirLancamento, demoExcluirUpsell, demoSalvarCategoria, demoSalvarConta,
   demoSalvarCupom, demoSalvarEvento, demoSalvarFornecedor, demoSalvarLancamento,
   demoSalvarNota, demoSalvarTarefa, demoSalvarUpsell, demoSalvarUsuario,
-  demoStatusTroca,
+  demoStatusTroca, demoSalvarTroca,
 } from "./demo-mvp2";
 import type {
   CategoriaFinanceira, ContaBancaria, Cupom, EventoCalendario, Fornecedor,
@@ -90,6 +90,66 @@ export async function excluirUpsell(id: string): Promise<Resultado> {
 }
 
 /* ------------------------------------------------------------------ TROCAS */
+
+/**
+ * Abre uma solicitação de troca a partir de um pedido.
+ * Nasce como "solicitada": nada de estoque acontece até ser finalizada.
+ */
+export async function criarTroca(dados: {
+  order_id: string;
+  order_item_id?: string | null;
+  product_flavor_id?: string | null;
+  quantidade: number;
+  motivo: string;
+  descricao?: string | null;
+}): Promise<Resultado & { id?: string }> {
+  if (!dados.motivo.trim()) return { ok: false, erro: "Informe o motivo da troca." };
+  if (dados.quantidade < 1) return { ok: false, erro: "Quantidade inválida." };
+
+  const c = await cli();
+
+  if (!c) {
+    const pedido = (await import("./demo")).demo().pedidos.find((p) => p.id === dados.order_id);
+    if (!pedido) return { ok: false, erro: "Pedido não encontrado." };
+    const item = (await import("./demo")).demo().itens[dados.order_id]?.[0];
+
+    demoSalvarTroca({
+      customer_id: pedido.customer_id,
+      order_id: pedido.id,
+      cliente_nome: pedido.cliente_nome,
+      numero_pedido: pedido.numero_pedido,
+      produto_nome: item?.produto_nome ?? null,
+      sabor_nome: item?.sabor_nome ?? null,
+      quantidade: dados.quantidade,
+      motivo: dados.motivo,
+      descricao: dados.descricao ?? null,
+    });
+    revalidatePath("/trocas");
+    return { ok: true };
+  }
+
+  const { data: pedido } = await c.from("orders")
+    .select("customer_id").eq("id", dados.order_id).maybeSingle();
+  if (!pedido) return { ok: false, erro: "Pedido não encontrado." };
+
+  const { data, error } = await c.from("exchanges")
+    .insert({
+      store_id: STORE_ID,
+      customer_id: pedido.customer_id,
+      order_id: dados.order_id,
+      order_item_id: dados.order_item_id ?? null,
+      product_flavor_id: dados.product_flavor_id ?? null,
+      quantidade: dados.quantidade,
+      motivo: dados.motivo,
+      descricao: dados.descricao ?? null,
+      status: "solicitada",
+    })
+    .select("id").single();
+  if (error) return { ok: false, erro: error.message };
+
+  revalidatePath("/trocas");
+  return { ok: true, id: data.id };
+}
 
 export async function alterarStatusTroca(id: string, status: Troca["status"]): Promise<Resultado> {
   const c = await cli();
@@ -391,6 +451,42 @@ export async function salvarContaBancaria(
   return { ok: true };
 }
 
+export async function excluirContaBancaria(id: string): Promise<Resultado> {
+  const c = await cli();
+
+  if (!c) {
+    const b = demo2();
+    const usada = b.lancamentos.some((l) => l.bank_account_id === id);
+    if (usada) {
+      return { ok: false, erro: "Esta conta tem lançamentos. Desative em vez de excluir." };
+    }
+    b.contas = b.contas.filter((x) => x.id !== id);
+    revalidatePath("/financeiro/contas");
+    return { ok: true };
+  }
+
+  // conta com movimento não some: o extrato perderia a contrapartida
+  const [receber, pagar] = await Promise.all([
+    c.from("accounts_receivable").select("id", { count: "exact", head: true })
+      .eq("bank_account_id", id),
+    c.from("accounts_payable").select("id", { count: "exact", head: true })
+      .eq("bank_account_id", id),
+  ]);
+  const total = (receber.count ?? 0) + (pagar.count ?? 0);
+  if (total > 0) {
+    return {
+      ok: false,
+      erro: `Esta conta tem ${total} lançamento(s). Desative em vez de excluir.`,
+    };
+  }
+
+  const { error } = await c.from("bank_accounts").delete().eq("id", id);
+  if (error) return { ok: false, erro: error.message };
+
+  revalidatePath("/financeiro/contas");
+  return { ok: true };
+}
+
 export async function salvarCategoria(
   dados: Partial<CategoriaFinanceira> & { id?: string },
 ): Promise<Resultado> {
@@ -404,7 +500,12 @@ export async function salvarCategoria(
       : await c.from("financial_categories").insert({ ...campos, store_id: STORE_ID });
     if (error) return { ok: false, erro: error.message };
   }
+  // a categoria é escolhida nos lançamentos: revalidar só a tela dela
+  // deixaria o seletor desatualizado até alguém recarregar
   revalidatePath("/financeiro/categorias");
+  revalidatePath("/financeiro/pagar");
+  revalidatePath("/financeiro/receber");
+  revalidatePath("/financeiro");
   return { ok: true };
 }
 
@@ -416,6 +517,8 @@ export async function excluirCategoria(id: string): Promise<Resultado> {
     if (error) return { ok: false, erro: error.message };
   }
   revalidatePath("/financeiro/categorias");
+  revalidatePath("/financeiro/pagar");
+  revalidatePath("/financeiro/receber");
   return { ok: true };
 }
 

@@ -11,7 +11,9 @@ export type Intencao =
   | "saudacao" | "comprar" | "marca" | "modelo" | "sabor" | "preco" | "estoque"
   | "catalogo" | "endereco" | "pagamento" | "pix" | "dinheiro" | "troco"
   | "confirmar" | "alterar_pedido" | "cancelar" | "prazo_entrega"
-  | "problema" | "troca" | "falar_humano" | "maioridade" | "desconhecida";
+  | "problema" | "troca" | "falar_humano" | "maioridade"
+  /* usada internamente pelo motor, não sai da classificação */
+  | "fechar_carrinho" | "desconhecida";
 
 interface Regra {
   intencao: Intencao;
@@ -53,8 +55,9 @@ const REGRAS: Regra[] = [
     termos: /\b(endereco|entregar em|rua|bairro|numero|cep|entrega em|meu endereco)\b/ },
 
   { intencao: "comprar", peso: 60,
-    termos: /\b(quero|vou querer|comprar|pedido|me ve|manda|separa|leva)\b/ },
-  { intencao: "maioridade", peso: 55, termos: /\b(\d{2} anos|maior de idade|sou de maior|tenho \d{2})\b/ },
+    termos: /\b(quero|vou querer|comprar|pedido|me ve|manda|separa|leva|fechar|fecha|so isso|e so)\b/ },
+  { intencao: "maioridade", peso: 90,
+    termos: /\b(maior de \d{2}|maior de idade|de maior|sou maior|tenho \d{2}( anos)?|\d{2} anos|ja sou|sou sim)\b/ },
   { intencao: "saudacao", peso: 20,
     termos: /^(oi+|ola|opa|eai|e ai|bom dia|boa tarde|boa noite|salve|fala|hey|alo)\b/ },
 ];
@@ -94,12 +97,42 @@ export function classificar(
 }
 
 /** Sim/não do português falado, para confirmação de pedido. */
+/**
+ * Idade declarada no texto, quando houver.
+ * Lida antes de qualquer sim/não: "tenho 16 anos" é uma frase afirmativa
+ * que significa NÃO para a pergunta de maioridade.
+ */
+export function idadeDeclarada(texto: string): number | null {
+  const m = normalizar(texto).match(/\b(?:tenho\s+)?(\d{1,2})\s*(?:anos?|aninhos)?\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 10 && n <= 99 ? n : null;
+}
+
+/**
+ * Sim do português falado — inclusive o que não começa com "sim".
+ * "sou maior de 18" e "pode mandar" são sim; "tenho 16 anos" não é.
+ */
 export function ehSim(texto: string): boolean {
-  return /^(sim|s|isso|ok|confirmo|confirmado|pode|pode ser|claro|fechado|fechou|blz|beleza|perfeito|certo|tudo certo|aham|uhum|bora|manda|quero)\b/
-    .test(normalizar(texto));
+  const t = normalizar(texto);
+
+  // a idade manda sobre a forma da frase
+  const idade = idadeDeclarada(t);
+  if (idade !== null && /\b(anos?|tenho|idade)\b/.test(t)) return idade >= 18;
+
+  if (/^(sim|s|isso|ok|confirmo|confirmado|pode|pode ser|claro|fechado|fechou|blz|beleza|perfeito|certo|tudo certo|aham|uhum|bora|manda|quero|com certeza|opa|positivo|afirmativo|exato|show)\b/.test(t)) {
+    return true;
+  }
+  if (/\bmenor\b/.test(t)) return false;
+  return /\b(sou maior|maior de \d{2}|maior de idade|de maior|ja sou)\b/.test(t);
 }
 
 export function ehNao(texto: string): boolean {
-  return /^(nao|n|nop|negativo|ainda nao|agora nao|deixa|espera|peraí|pera)\b/
-    .test(normalizar(texto));
+  const t = normalizar(texto);
+
+  const idade = idadeDeclarada(t);
+  if (idade !== null && /\b(anos?|tenho|idade)\b/.test(t)) return idade < 18;
+
+  if (/^(nao|n|nop|negativo|ainda nao|agora nao|deixa|espera|perai|pera)\b/.test(t)) return true;
+  return /\b(menor de idade|sou menor)\b/.test(t);
 }

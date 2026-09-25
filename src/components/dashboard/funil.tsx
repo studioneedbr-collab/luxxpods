@@ -31,7 +31,7 @@ export function FunilPedidos({ etapas }: { etapas: EtapaFunil[] }) {
                 style={{ width: `${largura}%`, background: etapa.cor }}
               />
               <span className="relative size-2 shrink-0 rounded-full" style={{ background: etapa.cor }} />
-              <span className="relative flex-1 truncate text-xs font-medium text-ink-200">{etapa.nome}</span>
+              <span className="relative flex-1 truncate text-[11px] font-medium text-ink-200">{etapa.nome}</span>
               <span className="relative text-[11px] tabular-nums text-ink-500">{brl(etapa.valor)}</span>
               <span className="numero relative w-8 text-right text-[13px] text-ink-100">
                 {num(etapa.leads)}

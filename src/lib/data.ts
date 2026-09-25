@@ -343,3 +343,28 @@ export async function getCliente(id: string): Promise<{
     conversas: (conversas.data ?? []) as unknown as Conversa[],
   };
 }
+
+/** Movimentações de um produto+sabor específico. */
+export async function getMovimentosDoSabor(
+  productFlavorId: string, limite = 50,
+): Promise<Movimento[]> {
+  const c = await sb();
+
+  if (!c) {
+    const item = demo().catalogo.find((x) => x.product_flavor_id === productFlavorId);
+    if (!item) return [];
+    return demo().movimentos
+      .filter((m) => m.produto === item.produto && m.sabor === item.sabor)
+      .slice(0, limite);
+  }
+
+  const { data, error } = await c
+    .from("inventory_movements")
+    .select("id,tipo,quantidade,saldo_anterior,saldo_posterior,referencia_tipo,observacao,created_at")
+    .eq("product_flavor_id", productFlavorId)
+    .order("created_at", { ascending: false })
+    .limit(limite);
+  if (error) aoFalhar("o histórico deste sabor", error);
+
+  return (data ?? []) as unknown as Movimento[];
+}

@@ -1,16 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { MessageCircle, AtSign, Search, Users, ShieldCheck } from "lucide-react";
-import { Badge, Panel, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
+import {
+  MessageCircle, AtSign, Search, Users, ShieldCheck, Plus, Pencil, Trash2, Check,
+} from "lucide-react";
+import {
+  Badge, Button, CampoMascara, Input, Panel, Select, Table, Td, Th, Tr, Vazio,
+} from "@/components/ui";
+import { Campo, Confirmar, Modal, Switch, Textarea } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
+import { excluirCliente, salvarCliente } from "@/lib/actions-cadastro";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { brl, cn, iniciais, num, telefone, tempoRelativo } from "@/lib/utils";
 import type { Cliente } from "@/lib/types";
 import { BotaoExportar } from "@/components/ui/botao-exportar";
 import { dataExport } from "@/lib/exportar";
 
-export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
+export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] }) {
+  const [clientes, setClientes] = useState(doServidor);
+  const [editando, setEditando] = useState<Partial<Cliente> | null>(null);
+  const [excluindo, setExcluindo] = useState<Cliente | null>(null);
+  const [, iniciar] = useTransition();
+  const toast = useToast();
+
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState("recentes");
   const [segmento, setSegmento] = useState("todos");
@@ -37,6 +50,52 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
 
   const { visiveis, props: paginacao } = usePaginacao(filtrados, 25);
 
+  function salvar(dados: Partial<Cliente>) {
+    if (!dados.nome?.trim()) return;
+    const ehEdicao = Boolean(dados.id);
+
+    setClientes((l) => ehEdicao
+      ? l.map((c) => (c.id === dados.id ? { ...c, ...dados } as Cliente : c))
+      : [{
+          ...dados, id: `tmp-${Date.now()}`, canal_origem: "manual",
+          origem: "Cadastro manual", total_pedidos: 0, total_comprado: 0,
+          ticket_medio: 0, ultima_compra: null,
+          ultima_interacao: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        } as Cliente, ...l]);
+    setEditando(null);
+
+    iniciar(async () => {
+      const r = await salvarCliente({
+        id: dados.id,
+        nome: dados.nome!,
+        telefone: dados.telefone,
+        instagram_username: dados.instagram_username,
+        maioridade_validada: dados.maioridade_validada,
+        tags: dados.tags,
+        observacoes: dados.observacoes,
+      });
+      if (r.ok) toast.ok(ehEdicao ? "Cliente atualizado" : "Cliente cadastrado", dados.nome);
+      else {
+        setClientes(doServidor);
+        toast.erro("Não consegui salvar", r.erro);
+      }
+    });
+  }
+
+  function remover(c: Cliente) {
+    setExcluindo(null);
+    setClientes((l) => l.filter((x) => x.id !== c.id));
+    iniciar(async () => {
+      const r = await excluirCliente(c.id);
+      if (r.ok) toast.ok("Cliente excluído", c.nome);
+      else {
+        setClientes(doServidor);
+        toast.erro("Não consegui excluir", r.erro);
+      }
+    });
+  }
+
   const totais = {
     base: filtrados.length,
     faturamento: filtrados.reduce((a, c) => a + c.total_comprado, 0),
@@ -52,7 +111,7 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome, telefone ou @instagram…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={segmento} onChange={(e) => setSegmento(e.target.value)}>
@@ -70,6 +129,11 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
         <Badge tom="brand">{num(totais.base)} clientes</Badge>
         <Badge tom="ok">{brl(totais.faturamento)} no total</Badge>
         <Badge tom="gold">{num(totais.recorrentes)} recorrentes</Badge>
+        <Button variante="primario" tamanho="sm" onClick={() => setEditando({
+          nome: "", telefone: "", tags: [], maioridade_validada: false,
+        })}>
+          <Plus className="size-3.5" /> Novo cliente
+        </Button>
         <BotaoExportar
           itens={filtrados}
           nomeArquivo="clientes"
@@ -93,7 +157,13 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
 
       <Panel className="overflow-hidden">
         {filtrados.length === 0 ? (
-          <Vazio icone={Users} titulo="Nenhum cliente" descricao="Os clientes são criados automaticamente na primeira conversa." />
+          <Vazio icone={Users} titulo="Nenhum cliente"
+            descricao="Os clientes nascem sozinhos na primeira conversa — ou cadastre um agora."
+            acao={
+              <Button variante="primario" tamanho="sm" onClick={() => setEditando({ nome: "", tags: [] })}>
+                <Plus className="size-3.5" /> Novo cliente
+              </Button>
+            } />
         ) : (
           <Table>
             <thead>
@@ -106,6 +176,7 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
                 <Th className="text-right">Ticket médio</Th>
                 <Th>Última interação</Th>
                 <Th>Tags</Th>
+                <Th className="text-right">Ações</Th>
               </tr>
             </thead>
             <tbody>
@@ -152,6 +223,18 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
                       {c.total_pedidos === 0 && <Badge tom="neutro">sem compra</Badge>}
                     </div>
                   </Td>
+                  <Td>
+                    <div className="flex justify-end gap-1">
+                      <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(c)}
+                        aria-label={`Editar ${c.nome}`} title="Editar cliente">
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button tamanho="iconeSm" variante="fantasma" onClick={() => setExcluindo(c)}
+                        aria-label={`Excluir ${c.nome}`} title="Excluir cliente">
+                        <Trash2 className="size-3.5 text-bad-400" />
+                      </Button>
+                    </div>
+                  </Td>
                 </Tr>
               ))}
             </tbody>
@@ -159,6 +242,119 @@ export function ListaClientes({ clientes }: { clientes: Cliente[] }) {
         )}
         <Paginacao {...paginacao} rotulo="clientes" />
       </Panel>
+
+      {editando && (
+        <FormCliente
+          cliente={editando}
+          onFechar={() => setEditando(null)}
+          onSalvar={salvar}
+        />
+      )}
+
+      <Confirmar
+        aberto={Boolean(excluindo)}
+        titulo={`Excluir ${excluindo?.nome}?`}
+        mensagem={
+          excluindo && excluindo.total_pedidos > 0
+            ? `Este cliente tem ${excluindo.total_pedidos} pedido(s). O histórico de venda não pode ser apagado — desative em vez de excluir.`
+            : "O cliente sai da base junto com as conversas dele."
+        }
+        textoConfirmar="Excluir"
+        perigo
+        onCancelar={() => setExcluindo(null)}
+        onConfirmar={() => excluindo && remover(excluindo)}
+      />
     </div>
+  );
+}
+
+const TAGS = ["vip", "recorrente", "atacado", "inadimplente", "indicação"];
+
+function FormCliente({
+  cliente, onFechar, onSalvar,
+}: {
+  cliente: Partial<Cliente>;
+  onFechar: () => void;
+  onSalvar: (d: Partial<Cliente>) => void;
+}) {
+  const [f, setF] = useState<Partial<Cliente>>(cliente);
+  const set = <K extends keyof Cliente>(k: K, v: Cliente[K]) =>
+    setF((p) => ({ ...p, [k]: v }));
+
+  const alternarTag = (tag: string) => {
+    const atuais = f.tags ?? [];
+    set("tags", atuais.includes(tag) ? atuais.filter((t) => t !== tag) : [...atuais, tag]);
+  };
+
+  return (
+    <Modal
+      aberto
+      onFechar={onFechar}
+      titulo={cliente.id ? `Editar ${cliente.nome}` : "Novo cliente"}
+      descricao="O telefone é o que identifica a pessoa entre uma compra e outra"
+      rodape={
+        <>
+          <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
+          <Button variante="primario" disabled={!f.nome?.trim()} onClick={() => onSalvar(f)}>
+            <Check className="size-3.5" /> Salvar
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo rotulo="Nome">
+          <Input value={f.nome ?? ""} onChange={(e) => set("nome", e.target.value)}
+            placeholder="Nome do cliente" autoFocus />
+        </Campo>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo rotulo="Telefone" dica="é por ele que o bot reconhece quem voltou">
+            <CampoMascara tipo="telefone" valor={f.telefone ?? ""}
+              aoMudar={(v) => set("telefone", v)} />
+          </Campo>
+          <Campo rotulo="Instagram">
+            <Input value={f.instagram_username ?? ""}
+              onChange={(e) => set("instagram_username", e.target.value)}
+              placeholder="@usuario" />
+          </Campo>
+        </div>
+
+        <Campo rotulo="Etiquetas">
+          <div className="flex flex-wrap gap-1.5">
+            {TAGS.map((tag) => {
+              const ativa = (f.tags ?? []).includes(tag);
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => alternarTag(tag)}
+                  className={cn(
+                    "rounded px-2 py-1 text-[11px] font-medium transition-colors",
+                    ativa
+                      ? "bg-brand-500/16 text-brand-200"
+                      : "bg-ink-850 text-ink-500 hover:bg-ink-800 hover:text-ink-300",
+                  )}
+                >
+                  {tag}
+                </button>
+              );
+            })}
+          </div>
+        </Campo>
+
+        <Switch
+          ligado={f.maioridade_validada ?? false}
+          onChange={(v) => set("maioridade_validada", v)}
+          rotulo="Maioridade validada"
+          descricao="Com isso marcado, o bot não pergunta a idade de novo"
+        />
+
+        <Campo rotulo="Observações">
+          <Textarea rows={2} value={f.observacoes ?? ""}
+            onChange={(e) => set("observacoes", e.target.value)}
+            placeholder="Prefere entrega depois das 19h" />
+        </Campo>
+      </div>
+    </Modal>
   );
 }

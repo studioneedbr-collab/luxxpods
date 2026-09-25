@@ -122,7 +122,7 @@ export function BuscaGlobal() {
                 onChange={(e) => setTermo(e.target.value)}
                 onKeyDown={teclas}
                 placeholder="Nome, telefone, número do pedido ou produto…"
-                className="flex-1 bg-transparent text-sm text-ink-100 placeholder:text-ink-500 focus:outline-none"
+                className="flex-1 bg-transparent text-[13px] text-ink-100 placeholder:text-ink-500 focus:outline-none"
               />
               <kbd className="rounded border border-[var(--linha-forte)] bg-ink-800 px-1.5 py-0.5 font-sans text-[10px] text-ink-500">
                 esc
@@ -131,13 +131,13 @@ export function BuscaGlobal() {
 
             <div className="max-h-[56vh] overflow-y-auto">
               {termo.trim().length < 2 && (
-                <p className="px-4 py-8 text-center text-xs text-ink-500">
+                <p className="px-4 py-8 text-center text-[11px] text-ink-500">
                   Digite ao menos 2 letras para buscar em toda a operação.
                 </p>
               )}
 
               {termo.trim().length >= 2 && !carregando && visiveis.length === 0 && (
-                <p className="px-4 py-8 text-center text-xs text-ink-500">
+                <p className="px-4 py-8 text-center text-[11px] text-ink-500">
                   Nada encontrado para <span className="text-ink-300">“{termo}”</span>.
                 </p>
               )}
@@ -169,7 +169,7 @@ export function BuscaGlobal() {
                             <Icone className="size-3.5" />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium text-ink-100">
+                            <span className="block truncate text-[11px] font-medium text-ink-100">
                               {r.titulo}
                             </span>
                             <span className="block truncate text-[11px] text-ink-500">

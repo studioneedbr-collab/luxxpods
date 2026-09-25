@@ -137,7 +137,7 @@ export function TelaLancamentos({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder={receber ? "Buscar por cliente, pedido ou descrição…" : "Buscar por fornecedor, categoria ou descrição…"}
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
@@ -175,7 +175,7 @@ export function TelaLancamentos({
       {totais.atrasado > 0 && (
         <div className="flex items-center gap-2.5 rounded-xl border border-bad-500/25 bg-bad-500/8 px-4 py-2.5">
           <AlertTriangle className="size-4 shrink-0 text-bad-400" />
-          <p className="text-xs text-bad-300">
+          <p className="text-[11px] text-bad-300">
             <strong>{brl(totais.atrasado)}</strong>{" "}
             {receber ? "vencidos e ainda não recebidos" : "vencidos e ainda não pagos"}
             {" — "}
@@ -287,8 +287,9 @@ export function TelaLancamentos({
         <FormLancamento
           lancamento={editando}
           tipo={tipo}
-          categorias={categorias.filter((c) => c.tipo === (receber ? "receita" : "despesa"))}
-          contas={contas}
+          categorias={categorias.filter(
+            (c) => c.tipo === (receber ? "receita" : "despesa") && c.status === "ativo")}
+          contas={contas.filter((c) => c.status === "ativo")}
           onFechar={() => setEditando(null)}
           onSalvar={salvar}
         />
@@ -420,7 +421,7 @@ function Cartao({ rotulo, valor, tom = "neutro" }: {
   return (
     <Panel className="p-4">
       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-      <p className={cn("mt-1 truncate text-xl font-bold tabular-nums", cores[tom])}>{valor}</p>
+      <p className={cn("mt-1 truncate text-[19px] font-bold tabular-nums", cores[tom])}>{valor}</p>
     </Panel>
   );
 }

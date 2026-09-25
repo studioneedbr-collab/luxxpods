@@ -86,7 +86,7 @@ export function TelaTarefas({
         ].map((c) => (
           <Panel key={c.r} className="p-4">
             <p className="text-[10px] uppercase tracking-wide text-ink-500">{c.r}</p>
-            <p className={cn("mt-1 text-xl font-bold tabular-nums", {
+            <p className={cn("mt-1 text-[19px] font-bold tabular-nums", {
               warn: "text-warn-400", bad: "text-bad-400",
               brand: "text-brand-300", ok: "text-ok-400",
             }[c.t])}>{c.v}</p>
@@ -101,7 +101,7 @@ export function TelaTarefas({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar tarefa…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
@@ -152,7 +152,7 @@ export function TelaTarefas({
 
                   <div className="min-w-0 flex-1">
                     <p className={cn(
-                      "truncate text-sm font-medium",
+                      "truncate text-[13px] font-medium",
                       concluida ? "text-ink-500 line-through" : "text-ink-100",
                     )}>
                       {t.titulo}

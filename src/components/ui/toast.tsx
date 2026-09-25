@@ -19,6 +19,7 @@ interface ContextoToast {
   avisar: (titulo: string, opcoes?: { tom?: Tom; detalhe?: string }) => void;
   ok: (titulo: string, detalhe?: string) => void;
   erro: (titulo: string, detalhe?: string) => void;
+  aviso: (titulo: string, detalhe?: string) => void;
 }
 
 const Contexto = createContext<ContextoToast | null>(null);
@@ -27,7 +28,7 @@ const Contexto = createContext<ContextoToast | null>(null);
 export function useToast(): ContextoToast {
   const ctx = useContext(Contexto);
   // fora do provider, vira no-op em vez de quebrar a tela
-  return ctx ?? { avisar: () => {}, ok: () => {}, erro: () => {} };
+  return ctx ?? { avisar: () => {}, ok: () => {}, erro: () => {}, aviso: () => {} };
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -51,6 +52,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     avisar,
     ok: (titulo, detalhe) => avisar(titulo, { tom: "ok", detalhe }),
     erro: (titulo, detalhe) => avisar(titulo, { tom: "erro", detalhe }),
+    aviso: (titulo, detalhe) => avisar(titulo, { tom: "aviso", detalhe }),
   }), [avisar]);
 
   return (
@@ -100,7 +102,7 @@ function Cartao({ aviso, aoFechar }: { aviso: Aviso; aoFechar: () => void }) {
         <estilo.icone className="size-3" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium leading-snug text-ink-100">{aviso.titulo}</p>
+        <p className="text-[11px] font-medium leading-snug text-ink-100">{aviso.titulo}</p>
         {aviso.detalhe && (
           <p className="mt-0.5 text-[11px] leading-snug text-ink-400">{aviso.detalhe}</p>
         )}

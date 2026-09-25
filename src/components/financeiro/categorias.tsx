@@ -50,7 +50,7 @@ export function TelaCategorias({ categorias: iniciais }: { categorias: Categoria
   return (
     <div className="space-y-3">
       <Panel className="flex flex-wrap items-center justify-between gap-3 p-3">
-        <p className="text-xs text-ink-400">
+        <p className="text-[11px] text-ink-400">
           Usadas para classificar entradas e saídas nos relatórios financeiros.
         </p>
         <Button variante="primario" onClick={() => setEditando({
@@ -83,7 +83,7 @@ export function TelaCategorias({ categorias: iniciais }: { categorias: Categoria
                       style={{ background: c.cor ?? "#9563ff" }} />
                     <div className="min-w-0 flex-1">
                       <p className={cn(
-                        "truncate text-sm",
+                        "truncate text-[13px]",
                         c.status === "ativo" ? "text-ink-100" : "text-ink-500 line-through",
                       )}>
                         {c.nome}

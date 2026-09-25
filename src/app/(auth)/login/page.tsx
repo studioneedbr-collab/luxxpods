@@ -30,7 +30,7 @@ export default async function LoginPage({
 
         <div className="relative max-w-[26rem]">
           <Simbolo tamanho={104} className="mb-9" />
-          <h2 className="display text-[30px] font-semibold leading-[1.15] tracking-tight text-ink-100">
+          <h2 className="display text-[26px] font-semibold leading-[1.15] tracking-tight text-ink-100">
             O atendimento, o estoque<br />e o caixa no mesmo lugar.
           </h2>
           <p className="mt-4 text-[13px] leading-relaxed text-ink-400">
@@ -47,7 +47,7 @@ export default async function LoginPage({
             ].map(([rotulo, valor]) => (
               <div key={rotulo}>
                 <dt className="rotulo">{rotulo}</dt>
-                <dd className="mt-1 text-[12px] leading-snug text-ink-300">{valor}</dd>
+                <dd className="mt-1 text-[11px] leading-snug text-ink-300">{valor}</dd>
               </div>
             ))}
           </dl>

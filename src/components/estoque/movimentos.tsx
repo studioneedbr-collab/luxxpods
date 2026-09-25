@@ -48,10 +48,10 @@ export function TabelaMovimentos({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por produto, sabor ou observação…"
-            className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-xs text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[11px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
-        <Select value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-8 text-xs">
+        <Select value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-8 text-[11px]">
           <option value="todos">Todos os tipos</option>
           {Object.entries(MOVIMENTO).map(([k, v]) => (
             <option key={k} value={k}>{v.rotulo}</option>

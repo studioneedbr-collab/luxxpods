@@ -20,8 +20,8 @@ export default function ErroDaTela({
           <AlertTriangle className="size-5" />
         </span>
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-ink-100">Esta tela não carregou</h2>
-          <p className="mt-1 text-xs leading-relaxed text-ink-400">
+          <h2 className="text-[15px] font-semibold text-ink-100">Esta tela não carregou</h2>
+          <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
             O resto do sistema continua funcionando — nenhum pedido, estoque ou
             lançamento foi afetado. Tente carregar de novo.
           </p>

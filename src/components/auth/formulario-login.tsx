@@ -46,7 +46,7 @@ export function FormularioLogin({ voltarPara }: { voltarPara?: string }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="voce@luxxpods.com.br"
-          className="h-11 w-full rounded-lg bg-ink-900 px-3.5 text-[14px] text-ink-100 ring-1 ring-inset ring-[var(--linha-forte)] transition-colors placeholder:text-ink-600 focus:outline-none focus:ring-2 focus:ring-brand-500/70"
+          className="h-11 w-full rounded-lg bg-ink-900 px-3.5 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha-forte)] transition-colors placeholder:text-ink-600 focus:outline-none focus:ring-2 focus:ring-brand-500/70"
         />
       </label>
 
@@ -61,7 +61,7 @@ export function FormularioLogin({ voltarPara }: { voltarPara?: string }) {
             value={senha}
             onChange={(e) => setSenha(e.target.value)}
             placeholder="••••••••"
-            className="h-11 w-full rounded-lg bg-ink-900 pl-3.5 pr-11 text-[14px] text-ink-100 ring-1 ring-inset ring-[var(--linha-forte)] transition-colors placeholder:text-ink-600 focus:outline-none focus:ring-2 focus:ring-brand-500/70"
+            className="h-11 w-full rounded-lg bg-ink-900 pl-3.5 pr-11 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha-forte)] transition-colors placeholder:text-ink-600 focus:outline-none focus:ring-2 focus:ring-brand-500/70"
           />
           <button
             type="button"
@@ -78,7 +78,7 @@ export function FormularioLogin({ voltarPara }: { voltarPara?: string }) {
         <button
           type="button"
           onClick={() => setLembrar((v) => !v)}
-          className="flex items-center gap-2 text-[12px] text-ink-400 transition-colors hover:text-ink-200"
+          className="flex items-center gap-2 text-[11px] text-ink-400 transition-colors hover:text-ink-200"
         >
           <span className={cn(
             "grid size-4 place-items-center rounded transition-colors",
@@ -93,13 +93,13 @@ export function FormularioLogin({ voltarPara }: { voltarPara?: string }) {
           Manter conectado
         </button>
 
-        <span className="text-[12px] text-ink-600">Esqueceu a senha? Fale com o admin</span>
+        <span className="text-[11px] text-ink-600">Esqueceu a senha? Fale com o admin</span>
       </div>
 
       {erro && (
         <p
           role="alert"
-          className="flex items-start gap-2 rounded-lg bg-bad-500/10 px-3 py-2.5 text-[12px] leading-relaxed text-bad-400"
+          className="flex items-start gap-2 rounded-lg bg-bad-500/10 px-3 py-2.5 text-[11px] leading-relaxed text-bad-400"
         >
           <AlertCircle className="mt-px size-3.5 shrink-0" />
           {erro}
@@ -109,7 +109,7 @@ export function FormularioLogin({ voltarPara }: { voltarPara?: string }) {
       <button
         type="submit"
         disabled={enviando || !email || !senha}
-        className="display mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 text-[14px] font-semibold text-white transition-colors hover:bg-brand-400 disabled:pointer-events-none disabled:opacity-40"
+        className="display mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 text-[13px] font-semibold text-white transition-colors hover:bg-brand-400 disabled:pointer-events-none disabled:opacity-40"
       >
         {enviando
           ? <><Loader2 className="size-4 animate-spin" /> Entrando…</>

@@ -91,7 +91,7 @@ const variantes = {
 } as const;
 
 const tamanhos = {
-  sm: "h-7 px-2.5 text-xs gap-1.5",
+  sm: "h-7 px-2.5 text-[11px] gap-1.5",
   md: "h-8 px-3 text-[13px] gap-1.5",
   icone: "size-8 justify-center",
   iconeSm: "size-7 justify-center",

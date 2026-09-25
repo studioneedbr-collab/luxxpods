@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Banknote, MessageCircle, AtSign, Search, ShoppingBag, QrCode, Filter, Plus } from "lucide-react";
+import {
+  Banknote, MessageCircle, AtSign, Search, ShoppingBag, QrCode, Filter, Plus, Receipt,
+} from "lucide-react";
 import { Badge, Button, Panel, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { STATUS_PAGAMENTO, STATUS_PEDIDO, METODO_PAGAMENTO } from "@/lib/labels";
@@ -12,16 +14,19 @@ import { BotaoExportar } from "@/components/ui/botao-exportar";
 import { dataExport } from "@/lib/exportar";
 
 export function ListaPedidos({
-  pedidos, buscaInicial = "", statusInicial = "todos",
+  pedidos, buscaInicial = "", statusInicial = "todos", agora,
 }: {
   pedidos: Pedido[];
   /** vem da URL, para links como "pedidos deste cliente" já chegarem filtrados */
   buscaInicial?: string;
   statusInicial?: string;
+  /** hora do servidor, para o filtro de período não depender do relógio local */
+  agora: number;
 }) {
   const [busca, setBusca] = useState(buscaInicial);
   const [status, setStatus] = useState<string>(statusInicial);
   const [pagamento, setPagamento] = useState<string>("todos");
+  const [periodo, setPeriodo] = useState<string>("todos");
 
   const filtrados = useMemo(() => {
     const t = busca.trim().toLowerCase();
@@ -30,11 +35,20 @@ export function ListaPedidos({
           ["entregue", "cancelado"].includes(p.status_pedido)) return false;
       if (status !== "todos" && status !== "abertos" && p.status_pedido !== status) return false;
       if (pagamento !== "todos" && p.forma_pagamento !== pagamento) return false;
+
+      if (periodo !== "todos") {
+        const quando = new Date(p.created_at).getTime();
+        const limite = periodo === "hoje"
+          ? new Date(new Date(agora).setHours(0, 0, 0, 0)).getTime()
+          : agora - Number(periodo) * 864e5;
+        if (quando < limite) return false;
+      }
+
       if (!t) return true;
       return [p.numero_pedido, p.cliente_nome, p.cliente_telefone]
         .some((v) => (v ?? "").toLowerCase().includes(t));
     });
-  }, [pedidos, busca, status, pagamento]);
+  }, [pedidos, busca, status, pagamento, periodo, agora]);
 
   const { visiveis, props: paginacao } = usePaginacao(filtrados, 25);
 
@@ -53,7 +67,7 @@ export function ListaPedidos({
       {preFiltrado && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-500/25 bg-brand-500/8 px-4 py-2.5">
           <Filter className="size-3.5 shrink-0 text-brand-300" />
-          <p className="min-w-0 flex-1 text-xs text-brand-200">
+          <p className="min-w-0 flex-1 text-[11px] text-brand-200">
             Mostrando apenas os pedidos de <strong>{buscaInicial}</strong>
           </p>
           <button
@@ -65,16 +79,28 @@ export function ListaPedidos({
         </div>
       )}
 
-      <Panel className="flex flex-wrap items-center gap-2 p-3">
-        <div className="relative min-w-[200px] flex-1">
+      {/* os números primeiro: é o que se olha antes de filtrar */}
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <Cartao rotulo="Pedidos" valor={num(totais.qtd)} icone={ShoppingBag} />
+        <Cartao rotulo="Faturamento" valor={brl(totais.valor)} icone={Banknote} tom="ok" />
+        <Cartao rotulo="A receber" valor={brl(totais.receber)} icone={QrCode}
+          tom={totais.receber > 0 ? "warn" : "neutro"} />
+        <Cartao rotulo="Ticket médio" valor={brl(totais.qtd ? totais.valor / totais.qtd : 0)}
+          icone={Receipt} />
+      </div>
+
+      {/* filtros numa faixa só, sem disputar espaço com os números */}
+      <Panel className="flex flex-wrap items-center gap-2 p-2.5">
+        <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por número, cliente ou telefone…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            placeholder="Número, cliente ou telefone…"
+            className="h-8 w-full rounded-md bg-ink-950 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-600 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
+
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="todos">Todos os status</option>
           <option value="abertos">Em aberto</option>
@@ -82,42 +108,50 @@ export function ListaPedidos({
             <option key={k} value={k}>{v.rotulo}</option>
           ))}
         </Select>
+
         <Select value={pagamento} onChange={(e) => setPagamento(e.target.value)}>
           <option value="todos">Todo pagamento</option>
           <option value="pix">PIX</option>
           <option value="dinheiro">Dinheiro</option>
         </Select>
-        <Badge tom="brand">{num(totais.qtd)} pedidos</Badge>
-        <Badge tom="ok">{brl(totais.valor)}</Badge>
-        {totais.receber > 0 && <Badge tom="warn">{brl(totais.receber)} a receber</Badge>}
-        <Link href="/pedidos/novo">
-          <Button variante="primario" tamanho="sm">
-            <Plus className="size-3.5" /> Novo pedido
-          </Button>
-        </Link>
-        <BotaoExportar
-          itens={filtrados}
-          nomeArquivo="pedidos"
-          colunas={[
-            { cabecalho: "Pedido", valor: (p) => p.numero_pedido },
-            { cabecalho: "Data", valor: (p) => dataExport(p.created_at) },
-            { cabecalho: "Cliente", valor: (p) => p.cliente_nome },
-            { cabecalho: "Telefone", valor: (p) => p.cliente_telefone },
-            { cabecalho: "Bairro", valor: (p) => p.endereco_snapshot?.bairro },
-            { cabecalho: "Canal", valor: (p) => p.canal },
-            { cabecalho: "Origem", valor: (p) => p.origem },
-            { cabecalho: "Forma de pagamento", valor: (p) => METODO_PAGAMENTO[p.forma_pagamento] },
-            { cabecalho: "Status do pagamento", valor: (p) => STATUS_PAGAMENTO[p.status_pagamento].rotulo },
-            { cabecalho: "Status do pedido", valor: (p) => STATUS_PEDIDO[p.status_pedido].rotulo },
-            { cabecalho: "Produtos", valor: (p) => p.subtotal },
-            { cabecalho: "Desconto", valor: (p) => p.desconto },
-            { cabecalho: "Entrega", valor: (p) => p.taxa_entrega },
-            { cabecalho: "Total", valor: (p) => p.total },
-            { cabecalho: "Custo", valor: (p) => p.custo_total },
-            { cabecalho: "Lucro estimado", valor: (p) => p.total - p.custo_total - p.desconto - p.taxa_entrega },
-            { cabecalho: "Entregue em", valor: (p) => dataExport(p.entregue_em) },
-          ]}
-        />
+
+        <Select value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
+          <option value="todos">Qualquer data</option>
+          <option value="hoje">Hoje</option>
+          <option value="7">Últimos 7 dias</option>
+          <option value="30">Últimos 30 dias</option>
+        </Select>
+
+        <div className="ml-auto flex gap-2">
+          <BotaoExportar
+            itens={filtrados}
+            nomeArquivo="pedidos"
+            colunas={[
+              { cabecalho: "Pedido", valor: (p) => p.numero_pedido },
+              { cabecalho: "Data", valor: (p) => dataExport(p.created_at) },
+              { cabecalho: "Cliente", valor: (p) => p.cliente_nome },
+              { cabecalho: "Telefone", valor: (p) => p.cliente_telefone },
+              { cabecalho: "Bairro", valor: (p) => p.endereco_snapshot?.bairro },
+              { cabecalho: "Canal", valor: (p) => p.canal },
+              { cabecalho: "Origem", valor: (p) => p.origem },
+              { cabecalho: "Forma de pagamento", valor: (p) => METODO_PAGAMENTO[p.forma_pagamento] },
+              { cabecalho: "Status do pagamento", valor: (p) => STATUS_PAGAMENTO[p.status_pagamento].rotulo },
+              { cabecalho: "Status do pedido", valor: (p) => STATUS_PEDIDO[p.status_pedido].rotulo },
+              { cabecalho: "Produtos", valor: (p) => p.subtotal },
+              { cabecalho: "Desconto", valor: (p) => p.desconto },
+              { cabecalho: "Entrega", valor: (p) => p.taxa_entrega },
+              { cabecalho: "Total", valor: (p) => p.total },
+              { cabecalho: "Custo", valor: (p) => p.custo_total },
+              { cabecalho: "Lucro estimado", valor: (p) => p.total - p.custo_total - p.desconto - p.taxa_entrega },
+              { cabecalho: "Entregue em", valor: (p) => dataExport(p.entregue_em) },
+            ]}
+          />
+          <Link href="/pedidos/novo">
+            <Button variante="primario" tamanho="sm">
+              <Plus className="size-3.5" /> Novo pedido
+            </Button>
+          </Link>
+        </div>
       </Panel>
 
       <Panel className="overflow-hidden">
@@ -195,6 +229,26 @@ export function ListaPedidos({
         )}
         <Paginacao {...paginacao} rotulo="pedidos" />
       </Panel>
+    </div>
+  );
+}
+
+function Cartao({
+  rotulo, valor, icone: Icone, tom = "neutro",
+}: {
+  rotulo: string;
+  valor: string;
+  icone: React.ComponentType<{ className?: string }>;
+  tom?: "neutro" | "ok" | "warn";
+}) {
+  const cores = { neutro: "text-ink-100", ok: "text-ok-400", warn: "text-warn-400" };
+  return (
+    <div className="chapa flex items-center gap-3 px-4 py-3">
+      <Icone className="size-4 shrink-0 text-ink-600" />
+      <div className="min-w-0">
+        <p className="rotulo truncate">{rotulo}</p>
+        <p className={cn("numero mt-0.5 truncate text-[15px]", cores[tom])}>{valor}</p>
+      </div>
     </div>
   );
 }

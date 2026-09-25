@@ -217,7 +217,7 @@ export function CampoData({
                   disabled={bloqueado}
                   onClick={() => escolher(dia)}
                   className={cn(
-                    "h-7 rounded text-[12px] tabular-nums transition-colors",
+                    "h-7 rounded text-[11px] tabular-nums transition-colors",
                     bloqueado && "cursor-not-allowed text-ink-700",
                     !bloqueado && ativo && "bg-brand-500 font-semibold text-white",
                     !bloqueado && !ativo && ehHoje && "bg-ink-800 font-semibold text-brand-300",
@@ -240,12 +240,12 @@ export function CampoData({
                   const base = valor?.slice(0, 10) ?? iso(new Date());
                   aoMudar(`${base}T${e.target.value}`);
                 }}
-                className="h-7 flex-1 rounded bg-ink-950 px-2 text-[12px] tabular-nums text-ink-100 ring-1 ring-inset ring-[var(--linha)] focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+                className="h-7 flex-1 rounded bg-ink-950 px-2 text-[11px] tabular-nums text-ink-100 ring-1 ring-inset ring-[var(--linha)] focus:outline-none focus:ring-2 focus:ring-brand-500/60"
               />
               <button
                 type="button"
                 onClick={() => setAberto(false)}
-                className="h-7 rounded bg-brand-500 px-2.5 text-[12px] font-medium text-white transition-colors hover:bg-brand-400"
+                className="h-7 rounded bg-brand-500 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-400"
               >
                 Pronto
               </button>

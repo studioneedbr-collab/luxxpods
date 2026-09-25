@@ -168,6 +168,24 @@ export const FERRAMENTAS: Ferramenta[] = [
     escreve: false,
   },
   {
+    nome: "buscar_upsell",
+    descricao:
+      "Verifica se há uma oferta para o carrinho atual. Use uma vez, antes de " +
+      "pedir o endereço. Devolve nulo quando não há nada a oferecer.",
+    parametros: [],
+    escreve: true,
+    estados: ["CART"],
+  },
+  {
+    nome: "responder_upsell",
+    descricao: "Registra se o cliente aceitou ou recusou a oferta apresentada.",
+    parametros: [
+      { nome: "aceita", tipo: "boolean", descricao: "true se aceitou", obrigatorio: true },
+    ],
+    escreve: true,
+    estados: ["CART", "ADDRESS"],
+  },
+  {
     nome: "criar_tarefa",
     descricao: "Abre uma pendência para a equipe, vinculada a esta conversa.",
     parametros: [

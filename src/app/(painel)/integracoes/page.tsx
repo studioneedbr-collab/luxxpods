@@ -20,11 +20,28 @@ const INTEGRACOES = [
     endpoint: "POST /api/webhooks/instagram",
   },
   {
-    nome: "Gateway PIX", icone: QrCode, cor: "#9563ff",
+    nome: "Asaas", icone: QrCode, cor: "#00b46e",
     status: "pendente" as const,
-    descricao: "Cobrança com QR Code e copia e cola, confirmação automática por webhook e proteção contra evento duplicado.",
-    campos: ["Client ID", "Client Secret", "Chave PIX", "Certificado"],
-    endpoint: "POST /api/webhooks/payment",
+    descricao:
+      "PIX com copia e cola no próprio chat e confirmação automática por " +
+      "webhook — as duas coisas. Usa QR Code com valor, sem exigir o CPF do " +
+      "cliente. Preenchido, ganha da InfinitePay.",
+    campos: [
+      "ASAAS_API_KEY",
+      "ASAAS_WEBHOOK_TOKEN (cadastrado no painel do Asaas)",
+      "ASAAS_AMBIENTE = producao",
+    ],
+    endpoint: "POST /api/webhooks/pagamento",
+  },
+  {
+    nome: "InfinitePay", icone: QrCode, cor: "#9563ff",
+    status: "pendente" as const,
+    descricao:
+      "Checkout com PIX e cartão, e confirmação automática por webhook. " +
+      "O cliente abre um link — a InfinitePay não devolve o copia e cola. " +
+      "Sem gateway o sistema gera um PIX válido, mas a baixa é manual.",
+    campos: ["INFINITEPAY_HANDLE (seu InfiniteTag sem o $)", "NEXT_PUBLIC_SITE_URL"],
+    endpoint: "POST /api/webhooks/pagamento",
   },
   {
     nome: "Impressora térmica", icone: Printer, cor: "#38bdf8",
@@ -44,7 +61,7 @@ export default async function IntegracoesPage() {
           acao={<Badge tom={usandoDemo ? "warn" : "ok"} ponto>
             {usandoDemo ? "base de demonstração" : "Supabase conectado"}
           </Badge>} />
-        <div className="px-5 py-4 text-xs leading-relaxed text-ink-400">
+        <div className="px-5 py-4 text-[11px] leading-relaxed text-ink-400">
           {usandoDemo ? (
             <>
               O painel está rodando com a base de demonstração. Para conectar ao Supabase, preencha{" "}
@@ -69,7 +86,7 @@ export default async function IntegracoesPage() {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold text-ink-100">{i.nome}</h3>
+                  <h3 className="text-[13px] font-semibold text-ink-100">{i.nome}</h3>
                   <Badge tom="warn">aguardando credenciais</Badge>
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">{i.descricao}</p>

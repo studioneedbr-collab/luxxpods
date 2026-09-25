@@ -58,7 +58,7 @@ export default async function RelatorioChatbotPage({
           <div className="space-y-4 px-5 py-4">
             <div>
               <p className="text-[11px] uppercase tracking-wide text-ink-500">Faturamento originado</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums text-ok-400">{brl(m.faturamento_bot)}</p>
+              <p className="mt-1 text-[26px] font-bold tabular-nums text-ok-400">{brl(m.faturamento_bot)}</p>
               <Barra valor={participacao} tom="ok" className="mt-2" />
               <p className="mt-1 text-[11px] text-ink-500">{pct(participacao)} do faturamento total</p>
             </div>
@@ -74,8 +74,8 @@ export default async function RelatorioChatbotPage({
                     ["Não respondidas", num(m.conversas_nao_respondidas)],
                   ].map(([r, v]) => (
                     <Tr key={r}>
-                      <Td className="px-0 text-xs text-ink-400">{r}</Td>
-                      <Td className="px-0 text-right text-xs font-semibold tabular-nums text-ink-100">{v}</Td>
+                      <Td className="px-0 text-[11px] text-ink-400">{r}</Td>
+                      <Td className="px-0 text-right text-[11px] font-semibold tabular-nums text-ink-100">{v}</Td>
                     </Tr>
                   ))}
                 </tbody>
@@ -92,7 +92,7 @@ export default async function RelatorioChatbotPage({
           <div className="p-3">
             {porEstado.length > 0
               ? <GraficoRosca dados={porEstado} altura={280} />
-              : <p className="py-16 text-center text-xs text-ink-500">Sem conversas</p>}
+              : <p className="py-16 text-center text-[11px] text-ink-500">Sem conversas</p>}
           </div>
         </Panel>
 
@@ -101,7 +101,7 @@ export default async function RelatorioChatbotPage({
           <div className="space-y-2.5 px-5 py-4">
             {porEstado.map((e) => (
               <div key={e.nome}>
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-[11px]">
                   <span className="text-ink-300">{e.nome}</span>
                   <span className="font-semibold tabular-nums text-ink-100">
                     {e.valor} <span className="text-ink-500">

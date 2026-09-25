@@ -39,7 +39,7 @@ export default async function FichaCliente({
         <Link href="/clientes">
           <Button variante="fantasma" tamanho="sm"><ArrowLeft className="size-3.5" /> Clientes</Button>
         </Link>
-        <h2 className="text-lg font-bold tracking-tight text-ink-100">{cliente.nome || "Sem nome"}</h2>
+        <h2 className="text-[19px] font-bold tracking-tight text-ink-100">{cliente.nome || "Sem nome"}</h2>
         {cliente.maioridade_validada && <Badge tom="ok"><ShieldCheck className="size-2.5" /> +18 validado</Badge>}
         {cliente.total_pedidos > 1 && <Badge tom="gold">recorrente</Badge>}
         {(cliente.tags ?? []).map((t) => <Badge key={t} tom="brand">{t}</Badge>)}
@@ -68,11 +68,11 @@ export default async function FichaCliente({
         <div className="space-y-3">
           <Panel>
             <div className="flex flex-col items-center gap-2 px-5 py-5 text-center">
-              <span className="grid size-16 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-bold text-white">
+              <span className="grid size-16 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-[19px] font-bold text-white">
                 {iniciais(cliente.nome)}
               </span>
               <div>
-                <p className="text-sm font-semibold text-ink-100">{cliente.nome || "Sem nome"}</p>
+                <p className="text-[13px] font-semibold text-ink-100">{cliente.nome || "Sem nome"}</p>
                 <p className="text-[11px] tabular-nums text-ink-400">{telefone(cliente.telefone)}</p>
                 {cliente.instagram_username && (
                   <p className="flex items-center justify-center gap-1 text-[11px] text-ink-500">
@@ -105,11 +105,11 @@ export default async function FichaCliente({
           <Panel>
             <PanelHeader titulo="Endereços" icone={MapPin} descricao={`${enderecos.length} cadastrado(s)`} />
             {enderecos.length === 0 ? (
-              <p className="px-5 py-6 text-center text-xs text-ink-500">Nenhum endereço salvo</p>
+              <p className="px-5 py-6 text-center text-[11px] text-ink-500">Nenhum endereço salvo</p>
             ) : (
               <ul className="divide-y divide-[var(--linha)]">
                 {enderecos.map((e, i) => (
-                  <li key={i} className="px-5 py-3 text-xs">
+                  <li key={i} className="px-5 py-3 text-[11px]">
                     <p className="font-medium text-ink-100">{e.rua}, {e.numero}</p>
                     <p className="text-ink-400">{e.bairro} · {e.cidade}</p>
                     {e.complemento && <p className="text-ink-500">{e.complemento}</p>}
@@ -127,7 +127,7 @@ export default async function FichaCliente({
               <ul className="divide-y divide-[var(--linha)]">
                 {maisComprados.map(([nome, qtd]) => (
                   <li key={nome} className="flex items-center justify-between gap-3 px-5 py-2">
-                    <span className="min-w-0 truncate text-xs text-ink-200">{nome}</span>
+                    <span className="min-w-0 truncate text-[11px] text-ink-200">{nome}</span>
                     <span className="shrink-0 text-[11px] font-semibold tabular-nums text-brand-300">
                       {qtd}×
                     </span>
@@ -213,7 +213,7 @@ export default async function FichaCliente({
                         {c.canal === "instagram" ? <AtSign className="size-3.5" /> : <MessageCircle className="size-3.5" />}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs text-ink-200">{c.ultima_mensagem ?? "—"}</p>
+                        <p className="truncate text-[11px] text-ink-200">{c.ultima_mensagem ?? "—"}</p>
                         <p className="flex items-center gap-1.5 text-[10px] text-ink-500">
                           <Clock className="size-2.5" />
                           {tempoRelativo(c.ultima_mensagem_em)}
@@ -235,7 +235,7 @@ export default async function FichaCliente({
           {cliente.observacoes && (
             <Panel>
               <PanelHeader titulo="Observações" icone={User} />
-              <p className="px-5 py-4 text-xs leading-relaxed text-ink-300">{cliente.observacoes}</p>
+              <p className="px-5 py-4 text-[11px] leading-relaxed text-ink-300">{cliente.observacoes}</p>
             </Panel>
           )}
         </div>
@@ -261,7 +261,7 @@ function Cartao({
       </span>
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-        <p className="truncate text-lg font-bold tabular-nums text-ink-100">{valor}</p>
+        <p className="truncate text-[19px] font-bold tabular-nums text-ink-100">{valor}</p>
         {sub && <p className="truncate text-[10px] text-ink-500">{sub}</p>}
       </div>
     </Panel>

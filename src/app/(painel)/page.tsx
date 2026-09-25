@@ -106,7 +106,7 @@ export default async function Dashboard({
                 </Link>
               } />
             {emAndamento.length === 0 ? (
-              <p className="px-4 py-8 text-center text-xs text-ink-500">Nenhum pedido em aberto</p>
+              <p className="px-4 py-8 text-center text-[11px] text-ink-500">Nenhum pedido em aberto</p>
             ) : (
               <ul className="divide-y divide-[var(--linha)]">
                 {emAndamento.map((p) => {
@@ -140,7 +140,7 @@ export default async function Dashboard({
                 </Link>
               } />
             {criticos.length === 0 ? (
-              <p className="px-4 py-8 text-center text-xs text-ink-500">Estoque saudável</p>
+              <p className="px-4 py-8 text-center text-[11px] text-ink-500">Estoque saudável</p>
             ) : (
               <ul className="divide-y divide-[var(--linha)]">
                 {criticos.map((c) => (
@@ -178,7 +178,7 @@ export default async function Dashboard({
               <p className="text-[10px] uppercase tracking-[0.1em] text-ink-500">
                 Faturamento originado
               </p>
-              <p className="numero mt-1 text-xl text-ok-400">{brl(m.faturamento_bot)}</p>
+              <p className="numero mt-1 text-[19px] text-ok-400">{brl(m.faturamento_bot)}</p>
               <Barra valor={participacaoBot} tom="ok" className="mt-2" />
               <p className="mt-1 text-[11px] text-ink-500">{pct(participacaoBot, 0)} do total</p>
             </div>
@@ -191,7 +191,7 @@ export default async function Dashboard({
                 ["1ª resposta", `${num(m.tempo_primeira_resposta)} min`, false],
               ].map(([rotulo, valor, alerta]) => (
                 <div key={String(rotulo)} className="flex items-center justify-between gap-3">
-                  <dt className="text-xs text-ink-400">{rotulo}</dt>
+                  <dt className="text-[11px] text-ink-400">{rotulo}</dt>
                   <dd className={cn(
                     "numero text-[13px]",
                     alerta ? "text-warn-400" : "text-ink-200",

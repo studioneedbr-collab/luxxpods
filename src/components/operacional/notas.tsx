@@ -194,7 +194,7 @@ export function TelaNotas({
                 <p className="text-[13px] font-medium text-ink-100">{e.titulo}</p>
                 <p className="truncate text-[11px] text-ink-500">{e.texto}</p>
               </div>
-              <span className={cn("numero text-lg", e.qtd > 0 ? e.tom : "text-ink-600")}>
+              <span className={cn("numero text-[19px]", e.qtd > 0 ? e.tom : "text-ink-600")}>
                 {e.qtd}
               </span>
               {i < 2 && (
@@ -564,7 +564,7 @@ function FormNota({
               <span className="text-[11px] text-ink-500">
                 {num(pecas)} peças · {itens.length} itens
               </span>
-              <span className="numero text-base text-ink-100">{brl(total)}</span>
+              <span className="numero text-[15px] text-ink-100">{brl(total)}</span>
             </div>
           </div>
         )}

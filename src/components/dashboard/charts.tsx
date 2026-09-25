@@ -18,7 +18,7 @@ function TooltipBox({ active, payload, label, moeda }: {
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="flutua px-3 py-2 text-xs">
+    <div className="flutua px-3 py-2 text-[11px]">
       {label && <p className="mb-1 font-medium text-ink-200">{label}</p>}
       {payload.map((p, i) => (
         <p key={i} className="flex items-center gap-2 tabular-nums text-ink-300">
@@ -43,7 +43,7 @@ function SemDados({ altura, mensagem }: { altura: number; mensagem: string }) {
       <span className="grid size-9 place-items-center rounded-lg bg-ink-850 text-ink-600">
         <CalendarOff className="size-4" />
       </span>
-      <p className="text-xs text-ink-500">{mensagem}</p>
+      <p className="text-[11px] text-ink-500">{mensagem}</p>
       <p className="text-[11px] text-ink-600">Troque o período no filtro acima</p>
     </div>
   );
@@ -145,7 +145,7 @@ export function GraficoRosca({
           const p = payload[0];
           const v = Number(p.value);
           return (
-            <div className="flutua px-3 py-2 text-xs">
+            <div className="flutua px-3 py-2 text-[11px]">
               <p className="font-medium text-ink-100">{p.name}</p>
               <p className="tabular-nums text-ink-300">
                 {num(v)} · {total ? ((v / total) * 100).toFixed(1).replace(".", ",") : 0}%

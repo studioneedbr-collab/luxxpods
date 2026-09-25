@@ -73,7 +73,7 @@ export function KanbanBoard({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar lead por nome ou telefone…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Badge tom="brand">{filtrados.length} em atendimento</Badge>
@@ -109,7 +109,7 @@ export function KanbanBoard({
             >
               <div className="flex items-center gap-2 border-b border-[var(--linha)] px-3 py-2.5">
                 <span className="size-2 shrink-0 rounded-full" style={{ background: etapa.cor }} />
-                <p className="min-w-0 flex-1 truncate text-xs font-semibold text-ink-200">{etapa.nome}</p>
+                <p className="min-w-0 flex-1 truncate text-[11px] font-semibold text-ink-200">{etapa.nome}</p>
                 <span className="rounded-full bg-ink-800 px-1.5 text-[10px] font-bold tabular-nums text-ink-300">
                   {doEstagio.length}
                 </span>
@@ -142,7 +142,7 @@ export function KanbanBoard({
                         {iniciais(lead.cliente?.nome)}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-medium text-ink-100">
+                        <p className="truncate text-[11px] font-medium text-ink-100">
                           {lead.cliente?.nome ?? "Sem nome"}
                         </p>
                         <p className="truncate text-[10px] text-ink-500">

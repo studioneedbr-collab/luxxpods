@@ -91,7 +91,7 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
             <span className="grid size-8 place-items-center rounded-lg bg-brand-500/12 text-brand-300">
               <CalendarDays className="size-4" />
             </span>
-            <h2 className="text-sm font-semibold capitalize text-ink-100">
+            <h2 className="text-[13px] font-semibold capitalize text-ink-100">
               {base.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
             </h2>
           </div>
@@ -154,13 +154,13 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
                   <div className="mt-1 space-y-0.5">
                     {doDiaAtual.slice(0, 3).map((e) => (
                       <p key={e.id}
-                        className="truncate rounded px-1 py-px text-[9px] font-medium"
+                        className="truncate rounded px-1 py-px text-[10px] font-medium"
                         style={{ background: `${e.cor}22`, color: e.cor }}>
                         {hora(e.inicio)} {e.titulo}
                       </p>
                     ))}
                     {doDiaAtual.length > 3 && (
-                      <p className="px-1 text-[9px] text-ink-500">+{doDiaAtual.length - 3}</p>
+                      <p className="px-1 text-[10px] text-ink-500">+{doDiaAtual.length - 3}</p>
                     )}
                   </div>
                 </button>
@@ -187,14 +187,14 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
               }
             />
             {doDia.length === 0 ? (
-              <p className="px-5 py-6 text-center text-xs text-ink-500">Nada agendado</p>
+              <p className="px-5 py-6 text-center text-[11px] text-ink-500">Nada agendado</p>
             ) : (
               <ul className="divide-y divide-[var(--linha)]">
                 {doDia.map((e) => (
                   <li key={e.id} className="flex items-center gap-3 px-5 py-2.5">
                     <span className="size-2 shrink-0 rounded-full" style={{ background: e.cor }} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium text-ink-200">{e.titulo}</p>
+                      <p className="truncate text-[11px] font-medium text-ink-200">{e.titulo}</p>
                       <p className="text-[11px] tabular-nums text-ink-500">
                         {hora(e.inicio)}{e.fim ? ` – ${hora(e.fim)}` : ""}
                       </p>
@@ -218,7 +218,7 @@ export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendari
                 <li key={e.id} className="flex items-center gap-3 px-5 py-3 transition hover:bg-ink-850/50">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: e.cor }} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-ink-200">{e.titulo}</p>
+                    <p className="truncate text-[11px] font-medium text-ink-200">{e.titulo}</p>
                     <p className="text-[11px] tabular-nums text-ink-500">
                       {hora(e.inicio)}
                       {e.responsavel ? ` · ${e.responsavel}` : ""}

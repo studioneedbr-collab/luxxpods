@@ -10,8 +10,8 @@ export default function NaoEncontradoNoPainel() {
         <span className="mx-auto grid size-12 place-items-center rounded-xl bg-brand-500/12 text-brand-300 ring-1 ring-inset ring-brand-500/20">
           <PackageSearch className="size-5" />
         </span>
-        <h1 className="mt-4 text-base font-semibold text-ink-100">Registro não encontrado</h1>
-        <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-ink-400">
+        <h1 className="mt-4 text-[15px] font-semibold text-ink-100">Registro não encontrado</h1>
+        <p className="mx-auto mt-1.5 max-w-xs text-[11px] leading-relaxed text-ink-400">
           O pedido, cliente ou produto que você tentou abrir não existe mais
           ou o link está desatualizado.
         </p>

@@ -72,7 +72,7 @@ export default async function FinanceiroPage({
           <div className="space-y-4 px-5 py-4">
             <Linha rotulo="Faturamento bruto" valor={brl(m.faturamento)} destaque />
             <div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-[11px]">
                 <span className="text-ink-400">Custo da mercadoria (CMV)</span>
                 <span className="font-semibold tabular-nums text-bad-400">− {brl(m.cmv)}</span>
               </div>
@@ -80,8 +80,8 @@ export default async function FinanceiroPage({
             </div>
             <div className="border-t border-[var(--linha)] pt-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-ink-400">Lucro bruto</span>
-                <span className="text-lg font-bold tabular-nums text-ok-400">{brl(m.lucro_bruto)}</span>
+                <span className="text-[11px] text-ink-400">Lucro bruto</span>
+                <span className="text-[19px] font-bold tabular-nums text-ok-400">{brl(m.lucro_bruto)}</span>
               </div>
               <Barra valor={margem} tom="ok" className="mt-1.5" />
               <p className="mt-1 text-right text-[11px] text-ink-500">margem de {pct(margem)}</p>
@@ -91,7 +91,7 @@ export default async function FinanceiroPage({
               <p className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">Por forma de pagamento</p>
               {porMetodo.length > 0
                 ? <GraficoRosca dados={porMetodo} altura={170} />
-                : <p className="py-6 text-center text-xs text-ink-500">Sem movimento no período</p>}
+                : <p className="py-6 text-center text-[11px] text-ink-500">Sem movimento no período</p>}
             </div>
           </div>
         </Panel>
@@ -173,10 +173,10 @@ export default async function FinanceiroPage({
 function Linha({ rotulo, valor, destaque }: { rotulo: string; valor: string; destaque?: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-xs text-ink-400">{rotulo}</span>
+      <span className="text-[11px] text-ink-400">{rotulo}</span>
       <span className={destaque
-        ? "text-base font-bold tabular-nums text-ink-100"
-        : "text-sm font-semibold tabular-nums text-ink-200"}>
+        ? "text-[15px] font-bold tabular-nums text-ink-100"
+        : "text-[13px] font-semibold tabular-nums text-ink-200"}>
         {valor}
       </span>
     </div>
@@ -193,7 +193,7 @@ function Resumo({ rotulo, valor, icone: Icone }: {
       </span>
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-        <p className="mt-0.5 truncate text-base font-bold tabular-nums text-ink-100">{valor}</p>
+        <p className="mt-0.5 truncate text-[15px] font-bold tabular-nums text-ink-100">{valor}</p>
       </div>
     </Panel>
   );

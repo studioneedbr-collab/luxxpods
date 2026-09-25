@@ -54,7 +54,7 @@ export default async function EntregasPage() {
                   className="bg-ink-900 p-4 transition hover:bg-ink-800">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-ink-100">{p.cliente_nome}</p>
+                      <p className="truncate text-[13px] font-semibold text-ink-100">{p.cliente_nome}</p>
                       <p className="text-[11px] tabular-nums text-ink-500">
                         {p.numero_pedido} · {hora(p.created_at)}
                       </p>
@@ -119,9 +119,9 @@ export default async function EntregasPage() {
               <li key={p.id}>
                 <Link href={`/pedidos/${p.id}`} className="flex items-center gap-3 px-5 py-2.5 transition hover:bg-ink-850">
                   <span className="text-[11px] tabular-nums text-ink-500">{hora(p.entregue_em)}</span>
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink-200">{p.cliente_nome}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-ink-200">{p.cliente_nome}</span>
                   <span className="text-[11px] tabular-nums text-ink-500">{p.numero_pedido}</span>
-                  <span className="text-xs font-semibold tabular-nums text-ok-400">{brl(p.total)}</span>
+                  <span className="text-[11px] font-semibold tabular-nums text-ok-400">{brl(p.total)}</span>
                 </Link>
               </li>
             ))}

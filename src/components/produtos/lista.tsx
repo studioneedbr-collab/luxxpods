@@ -1,20 +1,24 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Package, Pencil, Search, Star, X, Check } from "lucide-react";
+import { Package, Pencil, Plus, Search, Star, Trash2, X, Check } from "lucide-react";
 import { alternarProduto, salvarProduto } from "@/lib/actions";
+import { criarProduto, excluirProduto } from "@/lib/actions-cadastro";
 import { Badge, Button, Input, Panel, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { brl, cn, num, pct } from "@/lib/utils";
 import type { Produto } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoMoeda } from "@/components/ui";
+import { Campo, Confirmar, Modal, Textarea } from "@/components/ui/modal";
 
 export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
   const [produtos, setProdutos] = useState(iniciais);
   const [busca, setBusca] = useState("");
   const [marca, setMarca] = useState("todas");
   const [editando, setEditando] = useState<Produto | null>(null);
+  const [criando, setCriando] = useState(false);
+  const [excluindo, setExcluindo] = useState<Produto | null>(null);
   const [, iniciar] = useTransition();
   const toast = useToast();
 
@@ -68,6 +72,50 @@ export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
 
   const { visiveis, props: paginacao } = usePaginacao(filtrados, 25);
 
+  function criar(dados: {
+    nome: string; marca: string | null; brand_id: string | null;
+    modelo: string; puffs: number | null; preco: number; custo: number;
+    descricao: string;
+  }) {
+    const provisorio: Produto = {
+      id: `tmp-${Date.now()}`, nome: dados.nome, modelo: dados.modelo || null,
+      marca: dados.marca, brand_id: dados.brand_id, puffs: dados.puffs,
+      sku: null, preco: dados.preco, custo: dados.custo, status: "ativo",
+      destaque: false, imagem_url: null, descricao: dados.descricao || null,
+      sabores: 0, sabores_disponiveis: 0, estoque: 0,
+      margem: dados.preco > 0 ? ((dados.preco - dados.custo) / dados.preco) * 100 : 0,
+    };
+    setProdutos((l) => [...l, provisorio]);
+    setCriando(false);
+
+    iniciar(async () => {
+      const r = await criarProduto({
+        nome: dados.nome, modelo: dados.modelo || null, brand_id: dados.brand_id,
+        puffs: dados.puffs, preco: dados.preco, custo: dados.custo,
+        descricao: dados.descricao || null,
+      });
+      if (r.ok) {
+        toast.ok("Produto criado", "Agora adicione os sabores no catálogo");
+      } else {
+        setProdutos(iniciais);
+        toast.erro("Não consegui criar o produto", r.erro);
+      }
+    });
+  }
+
+  function remover(p: Produto) {
+    setExcluindo(null);
+    setProdutos((l) => l.filter((x) => x.id !== p.id));
+    iniciar(async () => {
+      const r = await excluirProduto(p.id);
+      if (r.ok) toast.ok("Produto excluído", p.nome);
+      else {
+        setProdutos(iniciais);
+        toast.erro("Não consegui excluir", r.erro);
+      }
+    });
+  }
+
   const totais = {
     ativos: filtrados.filter((p) => p.status === "ativo").length,
     estoque: filtrados.reduce((a, p) => a + p.estoque, 0),
@@ -84,7 +132,7 @@ export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar produto, modelo ou SKU…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={marca} onChange={(e) => setMarca(e.target.value)}>
@@ -94,6 +142,9 @@ export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
         <Badge tom="ok">{totais.ativos} ativos</Badge>
         <Badge tom="brand">{num(totais.estoque)} peças</Badge>
         <Badge tom="gold">{brl(totais.valorVenda)} em venda potencial</Badge>
+        <Button variante="primario" tamanho="sm" onClick={() => setCriando(true)}>
+          <Plus className="size-3.5" /> Novo produto
+        </Button>
       </Panel>
 
       <Panel className="overflow-hidden">
@@ -160,11 +211,17 @@ export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
                       </Badge>
                     </button>
                   </Td>
-                  <Td className="text-right">
-                    <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(p)}
-                      aria-label={`Editar ${p.nome}`} title="Editar produto">
-                      <Pencil className="size-3.5" />
-                    </Button>
+                  <Td>
+                    <div className="flex justify-end gap-1">
+                      <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(p)}
+                        aria-label={`Editar ${p.nome}`} title="Editar produto">
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button tamanho="iconeSm" variante="fantasma" onClick={() => setExcluindo(p)}
+                        aria-label={`Excluir ${p.nome}`} title="Excluir produto">
+                        <Trash2 className="size-3.5 text-bad-400" />
+                      </Button>
+                    </div>
                   </Td>
                 </Tr>
               ))}
@@ -177,7 +234,130 @@ export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
       {editando && (
         <ModalEdicao produto={editando} onFechar={() => setEditando(null)} onSalvar={salvar} />
       )}
+
+      {criando && (
+        <ModalNovo marcas={marcas} produtos={produtos}
+          onFechar={() => setCriando(false)} onSalvar={criar} />
+      )}
+
+      <Confirmar
+        aberto={Boolean(excluindo)}
+        titulo={`Excluir ${excluindo?.nome}?`}
+        mensagem={
+          excluindo && excluindo.estoque > 0
+            ? `Este produto ainda tem ${excluindo.estoque} unidade(s) em estoque. Zere o estoque antes, ou apenas desative para tirá-lo do catálogo do bot.`
+            : "O produto sai do catálogo. Os pedidos antigos continuam mostrando o que foi vendido, pelo preço praticado na época."
+        }
+        textoConfirmar="Excluir"
+        perigo
+        onCancelar={() => setExcluindo(null)}
+        onConfirmar={() => excluindo && remover(excluindo)}
+      />
     </div>
+  );
+}
+
+/** Cadastro de um modelo novo. Os sabores entram depois, pelo catálogo. */
+function ModalNovo({
+  marcas, produtos, onFechar, onSalvar,
+}: {
+  marcas: string[];
+  produtos: Produto[];
+  onFechar: () => void;
+  onSalvar: (d: {
+    nome: string; marca: string | null; brand_id: string | null;
+    modelo: string; puffs: number | null; preco: number; custo: number;
+    descricao: string;
+  }) => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [marca, setMarca] = useState(marcas[0] ?? "");
+  const [modelo, setModelo] = useState("");
+  const [puffs, setPuffs] = useState("");
+  const [preco, setPreco] = useState(0);
+  const [custo, setCusto] = useState(0);
+  const [descricao, setDescricao] = useState("");
+
+  const margem = preco > 0 ? ((preco - custo) / preco) * 100 : 0;
+  const prejuizo = custo > 0 && preco > 0 && custo >= preco;
+
+  // o id da marca vem de um produto que já a usa
+  const brandId = produtos.find((p) => p.marca === marca)?.brand_id ?? null;
+
+  return (
+    <Modal
+      aberto
+      onFechar={onFechar}
+      titulo="Novo produto"
+      descricao="Depois de criar, adicione os sabores pela tela de catálogo"
+      rodape={
+        <>
+          <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
+          <Button
+            variante="primario"
+            disabled={!nome.trim() || preco <= 0 || prejuizo}
+            onClick={() => onSalvar({
+              nome, marca: marca || null, brand_id: brandId, modelo,
+              puffs: puffs ? Number(puffs) : null, preco, custo, descricao,
+            })}
+          >
+            <Check className="size-3.5" /> Criar produto
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo rotulo="Nome do produto" dica="como o cliente vê na conversa">
+          <Input value={nome} onChange={(e) => setNome(e.target.value)}
+            placeholder="Ignite V300" autoFocus />
+        </Campo>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Campo rotulo="Marca">
+            <Select value={marca} onChange={(e) => setMarca(e.target.value)} className="w-full">
+              {marcas.map((m) => <option key={m} value={m}>{m}</option>)}
+            </Select>
+          </Campo>
+          <Campo rotulo="Modelo">
+            <Input value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="V300" />
+          </Campo>
+          <Campo rotulo="Puffs">
+            <Input type="number" value={puffs} onChange={(e) => setPuffs(e.target.value)}
+              placeholder="3000" />
+          </Campo>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo rotulo="Custo">
+            <CampoMoeda valor={custo} aoMudar={setCusto} />
+          </Campo>
+          <Campo rotulo="Preço de venda">
+            <CampoMoeda valor={preco} aoMudar={setPreco} />
+          </Campo>
+        </div>
+
+        <div className={cn(
+          "flex items-center justify-between rounded-md px-3 py-2.5",
+          prejuizo ? "bg-bad-500/10" : "bg-ink-850",
+        )}>
+          <span className="text-[11px] text-ink-400">
+            {prejuizo ? "O custo está acima do preço" : "Margem"}
+          </span>
+          <span className={cn(
+            "numero text-[13px]",
+            prejuizo ? "text-bad-400" : margem >= 45 ? "text-ok-400"
+              : margem >= 30 ? "text-warn-400" : "text-ink-300",
+          )}>
+            {prejuizo ? "venda daria prejuízo" : `${pct(margem, 0)} · ${brl(preco - custo)} por peça`}
+          </span>
+        </div>
+
+        <Campo rotulo="Descrição">
+          <Textarea rows={2} value={descricao} onChange={(e) => setDescricao(e.target.value)}
+            placeholder="Ignite V300 — 3.000 puffs" />
+        </Campo>
+      </div>
+    </Modal>
   );
 }
 
@@ -205,7 +385,7 @@ function ModalEdicao({
       >
         <div className="flex items-center justify-between border-b border-[var(--linha)] px-5 py-3.5">
           <div>
-            <h3 className="text-sm font-semibold text-ink-100">Editar produto</h3>
+            <h3 className="text-[13px] font-semibold text-ink-100">Editar produto</h3>
             <p className="text-[11px] text-ink-500">{produto.marca} · {produto.sku}</p>
           </div>
           <Button tamanho="iconeSm" variante="fantasma" onClick={onFechar} aria-label="Fechar">
@@ -228,9 +408,9 @@ function ModalEdicao({
           </div>
 
           <div className="flex items-center justify-between rounded-lg bg-ink-850 px-3 py-2.5">
-            <span className="text-xs text-ink-400">Margem estimada</span>
+            <span className="text-[11px] text-ink-400">Margem estimada</span>
             <span className={cn(
-              "text-sm font-bold tabular-nums",
+              "text-[13px] font-bold tabular-nums",
               margem >= 45 ? "text-ok-400" : margem >= 30 ? "text-warn-400" : "text-bad-400",
             )}>
               {pct(margem)} · {brl(p - c)} por unidade
@@ -242,7 +422,7 @@ function ModalEdicao({
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
               rows={2}
-              className="w-full rounded-lg bg-ink-850 px-3 py-2 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+              className="w-full rounded-lg bg-ink-850 px-3 py-2 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             />
           </Campo>
 
@@ -263,14 +443,5 @@ function ModalEdicao({
         </div>
       </div>
     </div>
-  );
-}
-
-function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-500">{rotulo}</span>
-      {children}
-    </label>
   );
 }

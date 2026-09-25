@@ -7,9 +7,37 @@ import {
   demoAjustarEstoque, demoAlternarBot, demoAlternarProduto, demoAlternarSabor,
   demoAlterarStatusPedido, demoEnviarMensagem, demoMarcarLido, demoMoverLead,
   demoSalvarProduto, demoFecharLeadDoPedido, demoReabrirLeadDoPedido,
-  demoStatusPedido, demoCriarPedido,
+  demoStatusPedido, demoCriarPedido, demoConversaDoPedido, demo,
 } from "./demo";
+import { enfileirar } from "./fila/worker";
+import { agendarFollowup } from "./bot/recepcao";
 import type { PedidoStatus } from "./types";
+
+/** O que o cliente recebe quando o pedido anda (ETAPA 16 e 17 do escopo). */
+const AVISO_POR_STATUS: Partial<Record<PedidoStatus, string>> = {
+  em_separacao: "Seu pedido já está sendo separado ✅",
+  saiu_para_entrega: "Seu pedido saiu para entrega 🛵",
+  entregue: "Pedido entregue! Qualquer coisa é só chamar 🖤",
+};
+
+async function avisarClienteDoStatus(pedidoId: string, status: PedidoStatus) {
+  const texto = AVISO_POR_STATUS[status];
+  if (!texto) return;
+
+  const c = await cli();
+  const conversationId = c
+    ? (await c.from("orders").select("conversation_id").eq("id", pedidoId).maybeSingle())
+        .data?.conversation_id
+    : demoConversaDoPedido(pedidoId);
+
+  if (!conversationId) return;
+
+  await enfileirar(
+    "avisar_status_pedido",
+    { texto, order_id: pedidoId, natureza: "transacional" },
+    { conversationId },
+  );
+}
 
 async function cli() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
@@ -20,40 +48,51 @@ type Resultado = { ok: boolean; erro?: string };
 
 /* ------------------------------------------------------------------ CHATS */
 
+/**
+ * O atendente escreve: grava a mensagem e enfileira a entrega.
+ *
+ * Quem entrega é o worker da fila, não esta função — assim o canal fora do
+ * ar não trava a tela, e a nova tentativa acontece sozinha.
+ */
 export async function enviarMensagem(conversationId: string, conteudo: string): Promise<Resultado> {
   const texto = conteudo.trim();
   if (!texto) return { ok: false, erro: "Mensagem vazia" };
 
   const c = await cli();
   if (!c) {
-    demoEnviarMensagem(conversationId, texto, "atendente");
+    const msg = demoEnviarMensagem(conversationId, texto, "atendente");
+    await enfileirar(
+      "enviar_mensagem",
+      { conteudo: texto, message_id: msg.id, natureza: "transacional" },
+      { conversationId },
+    );
   } else {
     const { data: user } = await c.auth.getUser();
-    const { error } = await c.from("messages").insert({
-      conversation_id: conversationId,
-      store_id: STORE_ID,
-      sender_type: "atendente",
-      sender_id: user?.user?.id ?? null,
-      tipo: "texto",
-      conteudo: texto,
-      status: "pendente",
-    });
+
+    const { data: gravada, error } = await c.from("messages")
+      .insert({
+        conversation_id: conversationId,
+        store_id: STORE_ID,
+        sender_type: "atendente",
+        sender_id: user?.user?.id ?? null,
+        tipo: "texto",
+        conteudo: texto,
+        status: "pendente",
+      })
+      .select("id").single();
     if (error) return { ok: false, erro: error.message };
 
     await c.from("conversations").update({
       ultima_mensagem: texto,
       ultima_mensagem_em: new Date().toISOString(),
       ultima_interacao_sistema: new Date().toISOString(),
-      nao_lidas: 0,
     }).eq("id", conversationId);
 
-    // a fila entrega no canal (WhatsApp/Instagram)
-    await c.from("jobs").insert({
-      store_id: STORE_ID,
-      tipo: "enviar_mensagem",
-      conversation_id: conversationId,
-      payload: { conteudo: texto },
-    });
+    await enfileirar(
+      "enviar_mensagem",
+      { conteudo: texto, message_id: gravada.id, natureza: "transacional" },
+      { conversationId },
+    );
   }
 
   revalidatePath("/chats");
@@ -162,6 +201,7 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     demoAlterarStatusPedido(pedidoId, status);
     if (status === "entregue") demoFecharLeadDoPedido(pedidoId);
     if (status === "cancelado") demoReabrirLeadDoPedido(pedidoId);
+    await avisarClienteDoStatus(pedidoId, status);
     revalidatePath("/pedidos");
     revalidatePath("/kanban");
     revalidatePath(`/pedidos/${pedidoId}`);
@@ -196,6 +236,8 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     const { error } = await c.from("orders")
       .update({ status_pedido: status, ...campos }).eq("id", pedidoId);
     if (error) return { ok: false, erro: error.message };
+
+    await avisarClienteDoStatus(pedidoId, status);
 
     // Dinheiro na entrega: entregar É receber. Sem isto a tela mostrava
     // "pago" por um instante e o financeiro nunca via o dinheiro entrar.
@@ -400,4 +442,94 @@ export async function criarPedido(
   revalidatePath("/estoque");
   revalidatePath("/entregas");
   return { ok: true, id: pedido.id, numero: pedido.numero_pedido };
+}
+
+/**
+ * Envia o catálogo e liga o cronômetro do follow-up (ETAPA 04 e 05).
+ *
+ * O tempo sai das configurações, não do código: a loja ajusta sem deploy.
+ */
+export async function enviarCatalogo(conversationId: string): Promise<Resultado> {
+  const c = await cli();
+
+  let arquivo: string | null = null;
+  let texto = "Esse é nosso catálogo 🖤 Me fala qual modelo te interessou que já mando os sabores disponíveis!";
+
+  if (c) {
+    const { data } = await c.from("settings")
+      .select("valor").eq("store_id", STORE_ID).eq("chave", "catalogo").maybeSingle();
+    arquivo = (data?.valor as { arquivo_png?: string } | undefined)?.arquivo_png ?? null;
+  }
+
+  if (!arquivo) {
+    texto = "Me fala qual marca ou modelo você procura que já te mando os sabores disponíveis 🖤";
+  }
+
+  const envio = await enviarMensagem(conversationId, texto);
+  if (!envio.ok) return envio;
+
+  // marca o estado e agenda o retorno
+  if (c) {
+    await c.from("conversations")
+      .update({ estado: "CATALOG_SENT" }).eq("id", conversationId);
+  } else {
+    const conversa = demo().conversas.find((x) => x.id === conversationId);
+    if (conversa) conversa.estado = "CATALOG_SENT";
+  }
+
+  await agendarFollowup(conversationId);
+
+  revalidatePath("/chats");
+  return { ok: true };
+}
+
+/**
+ * Baixa manual do PIX.
+ *
+ * Sem gateway, alguém confere o comprovante e marca aqui. A partir daí o
+ * pedido pode ser confirmado — é a mesma trava de sempre: PIX só vira venda
+ * com o dinheiro na conta.
+ */
+export async function confirmarPagamentoPix(pedidoId: string): Promise<Resultado> {
+  const c = await cli();
+
+  if (!c) {
+    const pedido = demo().pedidos.find((p) => p.id === pedidoId);
+    if (!pedido) return { ok: false, erro: "Pedido não encontrado." };
+    pedido.status_pagamento = "aprovado";
+    if (pedido.status_pedido === "aguardando_pagamento") {
+      pedido.status_pedido = "confirmado";
+      pedido.confirmado_em = new Date().toISOString();
+    }
+    revalidatePath("/pedidos");
+    revalidatePath(`/pedidos/${pedidoId}`);
+    return { ok: true };
+  }
+
+  const { data: user } = await c.auth.getUser();
+  const usuarioId = user?.user?.id ?? null;
+
+  const { error } = await c.from("orders")
+    .update({ status_pagamento: "aprovado" }).eq("id", pedidoId);
+  if (error) return { ok: false, erro: error.message };
+
+  await c.from("payments")
+    .update({ status: "aprovado", pago_em: new Date().toISOString() })
+    .eq("order_id", pedidoId).eq("status", "aguardando");
+
+  // com o pagamento aprovado, a confirmação passa na trava e baixa o estoque
+  const { error: erroConfirmacao } = await c.rpc("confirmar_pedido", {
+    p_order_id: pedidoId, p_usuario_id: usuarioId,
+  });
+  if (erroConfirmacao) {
+    return {
+      ok: false,
+      erro: `Pagamento marcado, mas o pedido não confirmou: ${erroConfirmacao.message}`,
+    };
+  }
+
+  revalidatePath("/pedidos");
+  revalidatePath("/entregas");
+  revalidatePath(`/pedidos/${pedidoId}`);
+  return { ok: true };
 }

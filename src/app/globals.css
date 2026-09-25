@@ -52,7 +52,7 @@
   --color-gold-400: #d8b45f;
   --color-gold-500: #b8923c;
 
-  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
   --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
@@ -104,6 +104,19 @@ h1, h2, h3, .display {
   line-height: 1;
   letter-spacing: -0.035em;
 }
+
+/* ---------------------------------------------------------------------------
+   ESCALA DE CORPO — seis degraus, cada um com um papel.
+   Antes eram 17 tamanhos soltos, e a mesma informação aparecia com corpo
+   diferente de uma tela para outra.
+
+     10px  rótulo de seção e de campo (uppercase, com tracking)
+     11px  auxiliar: legenda, meta, detalhe secundário
+     13px  corpo: tabela, formulário, tudo que se lê de fato
+     15px  título de painel e valor em linha
+     19px  número em destaque
+     26px  o número principal da tela
+   --------------------------------------------------------------------------- */
 
 /* rótulo de seção e de campo */
 .rotulo {

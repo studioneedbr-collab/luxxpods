@@ -1,40 +1,36 @@
 # Luxx Pods — Sistema de Operação
 
 Atendimento por WhatsApp e Instagram, catálogo, estoque, pedidos, entregas e
-financeiro — tudo no mesmo fluxo, com **uma única fonte de verdade**.
+financeiro no mesmo fluxo, com **uma única fonte de verdade**.
 
-Stack: **Next.js 16 · TypeScript · Tailwind 4 · Supabase (Postgres + Auth + Realtime) · Vercel**
+**Next.js 16 · TypeScript · Tailwind 4 · Supabase (Postgres + Auth + Realtime) · Vercel**
 
 ---
 
-## Rodar agora
+## Rodar
 
 ```bash
 npm install
-npm run dev
+npm run dev     # http://localhost:3000
+npm test        # 82 testes dos núcleos de regra
 ```
 
-Abre em `http://localhost:3000`. **Sem nenhuma configuração**, o painel sobe com a
-base de demonstração: 20 clientes, 20 conversas, 16 pedidos, 10 modelos de pod e
-75 combinações produto + sabor. Todas as telas funcionam e são navegáveis.
+Sem nenhuma configuração o painel sobe com a **base de demonstração**: 20
+clientes, 20 conversas, 16 pedidos, 10 modelos e 75 combinações produto+sabor.
+Tudo é editável — criar, editar e excluir funcionam de verdade, com as mesmas
+regras que o banco aplica. O que muda ao conectar o Supabase é só onde o dado
+fica guardado.
 
-O aviso no topo mostra em qual modo você está: `Base de demonstração` ou `Supabase conectado`.
+**Login**: qualquer e-mail entra enquanto não há banco (só fora de produção).
 
 ---
 
-## Conectar ao Supabase (~5 minutos)
+## Conectar o Supabase (~5 min)
 
-1. Crie o projeto em [supabase.com](https://supabase.com) → **New project**
-   (região sugerida: `South America (São Paulo)`).
-2. No painel do projeto, vá em **SQL Editor** → **New query**.
-3. Cole o conteúdo inteiro de [`supabase/schema-completo.sql`](supabase/schema-completo.sql) e rode.
-   Cria todas as tabelas, funções, views, RLS, realtime e o seed inicial.
-   É idempotente — rodar de novo não duplica nada.
-4. Vá em **Project Settings → API** e copie:
-   - `Project URL`
-   - `anon public` key
-   - `service_role` key (só para o servidor)
-5. Preencha o `.env.local`:
+1. [supabase.com](https://supabase.com) → **New project** (região `South America (São Paulo)`)
+2. **SQL Editor** → cole [`supabase/schema-completo.sql`](supabase/schema-completo.sql) inteiro → Run
+3. **Settings → API** → copie `Project URL`, `anon public` e `service_role`
+4. Preencha o `.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
@@ -43,114 +39,163 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...
 NEXT_PUBLIC_STORE_ID=22222222-2222-2222-2222-222222222222
 ```
 
-6. Reinicie o `npm run dev`. O aviso no topo vira **Supabase conectado** e todas
-   as telas passam a ler e gravar no banco real.
+5. Reinicie o `npm run dev`.
+
+Depois disso, crie o primeiro usuário em **Authentication → Users** e ligue o
+perfil dele a `admin` na tabela `profiles`.
 
 ---
 
-## Deploy na Vercel
-
-```bash
-npx vercel            # primeira vez: vincula o projeto
-npx vercel --prod     # publica
-```
-
-Depois adicione as mesmas variáveis em **Vercel → Settings → Environment Variables**.
-
----
-
-## Arquitetura
+## Onde está cada coisa
 
 ```
 src/
-  app/(painel)/        telas do sistema (layout com sidebar + topbar)
-  app/api/             rotas de leitura usadas pelo chat ao vivo
-  components/          UI, dashboard, chat, kanban, catálogo, pedidos
+  app/(painel)/        as telas do sistema
+  app/(auth)/login     entrada
+  app/api/             busca global, notificações, dados do chat
+  components/          UI, dashboard, chat, kanban, catálogo, pedidos, financeiro
   lib/
-    data.ts            camada única de leitura (Supabase → fallback demo)
-    actions.ts         escritas (Server Actions)
-    demo.ts            base de demonstração, mesmo shape do banco
-    types.ts           tipos do domínio
-    labels.ts          rótulos e cores de status
-supabase/
-  migrations/          0001 core · 0002 CRM · 0003 catálogo/estoque
-                       0004 vendas/financeiro · 0005 funções/RLS · 0006 seed
-  schema-completo.sql  tudo junto, para colar no SQL Editor
+    data.ts            leitura (Supabase → demonstração)
+    actions*.ts        escrita, em Server Actions
+    bot/               núcleos do chatbot, puros e testados
+    demo*.ts           base de demonstração, mesmo shape do banco
+    mascaras.ts        CPF, CNPJ, telefone, CEP — com validação
+  proxy.ts             porteiro de rotas
+supabase/migrations/   0001 → 0011
 ```
 
-### Regras críticas já implementadas no banco
+---
+
+## Regras que o banco garante
+
+Estas não dependem da tela: valem para o painel, para o bot e para quem chamar
+a API direto.
 
 | Regra | Onde |
 |---|---|
-| Estoque nunca fica negativo, mesmo com dois clientes simultâneos | `mover_estoque()` com `SELECT ... FOR UPDATE` |
-| Nenhuma alteração de estoque sem histórico | `inventory_movements` gravado dentro da mesma função |
-| Confirmar pedido é transacional (estoque + financeiro + impressão) | `confirmar_pedido()` |
-| Cancelar pedido devolve o estoque | `cancelar_pedido()` |
-| Reserva de carrinho expira e libera o estoque | `liberar_reservas_expiradas()` |
+| Estoque nunca fica negativo, mesmo com dois pedidos simultâneos | `mover_estoque()` com `SELECT … FOR UPDATE` |
+| Nenhuma alteração de estoque sem histórico | `inventory_movements`, gravado na mesma função |
+| Venda só consome a reserva que ela mesma criou | `mover_estoque`, tipo `venda` |
+| PIX não confirma pedido enquanto não cair | `confirmar_pedido()` |
+| Criar pedido é uma transação só | `criar_pedido()` |
+| Cancelar devolve estoque e **estorna** o que já foi pago | `cancelar_pedido()` |
+| Entregar em dinheiro **é** receber | `receber_na_entrega()` |
+| Nota de entrada não mexe em nada até ser concluída | `concluir_nota_entrada()` |
+| Reserva de carrinho expira e libera sozinha | `liberar_reservas_expiradas()` |
 | Número público do pedido (`LX-2026-000123`) | trigger `gerar_numero_pedido()` |
-| Histórico de todo status de pedido | trigger `registrar_status_pedido()` |
-| Webhook não processa o mesmo evento duas vezes | `webhook_events (origem, event_id)` único |
 | Preço do pedido antigo não muda quando o produto muda | snapshot em `order_items` |
-| Multiloja desde o início | `companies → stores → warehouses` |
-
-### Nada fica fixo no código
-
-Taxa de entrega, tempo de follow-up, mensagens, catálogo PNG, estoque mínimo,
-tempo de reserva, chave PIX, horário de funcionamento, etapas do Kanban,
-formas de pagamento — tudo na tabela `settings`, por loja.
+| Lead fecha quando a venda fecha; cliente que volta abre outro | trigger `fechar_lead_do_pedido()` |
+| Cada perfil vê e altera só o seu setor | RLS por perfil (`0010`) |
+| Webhook não processa o mesmo evento duas vezes | `webhook_events (origem, event_id)` |
 
 ---
 
-## Estado da entrega
+## O que está pronto
 
-**Etapa 1 — painel operacional ✅**
+**Vender** — pedido de balcão em [/pedidos/novo](src/app/(painel)/pedidos/novo):
+cliente, carrinho com reserva, endereço, PIX ou dinheiro com troco. Comanda
+80 mm para impressão. Fluxo de status validado no servidor, uma etapa por vez.
 
-Dashboard em tempo real · Painel de atendimento · Conversas ao vivo (WhatsApp +
-Instagram na mesma caixa, com assumir/devolver ao bot) · Kanban de leads ·
-Clientes com ficha completa · Pedidos com comanda 80mm · Catálogo produto+sabor
-com estoque editável · Produtos · Sabores · Estoque com movimentações ·
-Entregas · Financeiro · Relatórios · Configurações · Permissões · Logs.
+**Atender** — caixa de entrada única (WhatsApp + Instagram), assumir do bot e
+devolver, ficha do cliente ao lado. Kanban com o ciclo do atendimento.
 
-**MVP 2 — gestão completa ✅**
+**Estoque** — catálogo produto+sabor com ajuste inline, adicionar e remover
+sabor, movimentações com saldo antes e depois. Nota de entrada em três etapas
+(trânsito → conferência → concluída) com freteiro embutido no custo médio.
 
-Cupons (CRUD) · Upsell com medição de conversão (CRUD) · Trocas com fluxo de
-aprovação e devolução ao estoque · Notas de entrada que sobem o estoque e
-recalculam o custo médio · Contas a pagar e a receber com baixa e vencimento ·
-Contas bancárias com saldo · Categorias financeiras (CRUD) · Usuários e perfis ·
-Calendário de rotinas (CRUD) · Tarefas (CRUD).
+**Gerir** — clientes, produtos, cupons, upsell com conversão medida, trocas,
+contas a pagar e receber, contas bancárias, categorias, calendário, tarefas.
 
-**Refinamentos ✅**
+**Ver** — dashboard com período livre, funil, relatórios de vendas, estoque e
+chatbot, exportação CSV, busca global em ⌘K, notificações do que precisa de ação.
 
-| Melhoria | Onde |
-|---|---|
-| Paginação em todas as listas longas (§47) | 25/50/100/200 por página, com janela de páginas |
-| Busca global com `⌘K` / `Ctrl+K` (§48) | Cliente, telefone, pedido, marca, sabor e SKU |
-| Central de notificações (§49) | Derivada do estado real: conversas sem resposta, estoque esgotado, contas vencidas, entregas paradas |
-| Exportação CSV (§52) | Pedidos, clientes, catálogo, movimentações e financeiro — respeitando os filtros da tela |
-| Período personalizado (§51) | Intervalo livre + atalhos de 7/15/30/90 dias |
-| Aviso de cada ação | Toast de sucesso e de erro, com reversão do estado quando a gravação falha |
-| Telas de erro e carregamento | `loading`, `error`, `not-found` e `global-error` |
-| Acessibilidade | Foco visível, rótulos em todos os botões de ícone, `prefers-reduced-motion` e `prefers-contrast` |
-| Kanban no celular | Botão "mover para" além do arrastar, que não funciona em toque |
-| Estados vazios nos gráficos | Explica que o período não tem movimento, em vez de um gráfico em branco |
-| Menos consultas por navegação | A barra lateral usa `count` em vez de carregar as listas inteiras |
+**Receber** — três caminhos, e a escolha é uma troca real:
 
-**Próximo — o bot**
+| | copia-e-cola no chat | confirma sozinho | pede CPF |
+|---|---|---|---|
+| **Asaas** | sim | sim | não |
+| InfinitePay | não, vai um link | sim | não |
+| PIX estático (sem gateway) | sim | não, baixa manual | não |
 
-Webhook da Meta, motor de conversa com funções validadas
-(`buscar_sabores`, `adicionar_carrinho`, `criar_pagamento`, `confirmar_pedido`),
-follow-up de 5 minutos por fila e confirmação automática do PIX.
+O Asaas é o único que entrega as duas coisas. Ele usa QR Code estático com
+valor (`POST /pix/qrCodes/static`), que devolve o `payload` — o copia-e-cola de
+verdade — e ainda dispara webhook quando é pago. A cobrança comum do Asaas
+também confirmaria sozinha, mas exige o CPF do cliente antes de gerar o
+código, e pedir documento no meio da conversa derruba venda.
+
+A InfinitePay **não devolve o copia-e-cola**: o `POST /links` responde só com a
+URL, e o código nasce na página dela. Serve, mas custa um clique do cliente.
+
+Painel e bot usam o mesmo `meioAtivo()`, para o bot nunca mandar um código
+estático que o gateway não enxerga — isso deixaria um pedido pago parado
+esperando baixa manual. Quando o webhook não chega, o painel pergunta ao
+provedor em vez de esperar.
+
+**Conversar** — webhook do WhatsApp recebendo, motor de conversa ligado às 20
+ferramentas, fila de jobs consumida por cron a cada minuto (follow-up,
+impressão, expiração de reserva), controle de ritmo de envio.
 
 ---
 
-## Como o painel funciona sem o Supabase
+## O que falta
 
-Toda leitura passa por `lib/data.ts` e `lib/data-mvp2.ts`; toda escrita por
-`lib/actions.ts` e `lib/actions-mvp2.ts`. Cada função tenta o Supabase e, quando
-não há credenciais, usa a base de demonstração — **mesma assinatura, mesmo shape**.
-Por isso conectar o banco depois não exige reescrever nenhuma tela: basta
-preencher o `.env.local`.
+Em ordem de quem trava a venda primeiro:
 
-No modo demonstração as alterações ficam em memória no servidor e se perdem ao
-reiniciar. Com o Supabase conectado, tudo é persistido.
-# luxxpods
+1. **Ligar o banco** — as migrações estão em [`supabase/`](supabase/migrations)
+   e o sistema roda inteiro na base de demonstração até elas subirem.
+2. **Credenciais dos canais** — o webhook do WhatsApp existe e o motor responde,
+   mas sem `WHATSAPP_TOKEN` (ou Z-API) a mensagem fica na fila e não sai.
+3. **Instagram Direct** — o canal está previsto na caixa de entrada, falta o
+   adaptador.
+4. **Upload de arquivo** — foto de produto, PNG do catálogo, evidência de troca.
+5. **Relatórios de clientes e produtos** e exportação em Excel/PDF (hoje só CSV).
+6. **2FA, rotina de backup, alertas de monitoramento**, e `audit_logs`, que
+   existe mas ainda não recebe escrita.
+7. **Agente de impressão local** — `jobs` já enfileira `imprimir_pedido`, falta
+   quem consuma do lado da loja.
+
+---
+
+## Decisões que valem saber
+
+**Erro do banco não vira dado de demonstração.** Se uma consulta falha com o
+Supabase conectado, a tela diz que não carregou. Cair na demonstração ali
+mostraria 16 pedidos fictícios como se fossem reais — o pior modo de falha num
+sistema de dinheiro: silencioso e plausível.
+
+**Rota nasce fechada.** O porteiro usa lista de permissão: tudo exige sessão, e
+o que fica aberto está escrito e nomeado em [`src/proxy.ts`](src/proxy.ts). Um
+teste lê esse arquivo como texto e falha se alguém abrir rota nova sem
+atualizar o teste junto.
+
+**Nada de controle nativo do navegador.** Select, calendário e campos de
+dinheiro e documento são próprios — o nativo muda de cara em cada sistema
+operacional e quebra a identidade do painel.
+
+**Telefone é validado, nunca "consertado".** Um celular de 8 dígitos é
+recusado, não ganha um 9 na frente: número remendado é mensagem entregue para
+a pessoa errada.
+
+**Regra de negócio fica no banco.** Estoque, confirmação de pedido e nota de
+entrada são funções PL/pgSQL. Assim a regra vale igual para o painel, para o
+bot e para qualquer integração futura.
+
+**Webhook de pagamento não é prova de pagamento.** O corpo que chega diz o
+valor, e ele é conferido contra o total do pedido antes de qualquer confirmação
+— divergência para mais ou para menos abre tarefa urgente em vez de liberar a
+venda. Um corpo sem valor conta como zero e também não passa. A decisão inteira
+mora em [`conferencia-core.ts`](src/lib/pagamento/conferencia-core.ts), pura e
+testada, e vale igual na base real e na de demonstração.
+
+**O id do evento leva a situação junto, não o nome do evento.** A mesma
+transação manda `pendente` e depois `aprovado`; se os dois tivessem o mesmo id,
+o segundo seria descartado como repetição e o pedido pago ficaria aberto para
+sempre. Do outro lado, o Asaas manda `PAYMENT_CONFIRMED` e depois
+`PAYMENT_RECEIVED` da **mesma** cobrança — os dois dizem que o dinheiro entrou,
+então viram o mesmo id de propósito. Sem isso, toda venda geraria uma tarefa
+urgente de cobrança em duplicidade que não existe.
+
+**Pagamento dobrado é só quando a transação é outra.** A recepção olha qual
+transação pagou o pedido antes de gritar: o mesmo pagamento confirmando de novo
+é progressão de status; outra transação num pedido pago é dinheiro a mais, e aí
+abre tarefa urgente para conferir estorno.

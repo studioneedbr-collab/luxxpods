@@ -84,7 +84,7 @@ export function TelaCupons({ cupons: iniciais }: { cupons: Cupom[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por código ou descrição…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Button variante="primario" onClick={() => setEditando({ ...vazio })}>
@@ -120,7 +120,7 @@ export function TelaCupons({ cupons: iniciais }: { cupons: Cupom[] }) {
                 return (
                   <Tr key={c.id}>
                     <Td>
-                      <code className="rounded-md bg-brand-500/12 px-2 py-0.5 text-xs font-bold tracking-wide text-brand-200">
+                      <code className="rounded-md bg-brand-500/12 px-2 py-0.5 text-[11px] font-bold tracking-wide text-brand-200">
                         {c.codigo}
                       </code>
                     </Td>
@@ -309,7 +309,7 @@ function Cartao({ rotulo, valor, tom = "neutro" }: {
   return (
     <Panel className="p-4">
       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-      <p className={cn("mt-1 text-xl font-bold tabular-nums", cores[tom])}>{valor}</p>
+      <p className={cn("mt-1 text-[19px] font-bold tabular-nums", cores[tom])}>{valor}</p>
     </Panel>
   );
 }

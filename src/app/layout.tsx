@@ -1,16 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Sora } from "next/font/google";
 import "./globals.css";
 
-/** Display — grotesk industrial, da mesma família visual do wordmark. */
-const archivo = Archivo({
+/**
+ * Display — geométrica, do mesmo espírito do wordmark "LUXX PODS".
+ * Usada em título, número e rótulo; nunca em texto corrido.
+ */
+const sora = Sora({
   subsets: ["latin"],
-  variable: "--font-archivo",
-  weight: ["500", "600", "700", "800"],
+  variable: "--font-display-face",
+  weight: ["400", "500", "600", "700", "800"],
   display: "swap",
 });
 
-/** Texto e dados — técnica, ótima em tabela e em número. */
+/** Texto e dados — técnica, ótima em tabela e formulário. */
 const plex = IBM_Plex_Sans({
   subsets: ["latin"],
   variable: "--font-plex",
@@ -44,7 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // <html> antes do React hidratar (data-studio-need-ext, grammarly etc.)
     <html
       lang="pt-BR"
-      className={`${archivo.variable} ${plex.variable} ${plexMono.variable}`}
+      className={`${sora.variable} ${plex.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">{children}</body>

@@ -31,6 +31,10 @@ export interface Contexto {
   followup_agendado?: boolean;
   /** quantas vezes o bot não entendeu seguidas — 3 chama gente */
   falhas_seguidas?: number;
+  /** oferta de upsell esperando resposta */
+  upsell_pendente?: string;
+  /** o que já foi oferecido nesta conversa: cada regra só uma vez */
+  upsell_oferecidos?: string[];
 }
 
 export interface Transicao {
@@ -49,8 +53,12 @@ export const TRANSICOES: Transicao[] = [
   { de: "INITIAL", para: "CATALOG_SENT", motivo: "catálogo enviado" },
   { de: "INITIAL", para: "PRODUCT_SELECTION", motivo: "cliente já disse o que quer" },
   { de: "INITIAL", para: "HUMAN", motivo: "pediu atendente" },
+  { de: "INITIAL", para: "CART", motivo: "já chegou dizendo o que quer",
+    exige: (c) => Boolean(c.product_flavor_id) },
 
   { de: "CATALOG_SENT", para: "PRODUCT_SELECTION", motivo: "cliente escolheu marca ou modelo" },
+  { de: "CATALOG_SENT", para: "CART", motivo: "escolheu produto e sabor de uma vez",
+    exige: (c) => Boolean(c.product_flavor_id) },
   { de: "CATALOG_SENT", para: "HUMAN", motivo: "pediu atendente" },
   { de: "CATALOG_SENT", para: "ABANDONED", motivo: "sumiu depois do catálogo" },
 

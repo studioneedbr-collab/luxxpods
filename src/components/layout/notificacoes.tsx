@@ -83,7 +83,7 @@ export function Notificacoes() {
         <Bell className="size-4" />
         {lista.length > 0 && (
           <span className={cn(
-            "absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[9px] font-bold text-white ring-2 ring-ink-990",
+            "absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[10px] font-bold text-white ring-2 ring-ink-990",
             urgentes > 0 ? "bg-bad-500" : "bg-brand-500",
           )}>
             {lista.length > 9 ? "9+" : lista.length}
@@ -98,7 +98,7 @@ export function Notificacoes() {
           className="flutua fixed z-[100] w-[min(92vw,360px)] animate-in-up overflow-hidden"
         >
           <div className="flex items-center justify-between border-b border-[var(--linha)] px-4 py-2.5">
-            <h3 className="text-xs font-semibold text-ink-100">Notificações</h3>
+            <h3 className="text-[11px] font-semibold text-ink-100">Notificações</h3>
             {urgentes > 0 && (
               <span className="rounded-full bg-bad-500/14 px-2 py-0.5 text-[10px] font-semibold text-bad-400 ring-1 ring-inset ring-bad-500/25">
                 {urgentes} urgente{urgentes > 1 ? "s" : ""}
@@ -112,7 +112,7 @@ export function Notificacoes() {
                 <span className="grid size-10 place-items-center rounded-xl bg-ok-500/12 text-ok-400">
                   <Check className="size-4" />
                 </span>
-                <p className="text-xs font-medium text-ink-200">Nada pendente</p>
+                <p className="text-[11px] font-medium text-ink-200">Nada pendente</p>
                 <p className="text-[11px] text-ink-500">A operação está em dia.</p>
               </div>
             ) : (
@@ -133,7 +133,7 @@ export function Notificacoes() {
                           <Icone className="size-3.5" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-xs font-medium leading-snug text-ink-100">
+                          <span className="block text-[11px] font-medium leading-snug text-ink-100">
                             {n.titulo}
                           </span>
                           {n.detalhe && (

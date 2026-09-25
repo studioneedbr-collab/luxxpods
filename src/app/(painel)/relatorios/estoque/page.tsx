@@ -93,7 +93,7 @@ export default async function RelatorioEstoquePage() {
             <Badge key={c.product_flavor_id} tom="bad">{c.produto} · {c.sabor}</Badge>
           ))}
           {catalogo.every((c) => c.estoque_disponivel > 0) && (
-            <p className="text-xs text-ok-400">Nenhum item esgotado ✅</p>
+            <p className="text-[11px] text-ok-400">Nenhum item esgotado ✅</p>
           )}
         </div>
       </Panel>

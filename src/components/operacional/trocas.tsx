@@ -3,11 +3,13 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  CheckCircle2, RefreshCcw, Search, XCircle, Clock, PackageCheck, Eye,
+  CheckCircle2, RefreshCcw, Search, XCircle, Clock, PackageCheck, Eye, Plus, Check,
 } from "lucide-react";
-import { alterarStatusTroca } from "@/lib/actions-mvp2";
-import { Badge, Button, Panel, PanelHeader, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
-import { Modal } from "@/components/ui/modal";
+import { alterarStatusTroca, criarTroca } from "@/lib/actions-mvp2";
+import {
+  Badge, Button, Input, Panel, PanelHeader, Select, Table, Td, Th, Tr, Vazio,
+} from "@/components/ui";
+import { Campo, Modal, Textarea } from "@/components/ui/modal";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import type { BadgeTom } from "@/components/ui";
 import { cn, dataHora, num } from "@/lib/utils";
@@ -38,8 +40,15 @@ const FLUXO: Record<Troca["status"], Array<{ status: Troca["status"]; rotulo: st
   finalizada: [],
 };
 
-export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
+export function TelaTrocas({
+  trocas: iniciais, pedidos,
+}: {
+  trocas: Troca[];
+  /** pedidos entregues nos últimos 30 dias — são os que podem gerar troca */
+  pedidos: Array<{ id: string; numero_pedido: string; cliente_nome: string | null }>;
+}) {
   const [trocas, setTrocas] = useState(iniciais);
+  const [abrindo, setAbrindo] = useState(false);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todas");
   const [vendo, setVendo] = useState<Troca | null>(null);
@@ -74,6 +83,37 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
   }
 
   const { visiveis, props: paginacao } = usePaginacao(filtradas, 25);
+  function abrir(dados: {
+    order_id: string; quantidade: number; motivo: string; descricao: string;
+  }) {
+    const pedido = pedidos.find((p) => p.id === dados.order_id);
+    setAbrindo(false);
+    setTrocas((l) => [{
+      id: `tmp-${Date.now()}`,
+      customer_id: null, order_id: dados.order_id,
+      cliente_nome: pedido?.cliente_nome ?? null,
+      numero_pedido: pedido?.numero_pedido ?? null,
+      produto_nome: null, sabor_nome: null,
+      quantidade: dados.quantidade, motivo: dados.motivo,
+      descricao: dados.descricao || null, status: "solicitada",
+      created_at: new Date().toISOString(), approved_at: null, completed_at: null,
+    }, ...l]);
+
+    iniciar(async () => {
+      const r = await criarTroca({
+        order_id: dados.order_id,
+        quantidade: dados.quantidade,
+        motivo: dados.motivo,
+        descricao: dados.descricao || null,
+      });
+      if (r.ok) toast.ok("Troca aberta", pedido?.numero_pedido);
+      else {
+        setTrocas(iniciais);
+        toast.erro("Não consegui abrir a troca", r.erro);
+      }
+    });
+  }
+
   const abertas = trocas.filter((t) => !["finalizada", "recusada"].includes(t.status));
 
   return (
@@ -95,7 +135,7 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por cliente, pedido ou motivo…"
-            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+            className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
@@ -105,6 +145,9 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
             <option key={k} value={k}>{v.rotulo}</option>
           ))}
         </Select>
+        <Button variante="primario" tamanho="sm" onClick={() => setAbrindo(true)}>
+          <Plus className="size-3.5" /> Abrir troca
+        </Button>
       </Panel>
 
       <Panel className="overflow-hidden">
@@ -112,7 +155,12 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
           descricao="Vinculadas à venda original — ao finalizar, a peça volta ao estoque" />
         {filtradas.length === 0 ? (
           <Vazio icone={RefreshCcw} titulo="Nenhuma troca"
-            descricao="As solicitações abertas pelo atendimento aparecem aqui." />
+            descricao="Abra a solicitação a partir do pedido do cliente."
+            acao={
+              <Button variante="primario" tamanho="sm" onClick={() => setAbrindo(true)}>
+                <Plus className="size-3.5" /> Abrir troca
+              </Button>
+            } />
         ) : (
           <Table>
             <thead>
@@ -169,6 +217,10 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
         <Paginacao {...paginacao} rotulo="trocas" />
       </Panel>
 
+      {abrindo && (
+        <FormTroca pedidos={pedidos} onFechar={() => setAbrindo(false)} onSalvar={abrir} />
+      )}
+
       {vendo && (
         <Modal aberto onFechar={() => setVendo(null)}
           titulo={`Troca — ${vendo.cliente_nome}`}
@@ -192,15 +244,15 @@ export function TelaTrocas({ trocas: iniciais }: { trocas: Troca[] }) {
 
             <div className="rounded-lg bg-ink-850 px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-ink-500">Produto</p>
-              <p className="mt-0.5 text-sm font-medium text-ink-100">{vendo.produto_nome ?? "—"}</p>
+              <p className="mt-0.5 text-[13px] font-medium text-ink-100">{vendo.produto_nome ?? "—"}</p>
               <p className="text-[11px] text-ink-400">{vendo.sabor_nome ?? ""}</p>
             </div>
 
             <div className="rounded-lg bg-ink-850 px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-ink-500">Motivo</p>
-              <p className="mt-0.5 text-sm text-ink-200">{vendo.motivo ?? "—"}</p>
+              <p className="mt-0.5 text-[13px] text-ink-200">{vendo.motivo ?? "—"}</p>
               {vendo.descricao && (
-                <p className="mt-1.5 text-xs leading-relaxed text-ink-400">{vendo.descricao}</p>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">{vendo.descricao}</p>
               )}
             </div>
 
@@ -255,8 +307,82 @@ function Cartao({ rotulo, valor, tom = "neutro", icone: Icone }: {
       </span>
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-        <p className={cn("text-xl font-bold tabular-nums", cores[tom])}>{valor}</p>
+        <p className={cn("text-[19px] font-bold tabular-nums", cores[tom])}>{valor}</p>
       </div>
     </Panel>
+  );
+}
+
+const MOTIVOS = [
+  "Produto não liga",
+  "Sabor veio diferente do pedido",
+  "Vazando",
+  "Produto danificado",
+  "Bateria não carrega",
+  "Outro",
+];
+
+/** Toda troca nasce de uma venda — por isso começa escolhendo o pedido. */
+function FormTroca({
+  pedidos, onFechar, onSalvar,
+}: {
+  pedidos: Array<{ id: string; numero_pedido: string; cliente_nome: string | null }>;
+  onFechar: () => void;
+  onSalvar: (d: { order_id: string; quantidade: number; motivo: string; descricao: string }) => void;
+}) {
+  const [orderId, setOrderId] = useState(pedidos[0]?.id ?? "");
+  const [motivo, setMotivo] = useState(MOTIVOS[0]);
+  const [quantidade, setQuantidade] = useState(1);
+  const [descricao, setDescricao] = useState("");
+
+  return (
+    <Modal
+      aberto
+      onFechar={onFechar}
+      titulo="Abrir troca"
+      descricao="A peça só volta ao estoque quando a troca for finalizada"
+      rodape={
+        <>
+          <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
+          <Button
+            variante="primario"
+            disabled={!orderId || !motivo}
+            onClick={() => onSalvar({ order_id: orderId, quantidade, motivo, descricao })}
+          >
+            <Check className="size-3.5" /> Abrir solicitação
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo rotulo="Pedido" dica="a troca fica ligada à venda original">
+          <Select value={orderId} onChange={(e) => setOrderId(e.target.value)} className="w-full">
+            {pedidos.length === 0 && <option value="">Nenhum pedido elegível</option>}
+            {pedidos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.numero_pedido} — {p.cliente_nome ?? "sem nome"}
+              </option>
+            ))}
+          </Select>
+        </Campo>
+
+        <div className="grid gap-3 sm:grid-cols-[1fr_100px]">
+          <Campo rotulo="Motivo">
+            <Select value={motivo} onChange={(e) => setMotivo(e.target.value)} className="w-full">
+              {MOTIVOS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </Select>
+          </Campo>
+          <Campo rotulo="Quantidade">
+            <Input type="number" min={1} value={quantidade}
+              onChange={(e) => setQuantidade(Math.max(1, Number(e.target.value)))} />
+          </Campo>
+        </div>
+
+        <Campo rotulo="O que aconteceu" dica="o que o cliente relatou, nas palavras dele">
+          <Textarea rows={3} value={descricao} onChange={(e) => setDescricao(e.target.value)}
+            placeholder="Cliente diz que o pod não acende desde a primeira tragada." />
+        </Campo>
+      </div>
+    </Modal>
   );
 }

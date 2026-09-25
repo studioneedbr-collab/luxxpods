@@ -62,6 +62,8 @@ export interface Conversa {
   ultima_mensagem_em: string | null;
   responsavel_id: string | null;
   created_at: string;
+  /** o que a conversa já sabe: produto escolhido, endereço, pagamento */
+  contexto?: Record<string, unknown>;
   cliente?: Cliente | null;
   lead_id?: string | null;
 }

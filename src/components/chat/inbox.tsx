@@ -4,10 +4,12 @@ import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } fr
 import Link from "next/link";
 import {
   Bot, Check, CheckCheck, AtSign, MessageCircle, Phone, Search, Send,
-  ShoppingBag, User, UserCheck, Sparkles, Clock, ChevronLeft, Loader2,
+  ShoppingBag, User, UserCheck, Sparkles, Clock, ChevronLeft, Loader2, Package,
 } from "lucide-react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { assumirConversa, devolverParaBot, enviarMensagem, marcarComoLida } from "@/lib/actions";
+import {
+  assumirConversa, devolverParaBot, enviarCatalogo, enviarMensagem, marcarComoLida,
+} from "@/lib/actions";
 import { Badge, Button, Vazio } from "@/components/ui";
 import { CANAL, ESTADO_CONVERSA } from "@/lib/labels";
 import { brl, cn, hora, iniciais, telefone, tempoRelativo } from "@/lib/utils";
@@ -174,7 +176,7 @@ export function Inbox({
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar conversa, nome ou telefone"
-              className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-xs text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+              className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[11px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             />
           </div>
           <div className="no-scrollbar flex gap-1 overflow-x-auto">
@@ -191,7 +193,7 @@ export function Inbox({
               >
                 {f.rotulo}
                 {f.chave === "nao_lidas" && naoLidas > 0 && (
-                  <span className="ml-1 rounded-full bg-brand-500 px-1 text-[9px] font-bold text-white">
+                  <span className="ml-1 rounded-full bg-brand-500 px-1 text-[10px] font-bold text-white">
                     {naoLidas}
                   </span>
                 )}
@@ -237,7 +239,7 @@ export function Inbox({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className={cn(
-                          "truncate text-xs font-semibold",
+                          "truncate text-[11px] font-semibold",
                           on ? "text-brand-100" : "text-ink-200",
                         )}>
                           {c.cliente?.nome || "Sem nome"}
@@ -293,7 +295,7 @@ export function Inbox({
                 {iniciais(ativa.cliente?.nome)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink-100">
+                <p className="truncate text-[13px] font-semibold text-ink-100">
                   {ativa.cliente?.nome || "Sem nome"}
                 </p>
                 <p className="flex items-center gap-1.5 text-[11px] text-ink-500">
@@ -305,6 +307,23 @@ export function Inbox({
               <Badge tom={ESTADO_CONVERSA[ativa.estado].tom} className="hidden sm:inline-flex">
                 {ESTADO_CONVERSA[ativa.estado].rotulo}
               </Badge>
+              <Button
+                tamanho="sm"
+                onClick={() => {
+                  iniciarEnvio(async () => {
+                    const r = await enviarCatalogo(ativa.id);
+                    const atualizadas = await fetch(`/api/mensagens?c=${ativa.id}`)
+                      .then((x) => x.json()).catch(() => null);
+                    if (atualizadas?.mensagens) setMensagens(atualizadas.mensagens);
+                    if (!r.ok) console.error(r.erro);
+                  });
+                }}
+                disabled={enviando}
+                title="Envia o catálogo e agenda o retorno em 5 minutos"
+              >
+                <Package className="size-3.5" /> Catálogo
+              </Button>
+
               <Button
                 variante={ativa.bot_ativo ? "primario" : "ok"}
                 tamanho="sm"
@@ -327,7 +346,7 @@ export function Inbox({
               {carregandoMensagens && <EsqueletoConversa />}
 
               {!carregandoMensagens && otimistas.length === 0 && (
-                <p className="py-10 text-center text-xs text-ink-500">
+                <p className="py-10 text-center text-[11px] text-ink-500">
                   Nenhuma mensagem nesta conversa ainda.
                 </p>
               )}
@@ -344,7 +363,7 @@ export function Inbox({
                 onChange={(e) => setTexto(e.target.value)}
                 placeholder={ativa.bot_ativo ? "Assuma a conversa para responder…" : "Escreva sua mensagem…"}
                 disabled={ativa.bot_ativo || enviando}
-                className="h-10 flex-1 rounded-xl bg-ink-850 px-3.5 text-sm text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:opacity-50"
+                className="h-10 flex-1 rounded-xl bg-ink-850 px-3.5 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:opacity-50"
               />
               <Button
                 type="submit"
@@ -367,7 +386,7 @@ export function Inbox({
       {/* ------------------------------- FICHA ------------------------------- */}
       <aside className="hidden min-h-0 flex-col overflow-y-auto border-l border-[var(--linha)] lg:flex">
         {ativa?.cliente ? <Ficha conversa={ativa} /> : (
-          <div className="grid h-full place-items-center px-6 text-center text-xs text-ink-500">
+          <div className="grid h-full place-items-center px-6 text-center text-[11px] text-ink-500">
             Ficha do cliente
           </div>
         )}
@@ -424,7 +443,7 @@ function Bolha({ mensagem, anterior }: { mensagem: Mensagem; anterior?: Mensagem
       {novoDia && <Separador data={mensagem.created_at} />}
       <div className={cn("flex animate-in-up", meu ? "justify-end" : "justify-start")}>
         <div className={cn(
-          "max-w-[78%] rounded-xl px-3.5 py-2 text-sm leading-relaxed",
+          "max-w-[78%] rounded-xl px-3.5 py-2 text-[13px] leading-relaxed",
           meu
             ? bot
               ? "rounded-br-sm bg-brand-500/22 text-brand-50 ring-1 ring-inset ring-brand-500/25"
@@ -472,10 +491,10 @@ function Ficha({ conversa }: { conversa: Conversa }) {
   return (
     <div className="space-y-4 p-4">
       <div className="text-center">
-        <span className="mx-auto grid size-14 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-base font-bold text-white">
+        <span className="mx-auto grid size-14 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-[15px] font-bold text-white">
           {iniciais(c.nome)}
         </span>
-        <p className="mt-2 text-sm font-semibold text-ink-100">{c.nome}</p>
+        <p className="mt-2 text-[13px] font-semibold text-ink-100">{c.nome}</p>
         <p className="text-[11px] tabular-nums text-ink-500">{telefone(c.telefone)}</p>
         <div className="mt-2 flex flex-wrap justify-center gap-1">
           {c.maioridade_validada && <Badge tom="ok">+18 validado</Badge>}
@@ -522,7 +541,7 @@ function Mini({ rotulo, valor, className }: { rotulo: string; valor: string; cla
   return (
     <div className={cn("rounded-lg bg-ink-850 px-2.5 py-2", className)}>
       <p className="text-[10px] uppercase tracking-wide text-ink-500">{rotulo}</p>
-      <p className="mt-0.5 text-sm font-bold tabular-nums text-ink-100">{valor}</p>
+      <p className="mt-0.5 text-[13px] font-bold tabular-nums text-ink-100">{valor}</p>
     </div>
   );
 }

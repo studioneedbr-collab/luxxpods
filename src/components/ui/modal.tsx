@@ -38,7 +38,7 @@ export function Modal({
       >
         <div className="flex items-start justify-between gap-3 border-b border-[var(--linha)] px-5 py-3.5">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-ink-100">{titulo}</h3>
+            <h3 className="text-[13px] font-semibold text-ink-100">{titulo}</h3>
             {descricao && <p className="mt-0.5 text-[11px] text-ink-500">{descricao}</p>}
           </div>
           <Button tamanho="iconeSm" variante="fantasma" onClick={onFechar} aria-label="Fechar">
@@ -82,7 +82,7 @@ export function Textarea({
   return (
     <textarea
       className={cn(
-        "w-full rounded-lg bg-ink-850 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-500",
+        "w-full rounded-lg bg-ink-850 px-3 py-2 text-[13px] text-ink-100 placeholder:text-ink-500",
         "ring-1 ring-inset ring-[var(--linha)] transition resize-y",
         "focus:outline-none focus:ring-2 focus:ring-brand-500/60",
         className,
@@ -108,7 +108,7 @@ export function Switch({
       className="flex w-full items-center justify-between gap-3 rounded-lg bg-ink-850 px-3 py-2.5 text-left transition hover:bg-ink-800"
     >
       <span className="min-w-0">
-        <span className="block text-xs font-medium text-ink-200">{rotulo}</span>
+        <span className="block text-[11px] font-medium text-ink-200">{rotulo}</span>
         {descricao && <span className="mt-0.5 block text-[10px] text-ink-500">{descricao}</span>}
       </span>
       <span className={cn(
@@ -147,7 +147,7 @@ export function Confirmar({
         </>
       }
     >
-      <p className="text-xs leading-relaxed text-ink-400">{mensagem}</p>
+      <p className="text-[11px] leading-relaxed text-ink-400">{mensagem}</p>
     </Modal>
   );
 }

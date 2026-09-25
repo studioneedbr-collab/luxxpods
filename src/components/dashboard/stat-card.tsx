@@ -41,7 +41,7 @@ export function StatCard({
 
       <p className={cn(
         "mt-2 truncate",
-        destaque ? "numero-destaque" : "numero text-[22px] font-semibold leading-none",
+        destaque ? "numero-destaque" : "numero text-[19px] font-semibold leading-none",
         cores[tom],
       )}>
         {valor}

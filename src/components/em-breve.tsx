@@ -24,12 +24,12 @@ export function EmBreve({
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-ink-100">{titulo}</h2>
+            <h2 className="text-[15px] font-semibold text-ink-100">{titulo}</h2>
             <span className="rounded-full bg-warn-500/14 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn-400 ring-1 ring-inset ring-warn-500/25">
               {entrega}
             </span>
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-ink-400">{descricao}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-ink-400">{descricao}</p>
         </div>
       </div>
 
@@ -40,7 +40,7 @@ export function EmBreve({
           </p>
           <ul className="space-y-2">
             {(pronto ?? ["Tabelas e relacionamentos", "Regras de integridade"]).map((i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-ink-300">
+              <li key={i} className="flex items-start gap-2 text-[11px] text-ink-300">
                 <Check className="mt-0.5 size-3 shrink-0 text-ok-400" />
                 <span>{i}</span>
               </li>
@@ -54,7 +54,7 @@ export function EmBreve({
           </p>
           <ul className="space-y-2">
             {itens.map((i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-ink-400">
+              <li key={i} className="flex items-start gap-2 text-[11px] text-ink-400">
                 <CircleDashed className="mt-0.5 size-3 shrink-0 text-ink-600" />
                 <span>{i}</span>
               </li>
