@@ -1,7 +1,9 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigurado } from "./config";
+import {
+  SUPABASE_ANON_KEY, SUPABASE_SECRET_KEY, SUPABASE_URL, supabaseConfigurado,
+} from "./config";
 
 export async function getSupabaseServer() {
   if (!supabaseConfigurado) return null;
@@ -22,7 +24,6 @@ export async function getSupabaseServer() {
 
 /** Cliente com service_role para rotinas de servidor (webhooks, jobs). */
 export function getSupabaseAdmin() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!SUPABASE_URL || !key) return null;
-  return createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return null;
+  return createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
 }

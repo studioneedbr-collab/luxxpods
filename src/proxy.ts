@@ -31,7 +31,9 @@ export default async function proxy(request: NextRequest) {
   if (INTERNO.test(pathname)) return NextResponse.next();
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // os dois nomes: o Supabase renomeou `anon` para `publishable`
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   // Sem credenciais o painel roda na base de demonstração — útil para
   // desenvolver, perigoso em produção: um erro de digitação na variável de
