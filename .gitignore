@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# arquivos-fonte pesados da marca: ficam no disco, não no repositório.
+# O Logo.zip de 65 MB já inflou o .git uma vez — não repetir.
+docs/marca/*.psd
+*.zip

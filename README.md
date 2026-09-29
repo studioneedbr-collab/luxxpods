@@ -49,22 +49,24 @@ perfil dele a `admin` na tabela `profiles`.
 ## Onde está cada coisa
 
 ```
-src/
-  app/(painel)/        as telas do sistema
-  app/(auth)/login     entrada
-  app/api/             busca global, notificações, dados do chat
-  components/          UI, dashboard, chat, kanban, catálogo, pedidos, financeiro
-  lib/
-    data.ts            leitura (Supabase → demonstração)
-    actions*.ts        escrita, em Server Actions
-    bot/               núcleos do chatbot, puros e testados
-    demo*.ts           base de demonstração, mesmo shape do banco
-    mascaras.ts        CPF, CNPJ, telefone, CEP — com validação
-  proxy.ts             porteiro de rotas
-supabase/migrations/   0001 → 0011
+src/app/          rotas — (auth) login, (painel) o sistema, api/ webhooks e cron
+src/components/   telas, por assunto: pedidos, estoque, financeiro, chat…
+src/lib/          as regras — bot/, pagamento/, pix/, fila/, supabase/
+supabase/         migrations/ é a fonte da verdade do banco
+docs/             a especificação e os arquivos-fonte da marca
+scripts/          utilitários de manutenção
+public/marca/     só o que o navegador serve
 ```
 
----
+Dois arquivos merecem nota:
+
+- **`supabase/schema-completo.sql`** é gerado, não escrito. Ele junta as
+  migrações num arquivo só para colar no SQL Editor de uma vez. Mudou o banco?
+  Crie a migração e rode `npm run schema`. Editar o combinado à mão faz ele
+  desencontrar das migrações — já aconteceu: ficou sem a que cria o pedido, e
+  quem colasse montaria um banco que não vende.
+- **`docs/marca/Logo Insta.psd`** fica fora do repositório de propósito. São
+  90 MB que ninguém abre em revisão de código.
 
 ## Regras que o banco garante
 
