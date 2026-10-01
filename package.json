@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "schema": "node scripts/gerar-schema.mjs",
-    "migrar": "node --env-file-if-exists=.env.local scripts/migrar.mjs"
+    "migrar": "node --env-file-if-exists=.env.local scripts/migrar.mjs",
+    "testar-fluxo": "node --env-file-if-exists=.env.local scripts/testar-fluxo.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

@@ -267,9 +267,24 @@ async function lerInterruptor() {
   const { data } = await c.from("settings")
     .select("valor").eq("store_id", STORE_ID).eq("chave", "whatsapp_envios").maybeSingle();
 
-  // sem configuração, NADA é enviado: liberar o canal justamente quando algo
-  // está errado é como o número acaba banido
-  return (data?.valor as Record<string, boolean> | undefined) ?? null;
+  if (data?.valor) return data.valor as Record<string, boolean>;
+
+  // Linha ausente cai no padrão do código, não em "tudo pausado".
+  //
+  // Antes isto devolvia null, e `envioLiberado(natureza, null)` é false: num
+  // banco onde ninguém salvou essa configuração — e nada a cria — TODA
+  // mensagem era cancelada pela fila. Pior, a tela de configurações mostrava
+  // o padrão ("transacional ligado") enquanto a fila bloqueava tudo.
+  //
+  // O padrão mantém a intenção original onde ela importa: marketing e
+  // cobrança seguem desligados. Transacional é resposta a quem escreveu
+  // primeiro — não é spam e não derruba número.
+  const { PADRAO } = await import("../configuracoes");
+  console.warn(
+    "[luxx] settings.whatsapp_envios não existe no banco; usando o padrão "
+    + "(transacional e interno liberados, marketing e cobrança pausados)",
+  );
+  return PADRAO.whatsapp_envios as unknown as Record<string, boolean>;
 }
 
 async function telefoneDaConversa(conversationId: string): Promise<string | null> {
