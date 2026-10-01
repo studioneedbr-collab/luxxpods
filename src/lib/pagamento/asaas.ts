@@ -47,7 +47,12 @@ export class MeioAsaas implements MeioPagamento {
     if (this.chaveCache) return this.chaveCache;
 
     try {
-      const r = await fetch(`${this.base}/pix/addressKeys`, { headers: this.cabecalhos() });
+      // o filtro vai na consulta: pedir tudo e escolher aqui falharia numa
+      // conta com mais de 100 chaves, e GET do Asaas recusa corpo
+      const r = await fetch(
+        `${this.base}/pix/addressKeys?status=ACTIVE&limit=100`,
+        { headers: this.cabecalhos() },
+      );
       if (!r.ok) return null;
 
       const d = await r.json();
