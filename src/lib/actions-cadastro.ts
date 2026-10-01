@@ -7,6 +7,7 @@ import {
   demoCriarProduto, demoCriarSabor, demoExcluirCliente, demoExcluirProduto,
   demoExcluirSabor, demoSalvarCliente, demoSalvarMarca, demoExcluirMarca,
 } from "./demo";
+import { traduzirErroBanco } from "./erros-banco";
 
 type Resultado = { ok: boolean; erro?: string };
 
@@ -51,7 +52,7 @@ export async function criarProduto(
   const { data, error } = await c.from("products")
     .insert({ ...dados, store_id: STORE_ID, status: "ativo" })
     .select("id").single();
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/produtos"); revalidatePath("/catalogo");
   return { ok: true, id: data.id };
@@ -84,7 +85,7 @@ export async function excluirProduto(id: string): Promise<Resultado> {
   const { error } = await c.from("products")
     .update({ deleted_at: new Date().toISOString(), status: "inativo" })
     .eq("id", id);
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/produtos"); revalidatePath("/catalogo");
   return { ok: true };
@@ -108,7 +109,7 @@ export async function salvarMarca(
   const { data, error } = dados.id
     ? await c.from("brands").update(campos).eq("id", dados.id).select("id").single()
     : await c.from("brands").insert({ ...campos, store_id: STORE_ID }).select("id").single();
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/produtos"); revalidatePath("/catalogo");
   return { ok: true, id: data.id };
@@ -131,7 +132,7 @@ export async function excluirMarca(id: string): Promise<Resultado> {
 
   const { error } = await c.from("brands")
     .update({ deleted_at: new Date().toISOString(), status: "inativo" }).eq("id", id);
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/produtos");
   return { ok: true };
@@ -160,7 +161,7 @@ export async function criarSabor(
     const { data, error } = await c.from("flavors")
       .insert({ store_id: STORE_ID, nome, slug: slug(nome) })
       .select("id").single();
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
     sabor = data;
   }
 
@@ -173,7 +174,7 @@ export async function criarSabor(
 
   if (error) {
     if (error.code === "23505") return { ok: false, erro: "Este produto já tem esse sabor." };
-    return { ok: false, erro: error.message };
+    return { ok: false, erro: traduzirErroBanco(error) };
   }
 
   revalidatePath("/catalogo"); revalidatePath("/sabores");
@@ -198,7 +199,7 @@ export async function excluirSabor(productFlavorId: string): Promise<Resultado> 
   }
 
   const { error } = await c.from("product_flavors").delete().eq("id", productFlavorId);
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/catalogo"); revalidatePath("/sabores");
   return { ok: true };
@@ -251,7 +252,7 @@ export async function salvarCliente(
     if (error.code === "23505") {
       return { ok: false, erro: "Já existe um cliente com este telefone." };
     }
-    return { ok: false, erro: error.message };
+    return { ok: false, erro: traduzirErroBanco(error) };
   }
 
   revalidatePath("/clientes");
@@ -277,7 +278,7 @@ export async function excluirCliente(id: string): Promise<Resultado> {
 
   const { error } = await c.from("customers")
     .update({ deleted_at: new Date().toISOString(), status: "inativo" }).eq("id", id);
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/clientes");
   return { ok: true };

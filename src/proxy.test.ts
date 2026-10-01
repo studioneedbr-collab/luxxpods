@@ -23,7 +23,9 @@ describe("porteiro de rotas", () => {
 
   it("as únicas páginas abertas são as de entrar e recuperar senha", () => {
     const linha = fonte.match(/const PAGINA_ABERTA = (.+);/)?.[1] ?? "";
-    expect(linha).toBe(String.raw`/^\/(login|recuperar-senha|redefinir-senha)(\/|$)/`);
+    expect(linha).toBe(
+      String.raw`/^\/(login|primeiro-acesso|recuperar-senha|redefinir-senha)(\/|$)/`,
+    );
   });
 
   it("API sem sessão responde 401, nunca redirect", () => {

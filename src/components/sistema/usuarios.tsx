@@ -1,15 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Mail, Pencil, UserCog, UserPlus } from "lucide-react";
+import {
+  KeyRound, Pencil, ShieldCheck, Trash2, UserCog, UserPlus,
+} from "lucide-react";
 import { salvarUsuario } from "@/lib/actions-mvp2";
+import {
+  alternarStatusUsuario, criarUsuario, excluirUsuario, redefinirSenha,
+} from "@/lib/actions-usuarios";
 import Link from "next/link";
 import { Badge, Button, CampoMascara, Input, Select, Vazio } from "@/components/ui";
 import type { BadgeTom } from "@/components/ui";
-import { Campo, Modal, Switch } from "@/components/ui/modal";
+import { Campo, Modal } from "@/components/ui/modal";
 import { cn, iniciais, telefone, tempoRelativo } from "@/lib/utils";
 import type { Usuario } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+
+const MIN_SENHA = 8;
 
 const PERFIS: Array<{ slug: string; nome: string; tom: BadgeTom; acesso: string }> = [
   { slug: "admin", nome: "Administrador", tom: "brand",
@@ -29,29 +36,108 @@ export function TelaUsuarios({
 }: { usuarios: Usuario[]; supabaseConectado: boolean }) {
   const [usuarios, setUsuarios] = useState(iniciaisLista);
   const [editando, setEditando] = useState<Partial<Usuario> | null>(null);
+  const [senha, setSenha] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
   const [, iniciar] = useTransition();
   const toast = useToast();
 
+  const criando = editando !== null && !editando.id;
+  const senhaCurta = senha.length > 0 && senha.length < MIN_SENHA;
+  const senhaDiferente = repetir.length > 0 && senha !== repetir;
+  const senhaPronta = senha.length >= MIN_SENHA && senha === repetir;
+
+  function abrir(usuario: Partial<Usuario> | null) {
+    setEditando(usuario);
+    setSenha("");
+    setRepetir("");
+    setConfirmandoExclusao(false);
+  }
+
+  /** Cadastro novo: cria o acesso E o perfil, sem ninguém abrir o Supabase. */
+  async function criar(dados: Partial<Usuario>) {
+    if (!dados.nome?.trim() || !dados.email || !senhaPronta) return;
+    setOcupado(true);
+
+    const r = await criarUsuario({
+      nome: dados.nome.trim(),
+      email: dados.email.trim(),
+      senha,
+      role_slug: dados.role_slug ?? "atendimento",
+      telefone: dados.telefone ?? null,
+      cargo: dados.cargo ?? null,
+    });
+
+    setOcupado(false);
+    if (!r.ok) {
+      toast.erro("Não consegui criar o usuário", r.erro);
+      return;
+    }
+
+    const perfil = PERFIS.find((p) => p.slug === dados.role_slug);
+    setUsuarios((l) => [...l, {
+      ...dados, role_nome: perfil?.nome ?? "Atendimento", status: "ativo",
+      id: `novo-${Date.now()}`, ultimo_login: null,
+      created_at: new Date().toISOString(),
+    } as Usuario]);
+    abrir(null);
+    toast.ok("Usuário criado", `${dados.nome} já pode entrar com a senha definida`);
+  }
+
+  /** Edição: só o perfil muda aqui — senha tem botão próprio. */
   function salvar(dados: Partial<Usuario>) {
     if (!dados.nome?.trim()) return;
     const perfil = PERFIS.find((p) => p.slug === dados.role_slug);
     const pronto = { ...dados, role_nome: perfil?.nome ?? "Atendimento" };
 
-    setUsuarios((l) => dados.id
-      ? l.map((u) => (u.id === dados.id ? { ...u, ...pronto } as Usuario : u))
-      : [...l, {
-          ...pronto, id: `tmp-${Date.now()}`, status: "ativo",
-          ultimo_login: null, created_at: new Date().toISOString(),
-        } as Usuario]);
-    setEditando(null);
+    setUsuarios((l) => l.map((u) => (u.id === dados.id ? { ...u, ...pronto } as Usuario : u)));
+    abrir(null);
     iniciar(async () => {
       const r = await salvarUsuario(pronto);
-      if (r.ok) toast.ok(dados.id ? "Usuário atualizado" : "Usuário adicionado", dados.nome);
+      if (r.ok) toast.ok("Usuário atualizado", dados.nome);
       else {
         setUsuarios(iniciaisLista);
         toast.erro("Não consegui salvar o usuário", r.erro);
       }
     });
+  }
+
+  async function trocarSenha(id: string) {
+    if (!senhaPronta) return;
+    setOcupado(true);
+    const r = await redefinirSenha(id, senha);
+    setOcupado(false);
+    if (r.ok) {
+      setSenha(""); setRepetir("");
+      toast.ok("Senha redefinida", "Avise a pessoa qual é a senha nova");
+    } else {
+      toast.erro("Não consegui redefinir a senha", r.erro);
+    }
+  }
+
+  async function desativarOuAtivar(u: Partial<Usuario>) {
+    const ativar = u.status !== "ativo";
+    setOcupado(true);
+    const r = await alternarStatusUsuario(u.id!, ativar);
+    setOcupado(false);
+    if (!r.ok) { toast.erro("Não consegui alterar o acesso", r.erro); return; }
+
+    setUsuarios((l) => l.map((x) => (x.id === u.id
+      ? { ...x, status: ativar ? "ativo" : "inativo" } as Usuario : x)));
+    abrir(null);
+    toast.ok(ativar ? "Acesso liberado" : "Acesso bloqueado", u.nome);
+  }
+
+  async function excluir(u: Partial<Usuario>) {
+    setOcupado(true);
+    const r = await excluirUsuario(u.id!);
+    setOcupado(false);
+    if (!r.ok) { toast.erro("Não consegui excluir", r.erro); return; }
+
+    setUsuarios((l) => l.filter((x) => x.id !== u.id));
+    abrir(null);
+    toast.ok("Usuário excluído", `${u.nome} não entra mais no sistema`);
   }
 
   const porPerfil = PERFIS.map((p) => ({
@@ -70,7 +156,7 @@ export function TelaUsuarios({
               {usuarios.length} pessoa{usuarios.length === 1 ? "" : "s"} com acesso ao sistema
             </p>
           </div>
-          <Button variante="primario" tamanho="sm" onClick={() => setEditando({
+          <Button variante="primario" tamanho="sm" onClick={() => abrir({
             nome: "", role_slug: "atendimento", status: "ativo",
           })}>
             <UserPlus className="size-3.5" /> Adicionar
@@ -121,7 +207,7 @@ export function TelaUsuarios({
 
                   {u.status !== "ativo" && <Badge tom="neutro">inativo</Badge>}
 
-                  <Button tamanho="iconeSm" variante="fantasma" onClick={() => setEditando(u)}
+                  <Button tamanho="iconeSm" variante="fantasma" onClick={() => abrir(u)}
                     aria-label={`Editar ${u.nome}`} title="Editar usuário">
                     <Pencil className="size-3.5" />
                   </Button>
@@ -165,26 +251,42 @@ export function TelaUsuarios({
 
       {/* ------------------------------ como entra --------------------------- */}
       <div className="flex items-start gap-2.5 rounded-lg bg-ink-900 px-4 py-3 ring-1 ring-inset ring-[var(--linha)]">
-        <Mail className="mt-0.5 size-3.5 shrink-0 text-ink-500" />
+        <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-ink-500" />
         <p className="text-[11px] leading-relaxed text-ink-400">
           {supabaseConectado
-            ? "O login passa pelo Supabase Auth. Para dar acesso a alguém novo, envie o convite por e-mail no painel do Supabase — o perfil e as permissões ficam guardados aqui."
-            : "Quando o Supabase estiver conectado, o login passa a ser feito por e-mail e senha, com convite para novos usuários."}
+            ? "O acesso é dado aqui: você define o e-mail, a senha inicial e o perfil, e a pessoa já entra. Não existe recuperação por e-mail — quem esquecer a senha pede uma nova aqui, no botão Redefinir senha."
+            : "Sem banco conectado o cadastro fica só nesta tela. Quando o Supabase entrar, o acesso passa a valer para o login de verdade."}
         </p>
       </div>
 
       {editando && (
         <Modal
           aberto
-          onFechar={() => setEditando(null)}
+          onFechar={() => abrir(null)}
           titulo={editando.id ? `Editar ${editando.nome}` : "Adicionar usuário"}
           descricao="Permissões podem ser ajustadas individualmente depois"
           rodape={
             <>
-              <Button variante="fantasma" onClick={() => setEditando(null)}>Cancelar</Button>
-              <Button variante="primario" disabled={!editando.nome?.trim()}
-                onClick={() => salvar(editando)}>
-                Salvar
+              {editando.id && (
+                <Button
+                  variante="fantasma"
+                  onClick={() => desativarOuAtivar(editando)}
+                  disabled={ocupado}
+                  className="mr-auto"
+                >
+                  {editando.status === "ativo" ? "Bloquear acesso" : "Liberar acesso"}
+                </Button>
+              )}
+              <Button variante="fantasma" onClick={() => abrir(null)}>Cancelar</Button>
+              <Button
+                variante="primario"
+                disabled={
+                  ocupado || !editando.nome?.trim()
+                  || (criando && (!editando.email || !senhaPronta))
+                }
+                onClick={() => (criando ? criar(editando) : salvar(editando))}
+              >
+                {criando ? "Criar usuário" : "Salvar"}
               </Button>
             </>
           }
@@ -218,19 +320,91 @@ export function TelaUsuarios({
               </Campo>
             </div>
 
-            <Switch
-              ligado={editando.status === "ativo"}
-              onChange={(v) => setEditando((p) => ({ ...p!, status: v ? "ativo" : "inativo" }))}
-              rotulo="Usuário ativo"
-              descricao="Usuários inativos não conseguem entrar no sistema"
-            />
+            {/* -------------------------- senha -------------------------- */}
+            <div className="space-y-3 border-t border-[var(--linha)] pt-3">
+              <p className="rotulo flex items-center gap-1.5 text-ink-400">
+                <KeyRound className="size-3" />
+                {criando ? "Senha inicial" : "Redefinir senha"}
+              </p>
 
-            <p className="flex items-start gap-2 rounded-lg bg-brand-500/8 px-3 py-2.5 text-[11px] leading-relaxed text-brand-200 ring-1 ring-inset ring-brand-500/15">
-              <Mail className="mt-0.5 size-3.5 shrink-0" />
-              {supabaseConectado
-                ? "O login é feito pelo Supabase Auth. Para um usuário novo entrar, envie o convite pelo painel do Supabase — o perfil e as permissões ficam guardados aqui."
-                : "Quando o Supabase estiver conectado, o login passa a ser feito pelo Supabase Auth e o convite por e-mail fica disponível."}
-            </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Campo rotulo="Senha">
+                  <Input
+                    type="password" autoComplete="new-password" value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                    placeholder={`mínimo ${MIN_SENHA} caracteres`}
+                  />
+                </Campo>
+                <Campo rotulo="Repita">
+                  <Input
+                    type="password" autoComplete="new-password" value={repetir}
+                    onChange={(e) => setRepetir(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </Campo>
+              </div>
+
+              {senhaCurta && (
+                <p className="text-[11px] text-warn-400">
+                  Faltam {MIN_SENHA - senha.length} caracteres.
+                </p>
+              )}
+              {senhaDiferente && (
+                <p className="text-[11px] text-warn-400">As duas senhas estão diferentes.</p>
+              )}
+
+              {criando ? (
+                <p className="text-[11px] leading-relaxed text-ink-500">
+                  Combine a senha com a pessoa. Não há envio por e-mail, e ela
+                  pode ser trocada aqui depois.
+                </p>
+              ) : (
+                <Button
+                  variante="suave" tamanho="sm"
+                  disabled={!senhaPronta || ocupado}
+                  onClick={() => trocarSenha(editando.id!)}
+                >
+                  <KeyRound className="size-3.5" /> Redefinir senha
+                </Button>
+              )}
+            </div>
+
+            {/* ------------------------- exclusão ------------------------- */}
+            {editando.id && (
+              <div className="border-t border-[var(--linha)] pt-3">
+                {confirmandoExclusao ? (
+                  <div className="rounded-lg bg-bad-500/8 px-3 py-2.5 ring-1 ring-inset ring-bad-500/20">
+                    <p className="text-[11px] leading-relaxed text-bad-300">
+                      Excluir <strong>{editando.nome}</strong> apaga o acesso e o
+                      perfil de vez. O que a pessoa já fez continua registrado,
+                      mas sem o nome dela.
+                    </p>
+                    <div className="mt-2.5 flex gap-2">
+                      <Button
+                        variante="perigo" tamanho="sm" disabled={ocupado}
+                        onClick={() => excluir(editando)}
+                      >
+                        <Trash2 className="size-3.5" /> Excluir mesmo
+                      </Button>
+                      <Button
+                        variante="fantasma" tamanho="sm"
+                        onClick={() => setConfirmandoExclusao(false)}
+                      >
+                        Deixa pra lá
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmandoExclusao(true)}
+                    className="flex items-center gap-1.5 text-[11px] text-ink-500 transition-colors hover:text-bad-400"
+                  >
+                    <Trash2 className="size-3" /> Excluir este usuário
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </Modal>
       )}

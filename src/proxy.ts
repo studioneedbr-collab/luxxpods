@@ -10,8 +10,14 @@ import { createServerClient } from "@supabase/ssr";
  * vez de vazar dados sem ninguém perceber.
  */
 
-/** Páginas que uma pessoa sem sessão pode abrir. */
-const PAGINA_ABERTA = /^\/(login|recuperar-senha|redefinir-senha)(\/|$)/;
+/**
+ * Páginas que uma pessoa sem sessão pode abrir.
+ *
+ * `primeiro-acesso` cria o primeiro administrador do banco. Ela é aberta
+ * porque, antes dele existir, não há sessão possível — e se fecha sozinha:
+ * a própria página redireciona para o login assim que houver algum perfil.
+ */
+const PAGINA_ABERTA = /^\/(login|primeiro-acesso|recuperar-senha|redefinir-senha)(\/|$)/;
 
 /**
  * APIs abertas, uma a uma e com motivo:

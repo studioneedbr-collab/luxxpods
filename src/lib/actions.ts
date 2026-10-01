@@ -12,6 +12,8 @@ import {
 import { enfileirar } from "./fila/worker";
 import { agendarFollowup } from "./bot/recepcao";
 import type { PedidoStatus } from "./types";
+import { traduzirErroBanco } from "./erros-banco";
+import { perfilAtual } from "./perfil-atual";
 
 /** O que o cliente recebe quando o pedido anda (ETAPA 16 e 17 do escopo). */
 const AVISO_POR_STATUS: Partial<Record<PedidoStatus, string>> = {
@@ -80,7 +82,7 @@ export async function enviarMensagem(conversationId: string, conteudo: string): 
         status: "pendente",
       })
       .select("id").single();
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
     await c.from("conversations").update({
       ultima_mensagem: texto,
@@ -208,8 +210,9 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     return { ok: true };
   }
 
-  const { data: user } = await c.auth.getUser();
-  const usuarioId = user?.user?.id ?? null;
+  // o id do PERFIL, não o do Auth: quem entrou sem perfil grava null em vez
+  // de estourar a chave estrangeira com uma mensagem que não ajuda ninguém
+  const { id: usuarioId } = await perfilAtual(c);
 
   const { data: pedido } = await c
     .from("orders").select("status_pedido, forma_pagamento, status_pagamento")
@@ -225,7 +228,7 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     const { error } = await c.rpc("confirmar_pedido", {
       p_order_id: pedidoId, p_usuario_id: usuarioId,
     });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   } else {
     const campos: Record<string, string> = {};
     const agora = new Date().toISOString();
@@ -235,7 +238,7 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
 
     const { error } = await c.from("orders")
       .update({ status_pedido: status, ...campos }).eq("id", pedidoId);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
     await avisarClienteDoStatus(pedidoId, status);
 
@@ -270,7 +273,7 @@ export async function cancelarPedido(pedidoId: string, motivo: string): Promise<
     const { error } = await c.rpc("cancelar_pedido", {
       p_order_id: pedidoId, p_motivo: motivo, p_usuario_id: user?.user?.id ?? null,
     });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/pedidos");
   revalidatePath(`/pedidos/${pedidoId}`);
@@ -299,7 +302,7 @@ export async function ajustarEstoque(pfId: string, novoTotal: number, observacao
         p_usuario_id: user?.user?.id ?? null,
         p_observacao: observacao ?? "Ajuste manual pelo painel",
       });
-      if (error) return { ok: false, erro: error.message };
+      if (error) return { ok: false, erro: traduzirErroBanco(error) };
     }
   }
   revalidatePath("/estoque");
@@ -332,7 +335,7 @@ export async function salvarProduto(
   if (!c) demoSalvarProduto(produtoId, dados);
   else {
     const { error } = await c.from("products").update(dados).eq("id", produtoId);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/produtos");
   revalidatePath("/catalogo");
@@ -390,8 +393,9 @@ export async function criarPedido(
     return r;
   }
 
-  const { data: user } = await c.auth.getUser();
-  const usuarioId = user?.user?.id ?? null;
+  // o id do PERFIL, não o do Auth: quem entrou sem perfil grava null em vez
+  // de estourar a chave estrangeira com uma mensagem que não ajuda ninguém
+  const { id: usuarioId } = await perfilAtual(c);
 
   // 1) endereço novo, quando o cliente ainda não tem nenhum salvo
   let addressId = dados.address_id;
@@ -410,7 +414,7 @@ export async function criarPedido(
     p_store_id: STORE_ID,
   });
   if (erroCarrinho || !cart) {
-    return { ok: false, erro: erroCarrinho?.message ?? "Não consegui abrir o carrinho" };
+    return { ok: false, erro: traduzirErroBanco(erroCarrinho, "não consegui abrir o carrinho") };
   }
 
   // 3) itens, um a um: a reserva de cada um pode falhar por falta de estoque
@@ -420,7 +424,7 @@ export async function criarPedido(
       p_product_flavor_id: item.product_flavor_id,
       p_quantidade: item.quantidade,
     });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
   // 4) o carrinho vira pedido
@@ -434,7 +438,7 @@ export async function criarPedido(
     p_origem: dados.conversation_id ? "bot" : "operador",
   });
   if (erroPedido || !pedido) {
-    return { ok: false, erro: erroPedido?.message ?? "Não consegui criar o pedido" };
+    return { ok: false, erro: traduzirErroBanco(erroPedido, "não consegui criar o pedido") };
   }
 
   revalidatePath("/pedidos");
@@ -506,12 +510,13 @@ export async function confirmarPagamentoPix(pedidoId: string): Promise<Resultado
     return { ok: true };
   }
 
-  const { data: user } = await c.auth.getUser();
-  const usuarioId = user?.user?.id ?? null;
+  // o id do PERFIL, não o do Auth: quem entrou sem perfil grava null em vez
+  // de estourar a chave estrangeira com uma mensagem que não ajuda ninguém
+  const { id: usuarioId } = await perfilAtual(c);
 
   const { error } = await c.from("orders")
     .update({ status_pagamento: "aprovado" }).eq("id", pedidoId);
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   await c.from("payments")
     .update({ status: "aprovado", pago_em: new Date().toISOString() })

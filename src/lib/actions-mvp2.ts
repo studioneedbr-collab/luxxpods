@@ -15,6 +15,7 @@ import type {
   CategoriaFinanceira, ContaBancaria, Cupom, EventoCalendario, Fornecedor,
   Lancamento, NotaSituacao, RegraUpsell, Tarefa, Troca, Usuario,
 } from "./types";
+import { traduzirErroBanco } from "./erros-banco";
 
 async function cli() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
@@ -41,7 +42,7 @@ export async function salvarCupom(dados: Partial<Cupom> & { id?: string }): Prom
     const { error } = id
       ? await c.from("coupons").update(campos).eq("id", id)
       : await c.from("coupons").insert(payload);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/cupons");
   return { ok: true };
@@ -52,7 +53,7 @@ export async function excluirCupom(id: string): Promise<Resultado> {
   if (!c) demoExcluirCupom(id);
   else {
     const { error } = await c.from("coupons").delete().eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/cupons");
   return { ok: true };
@@ -72,7 +73,7 @@ export async function salvarUpsell(dados: Partial<RegraUpsell> & { id?: string }
     const { error } = id
       ? await c.from("upsell_rules").update(campos).eq("id", id)
       : await c.from("upsell_rules").insert({ ...campos, store_id: STORE_ID });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/upsell");
   return { ok: true };
@@ -83,7 +84,7 @@ export async function excluirUpsell(id: string): Promise<Resultado> {
   if (!c) demoExcluirUpsell(id);
   else {
     const { error } = await c.from("upsell_rules").delete().eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/upsell");
   return { ok: true };
@@ -145,7 +146,7 @@ export async function criarTroca(dados: {
       status: "solicitada",
     })
     .select("id").single();
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/trocas");
   return { ok: true, id: data.id };
@@ -161,7 +162,7 @@ export async function alterarStatusTroca(id: string, status: Troca["status"]): P
     if (status === "finalizada") campos.completed_at = agora;
 
     const { error } = await c.from("exchanges").update(campos).eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
     // ao finalizar, devolve a peça ao estoque
     if (status === "finalizada") {
@@ -196,7 +197,7 @@ export async function salvarFornecedor(
     const { error } = id
       ? await c.from("suppliers").update(campos).eq("id", id)
       : await c.from("suppliers").insert({ ...campos, store_id: STORE_ID });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/notas-entrada");
   return { ok: true };
@@ -253,7 +254,7 @@ export async function criarNota(
       estoque_aplicado: false,
     })
     .select("id").single();
-  if (error || !nota) return { ok: false, erro: error?.message ?? "Falha ao criar a nota" };
+  if (error || !nota) return { ok: false, erro: traduzirErroBanco(error, "falha ao criar a nota") };
 
   const { error: erroItens } = await c.from("purchase_entry_items").insert(
     itens.map((i) => ({
@@ -264,7 +265,7 @@ export async function criarNota(
       subtotal: i.quantidade * i.custo_unitario,
     })),
   );
-  if (erroItens) return { ok: false, erro: erroItens.message };
+  if (erroItens) return { ok: false, erro: traduzirErroBanco(erroItens) };
 
   revalidatePath("/notas-entrada");
   return { ok: true, id: nota.id };
@@ -279,7 +280,7 @@ export async function situacaoNota(id: string, situacao: NotaSituacao): Promise<
     const campos: Record<string, unknown> = { situacao };
     if (situacao === "conferencia") campos.conferencia_iniciada_em = new Date().toISOString();
     const { error } = await c.from("purchase_entries").update(campos).eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/notas-entrada");
   return { ok: true };
@@ -331,7 +332,7 @@ export async function concluirNota(id: string): Promise<Resultado> {
     }
   } else {
     const { error } = await c.rpc("concluir_nota_entrada", { p_nota_id: id });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
   revalidatePath("/notas-entrada");
@@ -366,7 +367,7 @@ export async function reabrirNota(id: string, motivo?: string): Promise<Resultad
     const { error } = await c.rpc("reabrir_nota_entrada", {
       p_nota_id: id, p_motivo: motivo ?? null,
     });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
   revalidatePath("/notas-entrada");
@@ -392,7 +393,7 @@ export async function salvarLancamento(
     const { error } = id
       ? await c.from(tabela).update(campos).eq("id", id)
       : await c.from(tabela).insert(payload);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/financeiro");
   revalidatePath("/financeiro/pagar");
@@ -411,7 +412,7 @@ export async function baixarLancamento(
       status: pago ? "pago" : "pendente",
       pagamento: pago ? new Date().toISOString().slice(0, 10) : null,
     }).eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/financeiro");
   revalidatePath("/financeiro/pagar");
@@ -427,7 +428,7 @@ export async function excluirLancamento(
   else {
     const tabela = tipo === "receber" ? "accounts_receivable" : "accounts_payable";
     const { error } = await c.from(tabela).delete().eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/financeiro/pagar");
   revalidatePath("/financeiro/receber");
@@ -445,7 +446,7 @@ export async function salvarContaBancaria(
     const { error } = id
       ? await c.from("bank_accounts").update(campos).eq("id", id)
       : await c.from("bank_accounts").insert({ ...campos, store_id: STORE_ID });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/financeiro/contas");
   return { ok: true };
@@ -481,7 +482,7 @@ export async function excluirContaBancaria(id: string): Promise<Resultado> {
   }
 
   const { error } = await c.from("bank_accounts").delete().eq("id", id);
-  if (error) return { ok: false, erro: error.message };
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
   revalidatePath("/financeiro/contas");
   return { ok: true };
@@ -498,7 +499,7 @@ export async function salvarCategoria(
     const { error } = id
       ? await c.from("financial_categories").update(campos).eq("id", id)
       : await c.from("financial_categories").insert({ ...campos, store_id: STORE_ID });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   // a categoria é escolhida nos lançamentos: revalidar só a tela dela
   // deixaria o seletor desatualizado até alguém recarregar
@@ -514,7 +515,7 @@ export async function excluirCategoria(id: string): Promise<Resultado> {
   if (!c) demoExcluirCategoria(id);
   else {
     const { error } = await c.from("financial_categories").delete().eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/financeiro/categorias");
   revalidatePath("/financeiro/pagar");
@@ -537,7 +538,7 @@ export async function salvarUsuario(dados: Partial<Usuario> & { id?: string }): 
     }
     if (!id) return { ok: false, erro: "Novos usuários são criados pelo convite do Supabase Auth." };
     const { error } = await c.from("profiles").update(payload).eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/usuarios");
   return { ok: true };
@@ -556,7 +557,7 @@ export async function salvarEvento(
     const { error } = id
       ? await c.from("calendar_events").update(campos).eq("id", id)
       : await c.from("calendar_events").insert({ ...campos, store_id: STORE_ID });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/calendario");
   return { ok: true };
@@ -567,7 +568,7 @@ export async function excluirEvento(id: string): Promise<Resultado> {
   if (!c) demoExcluirEvento(id);
   else {
     const { error } = await c.from("calendar_events").delete().eq("id", id);
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/calendario");
   return { ok: true };
@@ -584,7 +585,7 @@ export async function salvarTarefa(dados: Partial<Tarefa> & { id?: string }): Pr
     const { error } = id
       ? await c.from("tasks").update(campos).eq("id", id)
       : await c.from("tasks").insert({ ...campos, store_id: STORE_ID, criada_por: "operador" });
-    if (error) return { ok: false, erro: error.message };
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
   revalidatePath("/tarefas");
   return { ok: true };
