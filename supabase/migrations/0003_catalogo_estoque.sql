@@ -49,6 +49,7 @@ create table if not exists products (
 );
 create index if not exists idx_products_brand on products (store_id, brand_id, status);
 create index if not exists idx_products_nome on products using gin (nome gin_trgm_ops);
+drop trigger if exists trg_products_updated on products;
 create trigger trg_products_updated before update on products for each row execute function set_updated_at();
 
 create table if not exists flavors (

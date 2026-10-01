@@ -9,7 +9,10 @@ declare
   v_brand   uuid; v_prod uuid; v_flavor uuid; v_pf uuid;
   v_cust    uuid; v_conv uuid; v_lead uuid; v_order uuid;
   v_stage   uuid; v_stage_novo uuid; v_stage_ganho uuid;
-  b record; f text; p record; i int; j int;
+  -- Nome de uma letra disputa com apelido de tabela: `p` aqui fazia o
+  -- PL/pgSQL ler `permissions p` como esta variável e o seed quebrava com
+  -- "record p is not assigned yet". Prefixe variável nova com v_.
+  b record; f text; v_rec record; i int; j int;
   v_marca text; v_qtd int; v_total numeric; v_preco numeric; v_custo numeric;
   v_dt timestamptz; v_nome text; v_tel text;
   nomes text[] := array['Ana Beatriz','Carlos Eduardo','Mariana Alves','Pedro Henrique','Juliana Costa','Rafael Lima','Beatriz Souza','Lucas Martins','Fernanda Rocha','Gabriel Santos','Camila Ferreira','Thiago Ribeiro','Larissa Dias','Bruno Carvalho','Isabela Nunes','Matheus Pereira','Amanda Barbosa','Felipe Araujo','Natália Gomes','Vinícius Teixeira'];
@@ -62,26 +65,26 @@ insert into permissions (slug, nome, grupo) values
 on conflict (slug) do nothing;
 
 insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r cross join permissions p where r.slug = 'admin'
+select r.id, perm.id from roles r cross join permissions perm where r.slug = 'admin'
 on conflict do nothing;
 
 insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r join permissions p on p.slug in
+select r.id, perm.id from roles r join permissions perm on perm.slug in
   ('acessar_dashboard','acessar_chat','assumir_conversa','gerenciar_leads','visualizar_clientes','editar_clientes','visualizar_pedidos','criar_pedido')
 where r.slug = 'atendimento' on conflict do nothing;
 
 insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r join permissions p on p.slug in
+select r.id, perm.id from roles r join permissions perm on perm.slug in
   ('acessar_dashboard','visualizar_pedidos','alterar_status_pedido','alterar_estoque','gerenciar_catalogo','gerenciar_trocas')
 where r.slug = 'operacional' on conflict do nothing;
 
 insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r join permissions p on p.slug in
+select r.id, perm.id from roles r join permissions perm on perm.slug in
   ('acessar_dashboard','visualizar_financeiro','editar_financeiro','visualizar_relatorios')
 where r.slug = 'financeiro' on conflict do nothing;
 
 insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r join permissions p on p.slug in ('visualizar_pedidos')
+select r.id, perm.id from roles r join permissions perm on perm.slug in ('visualizar_pedidos')
 where r.slug = 'entregador' on conflict do nothing;
 
 -- ---------- FUNIL ----------
@@ -158,7 +161,7 @@ for f in select unnest(array[
 end loop;
 
 -- produtos por marca
-for p in select * from (values
+for v_rec in select * from (values
   ('ignite','Ignite V300','V300',3000,  89.90, 45.00),
   ('ignite','Ignite V600','V600',6000, 109.90, 58.00),
   ('ignite','Ignite V150','V150',1500,  69.90, 34.00),
@@ -170,25 +173,25 @@ for p in select * from (values
   ('nikbar','Nikbar 12000','NB12000',12000,149.90, 78.00),
   ('elfworld','Elfworld 15000','EW15000',15000,159.90, 84.00)
 ) as t(marca, nome, modelo, puffs, preco, custo) loop
-  select id into v_brand from brands where store_id = v_store and slug = p.marca;
+  select id into v_brand from brands where store_id = v_store and slug = v_rec.marca;
   insert into products (store_id, brand_id, category_id, nome, modelo, puffs, sku, preco, custo, ordem, descricao)
   select v_store, v_brand, (select id from categories where store_id=v_store and slug='pods-descartaveis'),
-         p.nome, p.modelo, p.puffs,
-         upper(replace(p.marca,'-','')) || '-' || upper(replace(p.modelo,' ','')),
-         p.preco, p.custo, p.puffs, p.nome || ' — ' || p.puffs || ' puffs'
-  where not exists (select 1 from products where store_id = v_store and nome = p.nome);
+         v_rec.nome, v_rec.modelo, v_rec.puffs,
+         upper(replace(v_rec.marca,'-','')) || '-' || upper(replace(v_rec.modelo,' ','')),
+         v_rec.preco, v_rec.custo, v_rec.puffs, v_rec.nome || ' — ' || v_rec.puffs || ' puffs'
+  where not exists (select 1 from products where store_id = v_store and nome = v_rec.nome);
 end loop;
 
 -- product_flavors + estoque
 i := 0;
-for p in select id, custo from products where store_id = v_store loop
+for v_rec in select id, custo from products where store_id = v_store loop
   i := i + 1;
   j := 0;
   for v_flavor in select id from flavors where store_id = v_store
-      order by md5(id::text || p.id::text) limit (6 + (i % 5)) loop
+      order by md5(id::text || v_rec.id::text) limit (6 + (i % 5)) loop
     j := j + 1;
     insert into product_flavors (store_id, product_id, flavor_id, estoque_minimo, ativo)
-    values (v_store, p.id, v_flavor, 3, true)
+    values (v_store, v_rec.id, v_flavor, 3, true)
     on conflict (product_id, flavor_id) do nothing
     returning id into v_pf;
     if v_pf is not null then
@@ -196,12 +199,12 @@ for p in select id, custo from products where store_id = v_store loop
                     when (i + j) % 7 = 0 then 2
                     else 4 + ((i * j * 7) % 26) end;
       insert into inventory (store_id, warehouse_id, product_flavor_id, quantidade_total, custo_medio)
-      values (v_store, v_wh, v_pf, v_qtd, p.custo)
+      values (v_store, v_wh, v_pf, v_qtd, v_rec.custo)
       on conflict (product_flavor_id, warehouse_id) do nothing;
       if v_qtd > 0 then
         insert into inventory_movements (store_id, product_flavor_id, warehouse_id, tipo, quantidade,
           saldo_anterior, saldo_posterior, referencia_tipo, observacao, custo_unitario)
-        values (v_store, v_pf, v_wh, 'entrada', v_qtd, 0, v_qtd, 'seed', 'Carga inicial de estoque', p.custo);
+        values (v_store, v_pf, v_wh, 'entrada', v_qtd, 0, v_qtd, 'seed', 'Carga inicial de estoque', v_rec.custo);
       end if;
     end if;
     v_pf := null;

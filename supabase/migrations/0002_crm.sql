@@ -34,6 +34,7 @@ create table if not exists customers (
 );
 create index if not exists idx_customers_nome on customers using gin (nome gin_trgm_ops);
 create index if not exists idx_customers_tel on customers (telefone);
+drop trigger if exists trg_customers_updated on customers;
 create trigger trg_customers_updated before update on customers for each row execute function set_updated_at();
 
 create table if not exists customer_addresses (
@@ -88,6 +89,7 @@ create table if not exists conversations (
 );
 create index if not exists idx_conv_ultima on conversations (store_id, ultima_mensagem_em desc);
 create index if not exists idx_conv_customer on conversations (customer_id);
+drop trigger if exists trg_conv_updated on conversations;
 create trigger trg_conv_updated before update on conversations for each row execute function set_updated_at();
 
 create table if not exists leads (
@@ -110,6 +112,7 @@ create table if not exists leads (
   updated_at timestamptz not null default now()
 );
 create index if not exists idx_leads_stage on leads (store_id, stage_id, ordem);
+drop trigger if exists trg_leads_updated on leads;
 create trigger trg_leads_updated before update on leads for each row execute function set_updated_at();
 
 alter table conversations add column if not exists lead_id uuid references leads(id) on delete set null;
@@ -156,6 +159,7 @@ create table if not exists tasks (
   updated_at timestamptz not null default now()
 );
 create index if not exists idx_tasks_status on tasks (store_id, status, vencimento);
+drop trigger if exists trg_tasks_updated on tasks;
 create trigger trg_tasks_updated before update on tasks for each row execute function set_updated_at();
 
 create table if not exists calendar_events (

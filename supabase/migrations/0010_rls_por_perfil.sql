@@ -81,11 +81,13 @@ declare
       'webhook_events')
   );
   grupo text;
-  tabela jsonb;
+  -- text, não jsonb: jsonb_array_elements_text devolve o nome sem aspas,
+  -- e atribuir `customers` a um jsonb estoura com "invalid input syntax"
+  tabela text;
 begin
   for grupo in select jsonb_object_keys(grupos) loop
     for tabela in select * from jsonb_array_elements_text(grupos -> grupo) loop
-      t := trim(both '"' from tabela::text);
+      t := tabela;
 
       -- quem pode LER
       leitura := case grupo

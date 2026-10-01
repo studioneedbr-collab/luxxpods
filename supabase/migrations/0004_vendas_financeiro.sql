@@ -59,7 +59,12 @@ create table if not exists coupon_targets (
   category_id uuid references categories(id) on delete cascade
 );
 
-alter table carts add constraint fk_cart_coupon foreign key (coupon_id) references coupons(id) on delete set null;
+-- constraint não tem IF NOT EXISTS: sem a guarda, rodar o schema de novo
+-- aborta aqui, e o arquivo promete ser idempotente
+do $$ begin
+  alter table carts add constraint fk_cart_coupon
+    foreign key (coupon_id) references coupons(id) on delete set null;
+exception when duplicate_object then null; end $$;
 
 -- ---------- PEDIDOS ----------
 create sequence if not exists order_number_seq start 1;
@@ -105,6 +110,7 @@ create table if not exists orders (
 create index if not exists idx_orders_status on orders (store_id, status_pedido, created_at desc);
 create index if not exists idx_orders_created on orders (store_id, created_at desc);
 create index if not exists idx_orders_customer on orders (customer_id);
+drop trigger if exists trg_orders_updated on orders;
 create trigger trg_orders_updated before update on orders for each row execute function set_updated_at();
 
 create table if not exists order_items (

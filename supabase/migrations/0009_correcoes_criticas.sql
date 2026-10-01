@@ -45,6 +45,13 @@ end $$;
 --    reservadas por terceiros, um pedido de 3 passava e derrubava a reserva
 --    alheia. Agora a venda só consome reserva se ELA MESMA reservou antes.
 -- ---------------------------------------------------------------------
+-- `create or replace` com assinatura diferente não substitui: cria uma
+-- SOBRECARGA. A de 0005 tem 8 parâmetros, esta tem 9 com default, e aí toda
+-- chamada com 7 ou 8 argumentos fica ambígua ("function is not unique") —
+-- o schema instalaria limpo e cada venda quebraria depois. A antiga sai.
+drop function if exists mover_estoque(
+  uuid, movimento_tipo, integer, text, text, uuid, text, numeric);
+
 create or replace function mover_estoque(
   p_product_flavor_id uuid,
   p_tipo movimento_tipo,
