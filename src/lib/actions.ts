@@ -70,14 +70,16 @@ export async function enviarMensagem(conversationId: string, conteudo: string): 
       { conversationId },
     );
   } else {
-    const { data: user } = await c.auth.getUser();
+    // o id do PERFIL: messages.sender_id aponta para profiles(id). Com o id
+    // do Auth de quem não tem perfil, a mensagem nem é gravada.
+    const { id: perfilId } = await perfilAtual(c);
 
     const { data: gravada, error } = await c.from("messages")
       .insert({
         conversation_id: conversationId,
         store_id: STORE_ID,
         sender_type: "atendente",
-        sender_id: user?.user?.id ?? null,
+        sender_id: perfilId,
         tipo: "texto",
         conteudo: texto,
         status: "pendente",
@@ -107,10 +109,11 @@ export async function assumirConversa(conversationId: string): Promise<Resultado
   if (!c) {
     demoAlternarBot(conversationId, false);
   } else {
-    const { data: user } = await c.auth.getUser();
+    // conversations.responsavel_id também aponta para profiles(id)
+    const { id: perfilId } = await perfilAtual(c);
     await c.from("conversations").update({
       bot_ativo: false,
-      responsavel_id: user?.user?.id ?? null,
+      responsavel_id: perfilId,
       estado: "HUMAN",
     }).eq("id", conversationId);
     await c.from("messages").insert({
@@ -245,7 +248,11 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
 
     // Dinheiro na entrega: entregar É receber. Sem isto a tela mostrava
     // "pago" por um instante e o financeiro nunca via o dinheiro entrar.
-    if (status === "entregue" && pedido.forma_pagamento === "dinheiro"
+    // Toda forma recebida na porta, não só dinheiro: maquininha e
+    // transferência na hora também entram. A função sabe que PIX é a exceção
+    // (confirma por webhook), então a regra fica num lugar só em vez de
+    // depender de quem chama lembrar da lista.
+    if (status === "entregue" && pedido.forma_pagamento !== "pix"
         && pedido.status_pagamento !== "aprovado") {
       const { error: erroPagamento } = await c.rpc("receber_na_entrega", {
         p_order_id: pedidoId, p_usuario_id: usuarioId,
@@ -270,9 +277,13 @@ export async function cancelarPedido(pedidoId: string, motivo: string): Promise<
     demoAlterarStatusPedido(pedidoId, "cancelado");
     demoReabrirLeadDoPedido(pedidoId);
   } else {
-    const { data: user } = await c.auth.getUser();
+    // o perfil, não o Auth: cancelar_pedido repassa isto para mover_estoque,
+    // que grava em inventory_movements.usuario_id → profiles(id). Com id sem
+    // perfil a chave estrangeira estoura e o cancelamento inteiro aborta,
+    // levando a devolução do estoque com ele.
+    const { id: perfilId } = await perfilAtual(c);
     const { error } = await c.rpc("cancelar_pedido", {
-      p_order_id: pedidoId, p_motivo: motivo, p_usuario_id: user?.user?.id ?? null,
+      p_order_id: pedidoId, p_motivo: motivo, p_usuario_id: perfilId,
     });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
@@ -283,33 +294,85 @@ export async function cancelarPedido(pedidoId: string, motivo: string): Promise<
 
 /* ---------------------------------------------------------- CATÁLOGO/ESTOQUE */
 
-export async function ajustarEstoque(pfId: string, novoTotal: number, observacao?: string): Promise<Resultado> {
+/**
+ * Ajuste manual do estoque, pelo total que o operador quer ver.
+ *
+ * Três cuidados que a varredura ensinou:
+ *
+ * 1. a leitura do saldo atual NÃO pode falhar em silêncio. Antes o erro era
+ *    descartado e `atual` virava 0, então `delta = novoTotal` e um ajuste de
+ *    "+1" numa peça com 50 em casa somava 51 em cima;
+ * 2. ajuste positivo precisa levar custo, senão `custo_medio` fica como
+ *    estava. Hoje todos os SKUs estão com custo médio zero (a limpeza para
+ *    produção zerou), e sem isto cada venda sairia com CMV = 0 e o relatório
+ *    diria lucro de 100%;
+ * 3. o id gravado é o do PERFIL, porque `inventory_movements.usuario_id`
+ *    aponta para `profiles(id)`.
+ *
+ * O jeito certo de dar entrada continua sendo a nota de mercadoria, que
+ * calcula a média ponderada com freteiro. Este caminho é para conferência de
+ * prateleira, e usa o custo cadastrado do produto como melhor palpite.
+ */
+export async function ajustarEstoque(
+  pfId: string, novoTotal: number, observacao?: string,
+): Promise<Resultado> {
+  if (!Number.isInteger(novoTotal) || novoTotal < 0) {
+    return { ok: false, erro: "O estoque precisa ser um número inteiro e não negativo." };
+  }
+
   const c = await cli();
+
   if (!c) {
     demoAjustarEstoque(pfId, novoTotal, observacao);
-  } else {
-    const { data: inv } = await c.from("inventory")
-      .select("quantidade_total").eq("product_flavor_id", pfId).maybeSingle();
-    const atual = Number(inv?.quantidade_total ?? 0);
-    const delta = novoTotal - atual;
-    if (delta !== 0) {
-      const { data: user } = await c.auth.getUser();
-      const { error } = await c.rpc("mover_estoque", {
-        p_product_flavor_id: pfId,
-        p_tipo: delta > 0 ? "ajuste_positivo" : "ajuste_negativo",
-        p_quantidade: Math.abs(delta),
-        p_referencia_tipo: "ajuste_manual",
-        p_referencia_id: pfId,
-        p_usuario_id: user?.user?.id ?? null,
-        p_observacao: observacao ?? "Ajuste manual pelo painel",
-      });
-      if (error) return { ok: false, erro: traduzirErroBanco(error) };
-    }
+    revalidatePath("/estoque");
+    revalidatePath("/catalogo");
+    return { ok: true };
   }
+
+  const { data: item, error: erroLeitura } = await c.from("v_catalogo")
+    .select("estoque_total, custo_medio, custo")
+    .eq("product_flavor_id", pfId).maybeSingle();
+
+  if (erroLeitura) {
+    return {
+      ok: false,
+      erro: `Não consegui ler o estoque atual, então não ajustei: ${traduzirErroBanco(erroLeitura)}`,
+    };
+  }
+  if (!item) {
+    return { ok: false, erro: "Este produto+sabor não foi encontrado." };
+  }
+
+  const atual = Number(item.estoque_total ?? 0);
+  const delta = novoTotal - atual;
+  if (delta === 0) return { ok: true };
+
+  const { id: perfilId } = await perfilAtual(c);
+
+  // entrando peça sem custo médio formado, usa o custo cadastrado do produto
+  const custoMedio = Number(item.custo_medio ?? 0);
+  const custoParaEntrada = delta > 0 && custoMedio <= 0
+    ? Number(item.custo ?? 0) || null
+    : null;
+
+  const { error } = await c.rpc("mover_estoque", {
+    p_product_flavor_id: pfId,
+    p_tipo: delta > 0 ? "entrada" : "ajuste_negativo",
+    p_quantidade: Math.abs(delta),
+    p_referencia_tipo: "ajuste_manual",
+    p_referencia_id: pfId,
+    p_usuario_id: perfilId,
+    p_observacao: observacao ?? "Ajuste manual pelo painel",
+    p_custo_unitario: custoParaEntrada,
+  });
+
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
+
   revalidatePath("/estoque");
   revalidatePath("/catalogo");
   return { ok: true };
 }
+
 
 export async function alternarProduto(produtoId: string, ativo: boolean): Promise<Resultado> {
   const c = await cli();
@@ -364,7 +427,16 @@ export interface DadosPedido {
     complemento?: string; referencia?: string;
     /** opcional: a entrega é no bairro, não no CEP */
     cep?: string;
+    cidade?: string; estado?: string;
   };
+  /**
+   * Cliente que ainda não existe, digitado no balcão.
+   *
+   * Sem isto o pedido nascia sem nome, sem telefone E SEM ENDEREÇO — porque a
+   * gravação do endereço depende de haver cliente. A comanda saía sem para
+   * onde o entregador ir.
+   */
+  cliente_novo?: { nome: string; telefone?: string | null } | null;
   itens: ItemPedido[];
   forma_pagamento: "pix" | "dinheiro";
   troco_para?: number | null;
@@ -402,36 +474,87 @@ export async function criarPedido(
   // de estourar a chave estrangeira com uma mensagem que não ajuda ninguém
   const { id: usuarioId } = await perfilAtual(c);
 
-  // 1) endereço novo, quando o cliente ainda não tem nenhum salvo
-  let addressId = dados.address_id;
-  if (!addressId && dados.endereco && dados.customer_id) {
-    const { cep, ...resto } = dados.endereco;
-    const { data: end, error } = await c.from("customer_addresses")
-      .insert({
-        customer_id: dados.customer_id,
-        ...resto,
-        // só grava o CEP se vier completo: meio CEP atrapalha mais que ajuda
-        cep: cep && cep.replace(/\D/g, "").length === 8 ? cep : null,
-        principal: true,
-      })
-      .select("id").single();
-    if (error) {
-      return { ok: false, erro: `Não consegui salvar o endereço: ${traduzirErroBanco(error)}` };
+  // 1) o cliente do balcão nasce aqui, antes do endereço — é ele que dá
+  // onde pendurar o endereço, e sem ele a comanda sai sem destino
+  let customerId = dados.customer_id;
+
+  if (!customerId && dados.cliente_novo?.nome.trim()) {
+    const telefone = dados.cliente_novo.telefone?.replace(/\D/g, "") || null;
+
+    // telefone é único por loja: quem já existe é reaproveitado em vez de
+    // estourar a unique e derrubar a venda
+    if (telefone) {
+      const { data: achado } = await c.from("customers")
+        .select("id").eq("store_id", STORE_ID).eq("telefone", telefone).maybeSingle();
+      if (achado) customerId = achado.id;
     }
-    addressId = end.id;
+
+    if (!customerId) {
+      const { data: criado, error } = await c.from("customers").insert({
+        store_id: STORE_ID,
+        nome: dados.cliente_novo.nome.trim(),
+        telefone,
+        canal_origem: "manual",
+        origem: "Balcão",
+        primeira_interacao: new Date().toISOString(),
+        status: "ativo",
+      }).select("id").single();
+
+      if (error || !criado) {
+        return { ok: false, erro: `Não consegui cadastrar o cliente: ${traduzirErroBanco(error)}` };
+      }
+      customerId = criado.id;
+    }
   }
 
-  // 2) carrinho
+  // 2) endereço novo, quando o cliente ainda não tem nenhum salvo
+  let addressId = dados.address_id;
+  if (!addressId && dados.endereco && customerId) {
+    // endereço igual ao que o cliente já tem é reaproveitado: senão cada
+    // pedido do mesmo cliente cria uma linha nova e a ficha vira uma lista
+    // de repetições
+    const { data: igual } = await c.from("customer_addresses")
+      .select("id").eq("customer_id", customerId)
+      .eq("rua", dados.endereco.rua).eq("numero", dados.endereco.numero)
+      .eq("bairro", dados.endereco.bairro).maybeSingle();
+
+    if (igual) {
+      addressId = igual.id;
+    } else {
+      // um endereço principal por cliente: sem desmarcar o anterior a ficha
+      // fica com dois, e qual deles o entregador vê passa a ser sorteio
+      await c.from("customer_addresses")
+        .update({ principal: false }).eq("customer_id", customerId);
+
+      const { cep, ...resto } = dados.endereco;
+      const { data: end, error } = await c.from("customer_addresses")
+        .insert({
+          customer_id: customerId,
+          ...resto,
+          // só grava o CEP se vier completo: meio CEP atrapalha mais que ajuda
+          cep: cep && cep.replace(/\D/g, "").length === 8 ? cep : null,
+          principal: true,
+        })
+        .select("id").single();
+
+      if (error) {
+        return { ok: false, erro: `Não consegui salvar o endereço: ${traduzirErroBanco(error)}` };
+      }
+      addressId = end.id;
+    }
+  }
+
+  // 3) carrinho
   const { data: cart, error: erroCarrinho } = await c.rpc("abrir_carrinho", {
     p_conversation_id: dados.conversation_id,
-    p_customer_id: dados.customer_id,
+    p_customer_id: customerId,
     p_store_id: STORE_ID,
   });
   if (erroCarrinho || !cart) {
     return { ok: false, erro: traduzirErroBanco(erroCarrinho, "não consegui abrir o carrinho") };
   }
 
-  // 3) itens, um a um: a reserva de cada um pode falhar por falta de estoque
+  // 4) itens, um a um: a reserva de cada um pode falhar por falta de estoque
   for (const item of dados.itens) {
     const { error } = await c.rpc("adicionar_ao_carrinho", {
       p_cart_id: cart.id,
@@ -441,7 +564,7 @@ export async function criarPedido(
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
-  // 4) o cupom, quando houver. Ele é amarrado ao carrinho e o desconto sai
+  // 5) o cupom, quando houver. Ele é amarrado ao carrinho e o desconto sai
   // de `recalcular_carrinho` no banco — a conta do desconto fica num lugar
   // só, senão painel e bot cobrariam diferente do mesmo cupom.
   if (dados.cupom_codigo?.trim()) {
@@ -462,7 +585,7 @@ export async function criarPedido(
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
-  // 5) o carrinho vira pedido
+  // 6) o carrinho vira pedido
   const { data: pedido, error: erroPedido } = await c.rpc("criar_pedido", {
     p_cart_id: cart.id,
     p_address_id: addressId,

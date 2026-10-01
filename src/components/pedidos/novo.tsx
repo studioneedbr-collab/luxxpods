@@ -52,6 +52,8 @@ export function NovoPedido({
   const [cep, setCep] = useState("");
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [cepNaoAchado, setCepNaoAchado] = useState(false);
+  const [cidade, setCidade] = useState("");
+  const [estado, setEstado] = useState("");
   const [bairro, setBairro] = useState("");
   const [rua, setRua] = useState("");
   const [numero, setNumero] = useState("");
@@ -108,6 +110,8 @@ export function NovoPedido({
     if (!achado) { setCepNaoAchado(true); return; }
     if (achado.bairro) setBairro(achado.bairro);
     if (achado.rua) setRua(achado.rua);
+    if (achado.cidade) setCidade(achado.cidade);
+    if (achado.estado) setEstado(achado.estado);
   }
 
   /**
@@ -150,9 +154,21 @@ export function NovoPedido({
     iniciar(async () => {
       const r = await criarPedido({
         customer_id: cliente?.id ?? null,
+        // o que o atendente digitou em "Ou cadastre agora": antes ficava na
+        // tela e o pedido nascia sem nome, sem telefone e sem endereço
+        cliente_novo: cliente
+          ? null
+          : novoNome.trim()
+            ? { nome: novoNome.trim(), telefone: novoTelefone || null }
+            : null,
         conversation_id: null,
         address_id: null,
-        endereco: { cep, bairro, rua, numero, complemento, referencia },
+        endereco: {
+          cep, bairro, rua, numero, complemento, referencia,
+          // vinham do CEP e eram descartadas; a comanda saía com "Centro — "
+          cidade: cidade || "Teófilo Otoni",
+          estado: estado || "MG",
+        },
         itens: linhas.map((l) => ({
           product_flavor_id: l.product_flavor_id, quantidade: l.quantidade,
         })),
