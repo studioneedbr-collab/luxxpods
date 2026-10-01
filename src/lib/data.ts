@@ -37,6 +37,19 @@ function aoFalhar(consulta: string, erro: { message: string } | null): never {
 }
 
 // ---------------------------------------------------------------- DASHBOARD
+/**
+ * Tira do registro as chaves que são JOIN, não coluna — ver `semJoins` em
+ * data-mvp2.ts. Espalhar a linha com o objeto do join dentro faz a tela
+ * devolver esse objeto na hora de salvar, e o PostgREST recusa.
+ */
+function semJoins<T extends Record<string, unknown>>(
+  linha: T, ...chaves: string[]
+): T {
+  const limpo = { ...linha };
+  for (const c of chaves) delete limpo[c];
+  return limpo;
+}
+
 export async function getMetricas(inicio: Date, fim: Date): Promise<Metricas> {
   const c = await sb();
   if (!c) return demoMetricas(inicio, fim);
@@ -164,7 +177,7 @@ export async function getConversas(): Promise<Conversa[]> {
     .limit(150);
   if (error || !data) aoFalhar("as conversas", error);
   return data.map((r: Record<string, unknown>) => ({
-    ...(r as unknown as Conversa),
+    ...(semJoins(r, "customers") as unknown as Conversa),
     cliente: (r.customers as Cliente) ?? null,
   }));
 }
@@ -190,7 +203,7 @@ export async function getLeads(): Promise<Lead[]> {
     .eq("store_id", STORE_ID).order("ordem").limit(300);
   if (error || !data) aoFalhar("os leads", error);
   return data.map((r: Record<string, unknown>) => ({
-    ...(r as unknown as Lead),
+    ...(semJoins(r, "customers") as unknown as Lead),
     cliente: (r.customers as Cliente) ?? null,
   }));
 }

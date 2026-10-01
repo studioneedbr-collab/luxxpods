@@ -12,6 +12,26 @@ async function sb() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
 }
 
+/**
+ * Tira do registro as chaves que são JOIN, não coluna.
+ *
+ * O `select("*, customers(nome)")` devolve a linha com um objeto `customers`
+ * aninhado. Espalhar essa linha carrega o objeto para dentro do que vai à
+ * tela — e quando a tela devolve o registro inteiro para salvar, o PostgREST
+ * recusa, porque `customers` não é coluna de `accounts_receivable`.
+ *
+ * Era o que fazia EDITAR lançamento, regra de upsell e rotina do calendário
+ * falhar sempre, enquanto criar funcionava: o formulário de criação monta um
+ * objeto limpo, o de edição parte do registro lido.
+ */
+function semJoins<T extends Record<string, unknown>>(
+  linha: T, ...chaves: string[]
+): T {
+  const limpo = { ...linha };
+  for (const c of chaves) delete limpo[c];
+  return limpo;
+}
+
 /** Erro do banco não vira dado de demonstração — ver a nota em data.ts. */
 function aoFalhar(consulta: string, erro: { message: string } | null): never {
   const detalhe = erro?.message ?? "sem detalhe";
@@ -42,7 +62,7 @@ export async function getUpsell(): Promise<RegraUpsell[]> {
   return data.map((r: Record<string, unknown>) => {
     const evs = (eventos ?? []).filter((e) => e.rule_id === r.id);
     return {
-      ...(r as unknown as RegraUpsell),
+      ...(semJoins(r, "origem", "destino") as unknown as RegraUpsell),
       produto_origem_nome: (r.origem as { nome?: string } | null)?.nome ?? null,
       produto_destino_nome: (r.destino as { nome?: string } | null)?.nome ?? null,
       exibidas: evs.length,
@@ -60,7 +80,7 @@ export async function getTrocas(): Promise<Troca[]> {
     .eq("store_id", STORE_ID).order("created_at", { ascending: false });
   if (error || !data) aoFalhar("as trocas", error);
   return data.map((t: Record<string, unknown>) => ({
-    ...(t as unknown as Troca),
+    ...(semJoins(t, "customers", "orders", "order_items") as unknown as Troca),
     cliente_nome: (t.customers as { nome?: string } | null)?.nome ?? null,
     numero_pedido: (t.orders as { numero_pedido?: string } | null)?.numero_pedido ?? null,
     produto_nome: (t.order_items as { produto_nome?: string } | null)?.produto_nome ?? null,
@@ -87,7 +107,7 @@ export async function getNotasEntrada(): Promise<NotaEntrada[]> {
   return data.map((n: Record<string, unknown>) => {
     const itens = (n.purchase_entry_items as Array<{ quantidade: number }>) ?? [];
     return {
-      ...(n as unknown as NotaEntrada),
+      ...(semJoins(n, "suppliers", "purchase_entry_items") as unknown as NotaEntrada),
       fornecedor_nome: (n.suppliers as { nome?: string } | null)?.nome ?? null,
       cotacao: n.cotacao != null ? Number(n.cotacao) : null,
       freteiro_pct: Number(n.freteiro_pct ?? 0),
@@ -146,7 +166,8 @@ export async function getLancamentos(tipo?: "receber" | "pagar"): Promise<Lancam
       .select("*, customers(nome), orders(numero_pedido), financial_categories(nome), bank_accounts(nome)")
       .eq("store_id", STORE_ID).order("vencimento", { ascending: false }).limit(300);
     (data ?? []).forEach((r: Record<string, unknown>) => out.push({
-      ...(r as unknown as Lancamento),
+      ...(semJoins(r, "customers", "orders", "financial_categories",
+        "bank_accounts") as unknown as Lancamento),
       tipo: "receber",
       descricao: String(r.descricao ?? "Venda"),
       contraparte: (r.customers as { nome?: string } | null)?.nome ?? null,
@@ -161,7 +182,8 @@ export async function getLancamentos(tipo?: "receber" | "pagar"): Promise<Lancam
       .select("*, suppliers(nome), financial_categories(nome), bank_accounts(nome)")
       .eq("store_id", STORE_ID).order("vencimento", { ascending: false }).limit(300);
     (data ?? []).forEach((r: Record<string, unknown>) => out.push({
-      ...(r as unknown as Lancamento),
+      ...(semJoins(r, "suppliers", "financial_categories",
+        "bank_accounts") as unknown as Lancamento),
       tipo: "pagar",
       contraparte: (r.suppliers as { nome?: string } | null)?.nome ?? null,
       categoria_nome: (r.financial_categories as { nome?: string } | null)?.nome ?? null,
@@ -179,7 +201,7 @@ export async function getUsuarios(): Promise<Usuario[]> {
     .select("*, roles(slug, nome)").is("deleted_at", null).order("nome");
   if (error || !data) aoFalhar("os usuários", error);
   return data.map((u: Record<string, unknown>) => ({
-    ...(u as unknown as Usuario),
+    ...(semJoins(u, "roles") as unknown as Usuario),
     role_slug: (u.roles as { slug?: string } | null)?.slug ?? "atendimento",
     role_nome: (u.roles as { nome?: string } | null)?.nome ?? "Atendimento",
   }));
@@ -192,7 +214,7 @@ export async function getEventos(): Promise<EventoCalendario[]> {
     .select("*, profiles(nome)").eq("store_id", STORE_ID).order("inicio");
   if (error || !data) aoFalhar("o calendário", error);
   return data.map((e: Record<string, unknown>) => ({
-    ...(e as unknown as EventoCalendario),
+    ...(semJoins(e, "profiles") as unknown as EventoCalendario),
     responsavel: (e.profiles as { nome?: string } | null)?.nome ?? null,
   }));
 }

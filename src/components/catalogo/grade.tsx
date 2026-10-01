@@ -18,12 +18,18 @@ import type { ItemCatalogo, Movimento } from "@/lib/types";
 import { MOVIMENTO } from "@/lib/labels";
 import { useToast } from "@/components/ui/toast";
 import { ExportarCatalogo } from "@/components/catalogo/botoes-exportar";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 type Visao = "grade" | "lista";
 type Filtro = "todos" | "disponiveis" | "baixo" | "esgotados" | "inativos";
 
 export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
-  const [dados, setDados] = useState(itens);
+  // precisa seguir o servidor: o +/- manda o TOTAL absoluto calculado a
+  // partir do que está na tela, e o servidor faz `delta = novo - atual`.
+  // Com a tela congelada na montagem, um clique no "+" depois de uma nota
+  // de entrada mandava um total menor que o real e apagava peça da
+  // prateleira — registrado como ajuste manual legítimo.
+  const [dados, setDados] = useListaServidor(itens);
   const [busca, setBusca] = useState("");
   const [marca, setMarca] = useState("todas");
   const [filtro, setFiltro] = useState<Filtro>("todos");
