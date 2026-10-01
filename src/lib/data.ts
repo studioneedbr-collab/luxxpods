@@ -381,3 +381,68 @@ export async function getMovimentosDoSabor(
 
   return (data ?? []) as unknown as Movimento[];
 }
+
+/**
+ * Pedidos que podem gerar troca, com os itens.
+ *
+ * A troca precisa do `product_flavor_id` de cada item: é ele que diz o que
+ * baixar do estoque quando a peça de reposição sai. A tela antes recebia só
+ * número e cliente, então não tinha como informar o produto — e a troca
+ * nascia sem SKU, o que fazia a movimentação nunca acontecer.
+ */
+export async function getPedidosParaTroca(limite = 100): Promise<Array<{
+  id: string;
+  numero_pedido: string;
+  cliente_nome: string | null;
+  customer_id: string | null;
+  itens: Array<{
+    id: string;
+    product_flavor_id: string | null;
+    produto_nome: string;
+    sabor_nome: string;
+    quantidade: number;
+  }>;
+}>> {
+  const c = await sb();
+
+  if (!c) {
+    return demo().pedidos
+      .filter((p) => ["entregue", "saiu_para_entrega"].includes(p.status_pedido))
+      .slice(0, limite)
+      .map((p) => ({
+        id: p.id, numero_pedido: p.numero_pedido, cliente_nome: p.cliente_nome,
+        customer_id: p.customer_id,
+        itens: (p.itens ?? []).map((i) => ({
+          id: i.id, product_flavor_id: i.product_flavor_id ?? null,
+          produto_nome: i.produto_nome, sabor_nome: i.sabor_nome,
+          quantidade: i.quantidade,
+        })),
+      }));
+  }
+
+  // o filtro de status vai na consulta, não em JS depois: filtrar no
+  // componente faz pedido antigo sair da janela e desaparecer sem aviso
+  const { data, error } = await c.from("orders")
+    .select("id, numero_pedido, cliente_nome, customer_id, "
+      + "order_items(id, product_flavor_id, produto_nome, sabor_nome, quantidade)")
+    .eq("store_id", STORE_ID)
+    .in("status_pedido", ["entregue", "saiu_para_entrega"])
+    .order("created_at", { ascending: false })
+    .limit(limite);
+
+  if (error || !data) aoFalhar("os pedidos para troca", error);
+
+  return (data as unknown as Array<Record<string, unknown>>).map((p) => ({
+    id: String(p.id),
+    numero_pedido: String(p.numero_pedido),
+    cliente_nome: (p.cliente_nome as string | null) ?? null,
+    customer_id: (p.customer_id as string | null) ?? null,
+    itens: ((p.order_items as Array<Record<string, unknown>>) ?? []).map((i) => ({
+      id: String(i.id),
+      product_flavor_id: (i.product_flavor_id as string | null) ?? null,
+      produto_nome: String(i.produto_nome ?? ""),
+      sabor_nome: String(i.sabor_nome ?? ""),
+      quantidade: Number(i.quantidade ?? 1),
+    })),
+  }));
+}

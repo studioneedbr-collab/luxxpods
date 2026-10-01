@@ -17,6 +17,7 @@ import type {
   Lancamento, NotaSituacao, RegraUpsell, Tarefa, Troca, Usuario,
 } from "./types";
 import { traduzirErroBanco } from "./erros-banco";
+import { perfilAtual } from "./perfil-atual";
 
 async function cli() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
@@ -100,7 +101,10 @@ export async function excluirUpsell(id: string): Promise<Resultado> {
 export async function criarTroca(dados: {
   order_id: string;
   order_item_id?: string | null;
+  /** o que deu defeito, vindo do item do pedido */
   product_flavor_id?: string | null;
+  /** o que a loja entrega; vazio = o mesmo que deu defeito */
+  product_flavor_saida_id?: string | null;
   quantidade: number;
   motivo: string;
   descricao?: string | null;
@@ -153,34 +157,80 @@ export async function criarTroca(dados: {
   return { ok: true, id: data.id };
 }
 
-export async function alterarStatusTroca(id: string, status: Troca["status"]): Promise<Resultado> {
+/**
+ * Move a troca de etapa.
+ *
+ * `finalizada` NÃO é um update de status: ela passa por `finalizar_troca` no
+ * banco, que é quem baixa a peça de reposição do estoque, valida
+ * disponibilidade e garante idempotência. Antes isto era um update seco
+ * seguido de uma movimentação dentro de um `if` que nunca era verdadeiro — e
+ * a movimentação, quando fosse, somava a peça defeituosa de volta à
+ * prateleira vendável em vez de baixar a que saiu.
+ */
+export async function alterarStatusTroca(
+  id: string, status: Troca["status"],
+): Promise<Resultado> {
   const c = await cli();
-  if (!c) { demoStatusTroca(id, status); }
-  else {
-    const agora = new Date().toISOString();
-    const campos: Record<string, unknown> = { status };
-    if (status === "aprovada") campos.approved_at = agora;
-    if (status === "finalizada") campos.completed_at = agora;
 
-    const { error } = await c.from("exchanges").update(campos).eq("id", id);
+  if (!c) {
+    demoStatusTroca(id, status);
+    revalidatePath("/trocas");
+    revalidatePath("/estoque");
+    return { ok: true };
+  }
+
+  const { id: perfilId } = await perfilAtual(c);
+
+  if (status === "finalizada") {
+    const { error } = await c.rpc("finalizar_troca", {
+      p_troca_id: id, p_usuario_id: perfilId,
+    });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
 
-    // ao finalizar, devolve a peça ao estoque
-    if (status === "finalizada") {
-      const { data: troca } = await c.from("exchanges")
-        .select("product_flavor_id, quantidade").eq("id", id).maybeSingle();
-      if (troca?.product_flavor_id) {
-        await c.rpc("mover_estoque", {
-          p_product_flavor_id: troca.product_flavor_id,
-          p_tipo: "devolucao",
-          p_quantidade: troca.quantidade ?? 1,
-          p_referencia_tipo: "exchange",
-          p_referencia_id: id,
-          p_observacao: "Devolução por troca finalizada",
-        });
-      }
-    }
+    revalidatePath("/trocas");
+    revalidatePath("/estoque");
+    revalidatePath("/catalogo");
+    return { ok: true };
   }
+
+  // sair de finalizada devolve a peça: ela está na prateleira, não saiu
+  const { data: atual } = await c.from("exchanges")
+    .select("status, estoque_aplicado").eq("id", id).maybeSingle();
+
+  // chegou aqui, então o destino não é 'finalizada' (tratada acima)
+  if (atual?.estoque_aplicado) {
+    const { error } = await c.rpc("reabrir_troca", {
+      p_troca_id: id,
+      p_motivo: "Troca saiu de finalizada pelo painel",
+      p_usuario_id: perfilId,
+    });
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+
+    // reabrir_troca devolve para 'aprovada'; se o destino era outro, ajusta
+    if (status !== "aprovada") {
+      await c.from("exchanges").update({ status }).eq("id", id);
+    }
+    revalidatePath("/trocas");
+    revalidatePath("/estoque");
+    revalidatePath("/catalogo");
+    return { ok: true };
+  }
+
+  const campos: Record<string, unknown> = { status };
+  if (status === "aprovada") campos.approved_at = new Date().toISOString();
+  if (status === "recusada") campos.completed_at = new Date().toISOString();
+
+  const { data, error } = await c.from("exchanges")
+    .update(campos).eq("id", id).select("id");
+
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  if (!data || data.length === 0) {
+    return {
+      ok: false,
+      erro: "Seu perfil não pode alterar trocas — nada foi gravado.",
+    };
+  }
+
   revalidatePath("/trocas");
   revalidatePath("/estoque");
   return { ok: true };

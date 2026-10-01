@@ -46,7 +46,7 @@ export function TelaTrocas({
 }: {
   trocas: Troca[];
   /** pedidos entregues nos últimos 30 dias — são os que podem gerar troca */
-  pedidos: Array<{ id: string; numero_pedido: string; cliente_nome: string | null }>;
+  pedidos: PedidoParaTroca[];
 }) {
   const [trocas, setTrocas] = useListaServidor(iniciais);
   const [abrindo, setAbrindo] = useState(false);
@@ -94,7 +94,9 @@ export function TelaTrocas({
       if (r.ok) {
         toast.ok(
           `Troca ${STATUS[status].rotulo.toLowerCase()}`,
-          status === "finalizada" ? "Peça devolvida ao estoque" : troca.cliente_nome ?? undefined,
+          status === "finalizada"
+            ? "A peça de reposição saiu do estoque"
+            : troca.cliente_nome ?? undefined,
         );
       } else {
         toast.erro("Não consegui atualizar a troca", r.erro);
@@ -104,16 +106,24 @@ export function TelaTrocas({
 
   const { visiveis, props: paginacao } = usePaginacao(filtradas, 25);
   function abrir(dados: {
-    order_id: string; quantidade: number; motivo: string; descricao: string;
+    order_id: string;
+    order_item_id: string | null;
+    product_flavor_id: string | null;
+    quantidade: number;
+    motivo: string;
+    descricao: string;
   }) {
     const pedido = pedidos.find((p) => p.id === dados.order_id);
+    const item = pedido?.itens.find((i) => i.id === dados.order_item_id);
     setAbrindo(false);
     setTrocas((l) => [{
       id: `tmp-${Date.now()}`,
       customer_id: null, order_id: dados.order_id,
       cliente_nome: pedido?.cliente_nome ?? null,
       numero_pedido: pedido?.numero_pedido ?? null,
-      produto_nome: null, sabor_nome: null,
+      produto_nome: item?.produto_nome ?? null,
+      sabor_nome: item?.sabor_nome ?? null,
+      product_flavor_id: dados.product_flavor_id,
       quantidade: dados.quantidade, motivo: dados.motivo,
       descricao: dados.descricao || null, status: "solicitada",
       created_at: new Date().toISOString(), approved_at: null, completed_at: null,
@@ -122,6 +132,9 @@ export function TelaTrocas({
     iniciar(async () => {
       const r = await criarTroca({
         order_id: dados.order_id,
+        order_item_id: dados.order_item_id,
+        // sem isto a troca nascia sem SKU e a baixa nunca acontecia
+        product_flavor_id: dados.product_flavor_id,
         quantidade: dados.quantidade,
         motivo: dados.motivo,
         descricao: dados.descricao || null,
@@ -172,7 +185,7 @@ export function TelaTrocas({
 
       <Panel className="overflow-hidden">
         <PanelHeader titulo="Solicitações de troca" icone={RefreshCcw}
-          descricao="Vinculadas à venda original — ao finalizar, a peça volta ao estoque" />
+          descricao="Vinculadas à venda original — ao finalizar, a reposição sai do estoque" />
         {filtradas.length === 0 ? (
           <Vazio icone={RefreshCcw} titulo="Nenhuma troca"
             descricao="Abra a solicitação a partir do pedido do cliente."
@@ -303,7 +316,7 @@ export function TelaTrocas({
                 )}
                 {vendo.completed_at && (
                   <li className="flex justify-between">
-                    <span className="text-ok-400">Finalizada — estoque devolvido</span>
+                    <span className="text-ok-400">Finalizada — reposição entregue</span>
                     <span className="tabular-nums text-ink-200">{dataHora(vendo.completed_at)}</span>
                   </li>
                 )}
@@ -313,8 +326,9 @@ export function TelaTrocas({
             {vendo.status === "aprovada" && (
               <p className="flex items-start gap-2 rounded-lg bg-ok-500/8 px-3 py-2.5 text-[11px] leading-relaxed text-ok-300 ring-1 ring-inset ring-ok-500/15">
                 <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
-                Ao finalizar, o sistema registra automaticamente a movimentação de devolução
-                e a peça volta ao estoque disponível.
+                Ao finalizar, o sistema baixa do estoque a peça de reposição que
+                você entrega, com a movimentação registrada. A peça com defeito
+                não volta ao estoque vendável — ela não pode ser vendida.
               </p>
             )}
           </div>
@@ -355,31 +369,71 @@ const MOTIVOS = [
 ];
 
 /** Toda troca nasce de uma venda — por isso começa escolhendo o pedido. */
+interface PedidoParaTroca {
+  id: string;
+  numero_pedido: string;
+  cliente_nome: string | null;
+  itens: Array<{
+    id: string;
+    product_flavor_id: string | null;
+    produto_nome: string;
+    sabor_nome: string;
+    quantidade: number;
+  }>;
+}
+
 function FormTroca({
   pedidos, onFechar, onSalvar,
 }: {
-  pedidos: Array<{ id: string; numero_pedido: string; cliente_nome: string | null }>;
+  pedidos: PedidoParaTroca[];
   onFechar: () => void;
-  onSalvar: (d: { order_id: string; quantidade: number; motivo: string; descricao: string }) => void;
+  onSalvar: (d: {
+    order_id: string;
+    order_item_id: string | null;
+    product_flavor_id: string | null;
+    quantidade: number;
+    motivo: string;
+    descricao: string;
+  }) => void;
 }) {
   const [orderId, setOrderId] = useState(pedidos[0]?.id ?? "");
+  const [itemId, setItemId] = useState(pedidos[0]?.itens[0]?.id ?? "");
   const [motivo, setMotivo] = useState(MOTIVOS[0]);
   const [quantidade, setQuantidade] = useState(1);
   const [descricao, setDescricao] = useState("");
+
+  const pedido = pedidos.find((p) => p.id === orderId);
+  const item = pedido?.itens.find((i) => i.id === itemId);
+
+  // trocar de pedido troca o item junto: item de outro pedido não faz sentido
+  function escolherPedido(id: string) {
+    setOrderId(id);
+    const novo = pedidos.find((p) => p.id === id);
+    setItemId(novo?.itens[0]?.id ?? "");
+    setQuantidade(1);
+  }
+
+  const maximo = item?.quantidade ?? 1;
+  const semItem = !item?.product_flavor_id;
 
   return (
     <Modal
       aberto
       onFechar={onFechar}
       titulo="Abrir troca"
-      descricao="A peça só volta ao estoque quando a troca for finalizada"
+      descricao="A peça de reposição baixa do estoque quando a troca for finalizada"
       rodape={
         <>
           <Button variante="fantasma" onClick={onFechar}>Cancelar</Button>
           <Button
             variante="primario"
-            disabled={!orderId || !motivo}
-            onClick={() => onSalvar({ order_id: orderId, quantidade, motivo, descricao })}
+            disabled={!orderId || !motivo || semItem}
+            onClick={() => onSalvar({
+              order_id: orderId,
+              order_item_id: itemId || null,
+              product_flavor_id: item?.product_flavor_id ?? null,
+              quantidade, motivo, descricao,
+            })}
           >
             <Check className="size-3.5" /> Abrir solicitação
           </Button>
@@ -388,11 +442,30 @@ function FormTroca({
     >
       <div className="space-y-3">
         <Campo rotulo="Pedido" dica="a troca fica ligada à venda original">
-          <Select value={orderId} onChange={(e) => setOrderId(e.target.value)} className="w-full">
+          <Select value={orderId} onChange={(e) => escolherPedido(e.target.value)} className="w-full">
             {pedidos.length === 0 && <option value="">Nenhum pedido elegível</option>}
             {pedidos.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.numero_pedido} — {p.cliente_nome ?? "sem nome"}
+              </option>
+            ))}
+          </Select>
+        </Campo>
+
+        {/* qual peça deu defeito: é por ela que o estoque sabe o que baixar */}
+        <Campo
+          rotulo="Qual item deu problema"
+          dica={semItem
+            ? "este item não tem produto identificado — o estoque não pode ser baixado"
+            : "o estoque baixa uma peça deste produto ao finalizar"}
+        >
+          <Select value={itemId} onChange={(e) => setItemId(e.target.value)} className="w-full">
+            {(pedido?.itens ?? []).length === 0 && (
+              <option value="">Este pedido não tem itens</option>
+            )}
+            {(pedido?.itens ?? []).map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.produto_nome} · {i.sabor_nome} ({i.quantidade}x)
               </option>
             ))}
           </Select>
@@ -404,9 +477,12 @@ function FormTroca({
               {MOTIVOS.map((m) => <option key={m} value={m}>{m}</option>)}
             </Select>
           </Campo>
-          <Campo rotulo="Quantidade">
-            <Input type="number" min={1} value={quantidade}
-              onChange={(e) => setQuantidade(Math.max(1, Number(e.target.value)))} />
+          <Campo rotulo="Quantidade" dica={`máx. ${maximo}`}>
+            <Input
+              type="number" min={1} max={maximo} value={quantidade}
+              onChange={(e) => setQuantidade(
+                Math.min(maximo, Math.max(1, Number(e.target.value))))}
+            />
           </Campo>
         </div>
 
@@ -414,6 +490,12 @@ function FormTroca({
           <Textarea rows={3} value={descricao} onChange={(e) => setDescricao(e.target.value)}
             placeholder="Cliente diz que o pod não acende desde a primeira tragada." />
         </Campo>
+
+        <p className="rounded-lg bg-ink-900 px-3 py-2.5 text-[11px] leading-relaxed text-ink-400 ring-1 ring-inset ring-[var(--linha)]">
+          Ao finalizar, uma peça deste produto <strong>sai</strong> do estoque —
+          é a que você entrega ao cliente. A peça com defeito <strong>não
+          volta</strong> para o estoque vendável, porque não pode ser vendida.
+        </p>
       </div>
     </Modal>
   );

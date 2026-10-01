@@ -271,7 +271,8 @@ function construir(): Base {
         entregue_em: status === "entregue" ? new Date(dt + 2 * 36e5).toISOString() : null,
       });
       itens[pedidoId] = [{
-        id: `oi-${i}`, produto_nome: item.produto, sabor_nome: item.sabor,
+        id: `oi-${i}`, product_flavor_id: item.product_flavor_id,
+        produto_nome: item.produto, sabor_nome: item.sabor,
         marca_nome: item.marca, quantidade: qtd,
         preco_unitario: item.preco, custo_unitario: item.custo,
         subtotal: item.preco * qtd,
@@ -639,6 +640,7 @@ export function demoCriarPedido(dados: {
     const c = d.catalogo.find((x) => x.product_flavor_id === item.product_flavor_id)!;
     return {
       id: `oi-${id}-${i}`,
+      product_flavor_id: item.product_flavor_id,
       produto_nome: c.produto, sabor_nome: c.sabor, marca_nome: c.marca,
       quantidade: item.quantidade,
       preco_unitario: c.preco, custo_unitario: c.custo_medio,

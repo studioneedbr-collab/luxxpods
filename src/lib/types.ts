@@ -175,6 +175,8 @@ export interface Pedido {
 
 export interface PedidoItem {
   id: string;
+  /** o SKU vendido: é por ele que a troca sabe o que baixar do estoque */
+  product_flavor_id: string | null;
   produto_nome: string;
   sabor_nome: string;
   marca_nome: string | null;
@@ -284,6 +286,11 @@ export interface RegraUpsell {
 }
 
 export interface Troca {
+  /** o produto+sabor que deu defeito (devolvido, não volta ao estoque) */
+  product_flavor_id?: string | null;
+  /** o produto+sabor entregue na troca — é este que baixa do estoque */
+  product_flavor_saida_id?: string | null;
+  estoque_aplicado?: boolean;
   id: string;
   customer_id: string | null;
   order_id: string | null;
