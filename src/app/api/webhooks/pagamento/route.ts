@@ -7,9 +7,9 @@ export const dynamic = "force-dynamic";
 /**
  * Confirmação de pagamento vinda do gateway.
  *
- * A InfinitePay espera resposta em menos de 1 segundo, senão reenvia. Por
- * isso o trabalho pesado não acontece aqui: o evento é gravado e confirmado,
- * e o que sobra (avisar o cliente, imprimir) vai para a fila.
+ * Gateway reenvia quando não recebe resposta rápida, então o trabalho pesado
+ * não acontece aqui: o evento é gravado e o pedido confirmado, e o que sobra
+ * (avisar o cliente, imprimir a comanda) vai para a fila.
  */
 export async function POST(req: Request) {
   const cru = await req.text();

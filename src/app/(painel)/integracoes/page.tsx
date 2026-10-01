@@ -25,22 +25,12 @@ const INTEGRACOES = [
     descricao:
       "PIX com copia e cola no próprio chat e confirmação automática por " +
       "webhook — as duas coisas. Usa QR Code com valor, sem exigir o CPF do " +
-      "cliente. Preenchido, ganha da InfinitePay.",
+      "cliente. Sem ele o sistema gera um PIX válido, mas a baixa é manual.",
     campos: [
       "ASAAS_API_KEY",
       "ASAAS_WEBHOOK_TOKEN (cadastrado no painel do Asaas)",
       "ASAAS_AMBIENTE = producao",
     ],
-    endpoint: "POST /api/webhooks/pagamento",
-  },
-  {
-    nome: "InfinitePay", icone: QrCode, cor: "#9563ff",
-    status: "pendente" as const,
-    descricao:
-      "Checkout com PIX e cartão, e confirmação automática por webhook. " +
-      "O cliente abre um link — a InfinitePay não devolve o copia e cola. " +
-      "Sem gateway o sistema gera um PIX válido, mas a baixa é manual.",
-    campos: ["INFINITEPAY_HANDLE (seu InfiniteTag sem o $)", "NEXT_PUBLIC_SITE_URL"],
     endpoint: "POST /api/webhooks/pagamento",
   },
   {

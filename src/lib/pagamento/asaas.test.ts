@@ -81,9 +81,10 @@ describe("de quem é o webhook", () => {
     expect(meioDoWebhook(cobrancaPaga)?.nome).toBe("asaas");
   });
 
-  it("reconhece a InfinitePay pelo order_nsu", () => {
-    expect(meioDoWebhook({ order_nsu: "LX-1", transaction_nsu: "t" })?.nome)
-      .toBe("infinitepay");
+  it("corpo de outro provedor não é chutado como Asaas", () => {
+    // formato desconhecido devolve null e a rota ignora com 200: reenviar
+    // não vai fazer o corpo mudar de formato
+    expect(meioDoWebhook({ order_nsu: "LX-1", transaction_nsu: "t" })).toBeNull();
   });
 
   it("não chuta provedor para corpo desconhecido", () => {

@@ -358,7 +358,7 @@ async function despachar(
 
       // A cobrança sai pelo meio que estiver no ar. Isso precisa passar pelo
       // mesmo `meioAtivo()` do painel: se o bot mandasse sempre o PIX
-      // estático com a InfinitePay ligada, o cliente pagaria um código que o
+      // estático com o gateway ligado, o cliente pagaria um código que o
       // gateway nunca vê — e o pedido ficaria parado esperando baixa manual
       // de um pagamento que já entrou.
       if (forma === "pix") {
@@ -369,8 +369,8 @@ async function despachar(
           const { gerarCobranca } = await import("../pix/cobranca");
           const r = await gerarCobranca(amb.contexto.order_id);
 
-          // o gateway devolve copia e cola (Asaas) ou link (InfinitePay);
-          // o que não pode é o bot inventar um dos dois
+          // o gateway devolve o copia e cola; link existe só se algum
+          // provedor futuro trabalhar assim. O que não pode é o bot inventar.
           if (r.ok && (r.cobranca?.copiaECola || r.cobranca?.link)) {
             return {
               ok: true,

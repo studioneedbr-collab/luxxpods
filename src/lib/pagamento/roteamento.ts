@@ -1,4 +1,3 @@
-import { MeioInfinitePay } from "./infinitepay";
 import { MeioAsaas } from "./asaas";
 import type { MeioPagamento } from "./tipos";
 
@@ -7,6 +6,9 @@ import type { MeioPagamento } from "./tipos";
  *
  * Fica separado do `index` de propósito: descobrir o provedor pelo corpo não
  * depende de configuração nem do servidor, e assim dá para testar sozinho.
+ *
+ * Corpo que não casa devolve null, e a rota responde 200 ignorando — formato
+ * desconhecido não melhora com reenvio.
  */
 export function meioDoWebhook(corpo: unknown): MeioPagamento | null {
   const c = corpo as Record<string, unknown>;
@@ -15,11 +17,6 @@ export function meioDoWebhook(corpo: unknown): MeioPagamento | null {
   // Asaas: { event: "PAYMENT_RECEIVED", payment: {...} }
   if (typeof c.event === "string" && c.event.startsWith("PAYMENT_") && c.payment) {
     return new MeioAsaas();
-  }
-
-  // InfinitePay: os identificadores da transação vêm na raiz
-  if (c.order_nsu || c.invoice_slug || c.transaction_nsu || c.orderNsu) {
-    return new MeioInfinitePay();
   }
 
   return null;

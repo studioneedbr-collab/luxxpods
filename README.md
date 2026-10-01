@@ -113,20 +113,20 @@ chatbot, exportação CSV, busca global em ⌘K, notificações do que precisa d
 
 **Receber** — três caminhos, e a escolha é uma troca real:
 
-| | copia-e-cola no chat | confirma sozinho | pede CPF |
-|---|---|---|---|
-| **Asaas** | sim | sim | não |
-| InfinitePay | não, vai um link | sim | não |
-| PIX estático (sem gateway) | sim | não, baixa manual | não |
+| | copia-e-cola no chat | confirma sozinho |
+|---|---|---|
+| **Asaas** | sim | sim |
+| PIX estático (sem gateway) | sim | não, baixa manual |
 
-O Asaas é o único que entrega as duas coisas. Ele usa QR Code estático com
-valor (`POST /pix/qrCodes/static`), que devolve o `payload` — o copia-e-cola de
-verdade — e ainda dispara webhook quando é pago. A cobrança comum do Asaas
-também confirmaria sozinha, mas exige o CPF do cliente antes de gerar o
-código, e pedir documento no meio da conversa derruba venda.
+O Asaas usa QR Code estático com valor (`POST /pix/qrCodes/static`), que
+devolve o `payload` — o copia-e-cola de verdade — e dispara webhook quando é
+pago. A cobrança comum do Asaas também confirmaria sozinha, mas exige o CPF do
+cliente antes de gerar o código, e pedir documento no meio da conversa derruba
+venda.
 
-A InfinitePay **não devolve o copia-e-cola**: o `POST /links` responde só com a
-URL, e o código nasce na página dela. Serve, mas custa um clique do cliente.
+A InfinitePay foi avaliada e descartada: o `POST /links` dela devolve só uma
+URL de checkout, nunca o copia-e-cola, e isso custa um clique do cliente num
+atendimento que acontece inteiro dentro do chat.
 
 Painel e bot usam o mesmo `meioAtivo()`, para o bot nunca mandar um código
 estático que o gateway não enxerga — isso deixaria um pedido pago parado
@@ -189,11 +189,8 @@ venda. Um corpo sem valor conta como zero e também não passa. A decisão intei
 mora em [`conferencia-core.ts`](src/lib/pagamento/conferencia-core.ts), pura e
 testada, e vale igual na base real e na de demonstração.
 
-**O id do evento leva a situação junto, não o nome do evento.** A mesma
-transação manda `pendente` e depois `aprovado`; se os dois tivessem o mesmo id,
-o segundo seria descartado como repetição e o pedido pago ficaria aberto para
-sempre. Do outro lado, o Asaas manda `PAYMENT_CONFIRMED` e depois
-`PAYMENT_RECEIVED` da **mesma** cobrança — os dois dizem que o dinheiro entrou,
+**O id do evento leva a situação junto, não o nome do evento.** O Asaas manda
+`PAYMENT_CONFIRMED` e depois `PAYMENT_RECEIVED` da **mesma** cobrança — os dois dizem que o dinheiro entrou,
 então viram o mesmo id de propósito. Sem isso, toda venda geraria uma tarefa
 urgente de cobrança em duplicidade que não existe.
 
