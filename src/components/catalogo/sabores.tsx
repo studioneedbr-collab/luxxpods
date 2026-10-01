@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Droplets, Search } from "lucide-react";
 import { Badge, Panel, PanelHeader, Select, Table, Td, Th, Tr, Vazio } from "@/components/ui";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
-import { BotaoExportar } from "@/components/ui/botao-exportar";
+import { ExportarCatalogo } from "@/components/catalogo/botoes-exportar";
 import { cn, num } from "@/lib/utils";
 import type { ItemCatalogo } from "@/lib/types";
 
@@ -90,7 +90,7 @@ export function TelaSabores({ catalogo }: { catalogo: ItemCatalogo[] }) {
           <option value="disponiveis">Com estoque</option>
           <option value="esgotados">Esgotados</option>
         </Select>
-        <BotaoExportar
+        <ExportarCatalogo
           itens={linhas}
           nomeArquivo="sabores"
           colunas={[

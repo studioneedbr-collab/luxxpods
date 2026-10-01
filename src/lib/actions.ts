@@ -361,6 +361,8 @@ export interface DadosPedido {
   endereco?: {
     bairro: string; rua: string; numero: string;
     complemento?: string; referencia?: string;
+    /** opcional: a entrega é no bairro, não no CEP */
+    cep?: string;
   };
   itens: ItemPedido[];
   forma_pagamento: "pix" | "dinheiro";
@@ -400,10 +402,19 @@ export async function criarPedido(
   // 1) endereço novo, quando o cliente ainda não tem nenhum salvo
   let addressId = dados.address_id;
   if (!addressId && dados.endereco && dados.customer_id) {
+    const { cep, ...resto } = dados.endereco;
     const { data: end, error } = await c.from("customer_addresses")
-      .insert({ customer_id: dados.customer_id, ...dados.endereco, principal: true })
+      .insert({
+        customer_id: dados.customer_id,
+        ...resto,
+        // só grava o CEP se vier completo: meio CEP atrapalha mais que ajuda
+        cep: cep && cep.replace(/\D/g, "").length === 8 ? cep : null,
+        principal: true,
+      })
       .select("id").single();
-    if (error) return { ok: false, erro: `Não consegui salvar o endereço: ${error.message}` };
+    if (error) {
+      return { ok: false, erro: `Não consegui salvar o endereço: ${traduzirErroBanco(error)}` };
+    }
     addressId = end.id;
   }
 

@@ -12,6 +12,7 @@ import { cn, dataHora, tempoRelativo } from "@/lib/utils";
 import type { Tarefa } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoData } from "@/components/ui";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const ORIGEM = {
   bot: { rotulo: "Criada pelo bot", icone: Bot },
@@ -25,7 +26,7 @@ const ORIGEM = {
 export function TelaTarefas({
   tarefas: iniciais, agora,
 }: { tarefas: Tarefa[]; agora: number }) {
-  const [tarefas, setTarefas] = useState(iniciais);
+  const [tarefas, setTarefas] = useListaServidor(iniciais);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("abertas");
   const [editando, setEditando] = useState<Partial<Tarefa> | null>(null);

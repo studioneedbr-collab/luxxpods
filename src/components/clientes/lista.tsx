@@ -16,9 +16,10 @@ import { brl, cn, iniciais, num, telefone, tempoRelativo } from "@/lib/utils";
 import type { Cliente } from "@/lib/types";
 import { BotaoExportar } from "@/components/ui/botao-exportar";
 import { dataExport } from "@/lib/exportar";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] }) {
-  const [clientes, setClientes] = useState(doServidor);
+  const [clientes, setClientes] = useListaServidor(doServidor);
   const [editando, setEditando] = useState<Partial<Cliente> | null>(null);
   const [excluindo, setExcluindo] = useState<Cliente | null>(null);
   const [, iniciar] = useTransition();

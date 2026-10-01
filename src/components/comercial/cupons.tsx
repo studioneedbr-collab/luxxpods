@@ -12,6 +12,7 @@ import { brl, cn, num, pct } from "@/lib/utils";
 import type { Cupom } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoData, CampoMoeda } from "@/components/ui";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const vazio: Partial<Cupom> = {
   codigo: "", descricao: "", tipo_desconto: "percentual", valor: 10,
@@ -19,7 +20,7 @@ const vazio: Partial<Cupom> = {
 };
 
 export function TelaCupons({ cupons: iniciais }: { cupons: Cupom[] }) {
-  const [cupons, setCupons] = useState(iniciais);
+  const [cupons, setCupons] = useListaServidor(iniciais);
   const [busca, setBusca] = useState("");
   const [editando, setEditando] = useState<Partial<Cupom> | null>(null);
   const [excluindo, setExcluindo] = useState<Cupom | null>(null);

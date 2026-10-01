@@ -8,11 +8,12 @@ import { Panel, Badge, Vazio, Seletor } from "@/components/ui";
 import { brl, cn, iniciais, tempoRelativo } from "@/lib/utils";
 import type { EtapaFunil, Lead } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 export function KanbanBoard({
   etapas, leads: leadsIniciais,
 }: { etapas: EtapaFunil[]; leads: Lead[] }) {
-  const [leads, setLeads] = useState(leadsIniciais);
+  const [leads, setLeads] = useListaServidor(leadsIniciais);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [sobre, setSobre] = useState<string | null>(null);
   const [busca, setBusca] = useState("");

@@ -9,6 +9,7 @@ import { brl, cn, num, pct } from "@/lib/utils";
 import type { Produto, RegraUpsell } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoMoeda } from "@/components/ui";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const vazio: Partial<RegraUpsell> = {
   nome: "", mensagem: "", tipo_desconto: "valor", desconto: 10,
@@ -18,7 +19,7 @@ const vazio: Partial<RegraUpsell> = {
 export function TelaUpsell({
   regras: iniciais, produtos,
 }: { regras: RegraUpsell[]; produtos: Produto[] }) {
-  const [regras, setRegras] = useState(iniciais);
+  const [regras, setRegras] = useListaServidor(iniciais);
   const [editando, setEditando] = useState<Partial<RegraUpsell> | null>(null);
   const [excluindo, setExcluindo] = useState<RegraUpsell | null>(null);
   const [, iniciar] = useTransition();

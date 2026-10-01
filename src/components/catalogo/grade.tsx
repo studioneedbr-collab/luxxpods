@@ -17,7 +17,7 @@ import { brl, cn, dataHora, num, pct } from "@/lib/utils";
 import type { ItemCatalogo, Movimento } from "@/lib/types";
 import { MOVIMENTO } from "@/lib/labels";
 import { useToast } from "@/components/ui/toast";
-import { BotaoExportar } from "@/components/ui/botao-exportar";
+import { ExportarCatalogo } from "@/components/catalogo/botoes-exportar";
 
 type Visao = "grade" | "lista";
 type Filtro = "todos" | "disponiveis" | "baixo" | "esgotados" | "inativos";
@@ -162,7 +162,7 @@ export function GradeCatalogo({ itens }: { itens: ItemCatalogo[] }) {
           <option value="inativos">Inativos</option>
         </Select>
 
-        <BotaoExportar
+        <ExportarCatalogo
           itens={filtrados}
           nomeArquivo="catalogo-estoque"
           colunas={[

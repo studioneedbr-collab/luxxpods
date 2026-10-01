@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import type { BadgeTom } from "@/components/ui";
 import { brl, cn, num } from "@/lib/utils";
 import type { Fornecedor, ItemCatalogo, NotaEntrada, NotaSituacao } from "@/lib/types";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 interface ItemNota {
   product_flavor_id: string;
@@ -43,8 +44,8 @@ export function TelaNotas({
   fornecedores: Fornecedor[];
   catalogo: ItemCatalogo[];
 }) {
-  const [notas, setNotas] = useState(iniciais);
-  const [fornecedores, setFornecedores] = useState(fornIniciais);
+  const [notas, setNotas] = useListaServidor(iniciais);
+  const [fornecedores, setFornecedores] = useListaServidor(fornIniciais);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todas");
   const [nova, setNova] = useState(false);

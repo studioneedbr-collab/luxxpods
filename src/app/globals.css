@@ -288,3 +288,26 @@ h1, h2, h3, .display {
   .comanda p, .comanda td { color: #000; }
   .comanda img { filter: grayscale(1) contrast(2); }
 }
+
+/* ---------------------------------------------------------------------------
+   Impressão
+   A peça do catálogo é o documento: na impressão o painel sai de cena e a
+   folha vira branca, senão o fundo escuro do sistema viraria tinta.
+   --------------------------------------------------------------------------- */
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  .peca {
+    color: #111 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 14mm 13mm;
+  }
+}

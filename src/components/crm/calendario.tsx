@@ -11,6 +11,7 @@ import { cn, hora } from "@/lib/utils";
 import type { EventoCalendario } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoData } from "@/components/ui";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const CORES = ["#9563ff", "#38bdf8", "#34d399", "#fbbf24", "#f87171", "#f5c451"];
@@ -38,7 +39,7 @@ function ocorreEm(evento: EventoCalendario, data: Date) {
 }
 
 export function TelaCalendario({ eventos: iniciais }: { eventos: EventoCalendario[] }) {
-  const [eventos, setEventos] = useState(iniciais);
+  const [eventos, setEventos] = useListaServidor(iniciais);
   const [offset, setOffset] = useState(0);
   const [editando, setEditando] = useState<Partial<EventoCalendario> | null>(null);
   const [excluindo, setExcluindo] = useState<EventoCalendario | null>(null);

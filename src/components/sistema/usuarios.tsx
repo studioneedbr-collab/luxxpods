@@ -15,6 +15,7 @@ import { Campo, Modal } from "@/components/ui/modal";
 import { cn, iniciais, telefone, tempoRelativo } from "@/lib/utils";
 import type { Usuario } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const MIN_SENHA = 8;
 
@@ -34,7 +35,7 @@ const PERFIS: Array<{ slug: string; nome: string; tom: BadgeTom; acesso: string 
 export function TelaUsuarios({
   usuarios: iniciaisLista, supabaseConectado,
 }: { usuarios: Usuario[]; supabaseConectado: boolean }) {
-  const [usuarios, setUsuarios] = useState(iniciaisLista);
+  const [usuarios, setUsuarios] = useListaServidor(iniciaisLista);
   const [editando, setEditando] = useState<Partial<Usuario> | null>(null);
   const [senha, setSenha] = useState("");
   const [repetir, setRepetir] = useState("");

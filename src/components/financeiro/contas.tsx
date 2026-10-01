@@ -11,6 +11,7 @@ import { brl, cn } from "@/lib/utils";
 import type { ContaBancaria, Lancamento } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoMoeda } from "@/components/ui";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const vazio: Partial<ContaBancaria> = {
   nome: "", banco: "", tipo: "corrente", saldo_inicial: 0, status: "ativo",
@@ -19,7 +20,7 @@ const vazio: Partial<ContaBancaria> = {
 export function TelaContas({
   contas: iniciais, lancamentos,
 }: { contas: ContaBancaria[]; lancamentos: Lancamento[] }) {
-  const [contas, setContas] = useState(iniciais);
+  const [contas, setContas] = useListaServidor(iniciais);
   const [editando, setEditando] = useState<Partial<ContaBancaria> | null>(null);
   const [excluindo, setExcluindo] = useState<ContaBancaria | null>(null);
   const [, iniciar] = useTransition();

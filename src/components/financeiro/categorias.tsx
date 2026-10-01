@@ -8,11 +8,12 @@ import { Campo, Confirmar, Modal, Switch } from "@/components/ui/modal";
 import { brl, cn, num } from "@/lib/utils";
 import type { CategoriaFinanceira } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const CORES = ["#9563ff", "#38bdf8", "#34d399", "#fbbf24", "#f87171", "#f5c451", "#22d3ee", "#c084fc", "#9a9ab5"];
 
 export function TelaCategorias({ categorias: iniciais }: { categorias: CategoriaFinanceira[] }) {
-  const [categorias, setCategorias] = useState(iniciais);
+  const [categorias, setCategorias] = useListaServidor(iniciais);
   const [editando, setEditando] = useState<Partial<CategoriaFinanceira> | null>(null);
   const [excluindo, setExcluindo] = useState<CategoriaFinanceira | null>(null);
   const [, iniciar] = useTransition();

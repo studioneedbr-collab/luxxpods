@@ -15,6 +15,7 @@ import type { BadgeTom } from "@/components/ui";
 import { cn, dataHora, num } from "@/lib/utils";
 import type { Troca } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 const STATUS: Record<Troca["status"], { rotulo: string; tom: BadgeTom }> = {
   solicitada: { rotulo: "Solicitada", tom: "warn" },
@@ -47,7 +48,7 @@ export function TelaTrocas({
   /** pedidos entregues nos últimos 30 dias — são os que podem gerar troca */
   pedidos: Array<{ id: string; numero_pedido: string; cliente_nome: string | null }>;
 }) {
-  const [trocas, setTrocas] = useState(iniciais);
+  const [trocas, setTrocas] = useListaServidor(iniciais);
   const [abrindo, setAbrindo] = useState(false);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todas");

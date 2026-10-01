@@ -14,6 +14,7 @@ import { Campo, Textarea } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { brl, cn, iniciais, num, telefone } from "@/lib/utils";
 import type { Cliente, ItemCatalogo } from "@/lib/types";
+import { buscarCep, cepCompleto } from "@/lib/cep";
 
 interface Linha {
   product_flavor_id: string;
@@ -44,6 +45,9 @@ export function NovoPedido({
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [buscaProduto, setBuscaProduto] = useState("");
 
+  const [cep, setCep] = useState("");
+  const [buscandoCep, setBuscandoCep] = useState(false);
+  const [cepNaoAchado, setCepNaoAchado] = useState(false);
   const [bairro, setBairro] = useState("");
   const [rua, setRua] = useState("");
   const [numero, setNumero] = useState("");
@@ -83,6 +87,25 @@ export function NovoPedido({
   const total = subtotal + entrega;
   const troco = trocoPara > 0 ? trocoPara - total : 0;
 
+  /**
+   * O CEP preenche o resto, mas não manda: o que já estiver digitado fica.
+   * Em Teófilo Otoni muita entrega chega pelo ponto de referência, então
+   * CEP errado ou fora da base não pode impedir de fechar o pedido.
+   */
+  async function aoMudarCep(valor: string) {
+    setCep(valor);
+    setCepNaoAchado(false);
+    if (!cepCompleto(valor)) return;
+
+    setBuscandoCep(true);
+    const achado = await buscarCep(valor);
+    setBuscandoCep(false);
+
+    if (!achado) { setCepNaoAchado(true); return; }
+    if (achado.bairro) setBairro(achado.bairro);
+    if (achado.rua) setRua(achado.rua);
+  }
+
   const faltaEndereco = !bairro.trim() || !rua.trim() || !numero.trim();
   const trocoInvalido = pagamento === "dinheiro" && trocoPara > 0 && trocoPara < total;
   const podeSalvar =
@@ -104,7 +127,7 @@ export function NovoPedido({
         customer_id: cliente?.id ?? null,
         conversation_id: null,
         address_id: null,
-        endereco: { bairro, rua, numero, complemento, referencia },
+        endereco: { cep, bairro, rua, numero, complemento, referencia },
         itens: linhas.map((l) => ({
           product_flavor_id: l.product_flavor_id, quantidade: l.quantidade,
         })),
@@ -281,6 +304,16 @@ export function NovoPedido({
         {/* ------------------------------ entrega ------------------------------ */}
         <Secao titulo="Entrega" descricao="Endereço que vai sair impresso na comanda">
           <Panel className="grid gap-3 p-4 sm:grid-cols-2">
+            <Campo
+              rotulo="CEP"
+              dica={
+                buscandoCep ? "buscando…"
+                : cepNaoAchado ? "não achei este CEP — digite o endereço"
+                : "opcional, preenche o resto"
+              }
+            >
+              <CampoMascara tipo="cep" valor={cep} aoMudar={aoMudarCep} />
+            </Campo>
             <Campo rotulo="Bairro">
               <Input value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Centro" />
             </Campo>

@@ -11,9 +11,10 @@ import type { Produto } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { CampoMoeda } from "@/components/ui";
 import { Campo, Confirmar, Modal, Textarea } from "@/components/ui/modal";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 
 export function ListaProdutos({ produtos: iniciais }: { produtos: Produto[] }) {
-  const [produtos, setProdutos] = useState(iniciais);
+  const [produtos, setProdutos] = useListaServidor(iniciais);
   const [busca, setBusca] = useState("");
   const [marca, setMarca] = useState("todas");
   const [editando, setEditando] = useState<Produto | null>(null);

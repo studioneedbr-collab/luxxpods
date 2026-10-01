@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { BotaoExportar } from "@/components/ui/botao-exportar";
 import { dataCurtaExport } from "@/lib/exportar";
 import { CampoData, CampoMoeda } from "@/components/ui";
+import { useListaServidor } from "@/lib/usar-lista-servidor";
 import type {
   CategoriaFinanceira, ContaBancaria, Lancamento, PagamentoMetodo,
 } from "@/lib/types";
@@ -36,7 +37,7 @@ export function TelaLancamentos({
   /** data de referência do servidor, para marcar vencidos sem divergir na hidratação */
   hoje: string;
 }) {
-  const [lancamentos, setLancamentos] = useState(iniciais);
+  const [lancamentos, setLancamentos] = useListaServidor(iniciais);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todos");
   const [editando, setEditando] = useState<Partial<Lancamento> | null>(null);
