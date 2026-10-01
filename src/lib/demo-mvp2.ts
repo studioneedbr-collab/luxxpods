@@ -449,3 +449,24 @@ function recalcular() {
     c.saldo_atual = c.saldo_inicial + entra - sai;
   });
 }
+
+/** Exclusões na base de demonstração, para a tela responder igual sem banco. */
+export function demoExcluirTarefa(id: string) {
+  const d = demo();
+  d.tarefas = d.tarefas.filter((t) => t.id !== id);
+}
+
+export function demoExcluirTroca(id: string) {
+  const b = demo2();
+  b.trocas = b.trocas.filter((t) => t.id !== id);
+}
+
+export function demoExcluirFornecedor(id: string) {
+  const b = demo2();
+  b.fornecedores = b.fornecedores.filter((f) => f.id !== id);
+}
+
+export function demoCancelarNota(id: string) {
+  const b = demo2();
+  b.notas = b.notas.filter((n) => n.id !== id);
+}

@@ -6,7 +6,7 @@ import {
   AlertTriangle, Banknote, Check, MapPin, Package, QrCode, Search,
   ShoppingBag, X,
 } from "lucide-react";
-import { criarPedido } from "@/lib/actions";
+import { conferirCupom, criarPedido } from "@/lib/actions";
 import {
   Button, CampoMascara, CampoMoeda, Input, Panel, PanelHeader, Secao, Vazio,
 } from "@/components/ui";
@@ -45,6 +45,10 @@ export function NovoPedido({
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [buscaProduto, setBuscaProduto] = useState("");
 
+  const [cupom, setCupom] = useState("");
+  const [descontoCupom, setDescontoCupom] = useState(0);
+  const [erroCupom, setErroCupom] = useState<string | null>(null);
+  const [conferindoCupom, setConferindoCupom] = useState(false);
   const [cep, setCep] = useState("");
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [cepNaoAchado, setCepNaoAchado] = useState(false);
@@ -84,7 +88,7 @@ export function NovoPedido({
 
   const subtotal = linhas.reduce((a, l) => a + l.preco * l.quantidade, 0);
   const entrega = subtotal >= 150 || subtotal === 0 ? 0 : 5;
-  const total = subtotal + entrega;
+  const total = subtotal + entrega - descontoCupom;
   const troco = trocoPara > 0 ? trocoPara - total : 0;
 
   /**
@@ -104,6 +108,27 @@ export function NovoPedido({
     if (!achado) { setCepNaoAchado(true); return; }
     if (achado.bairro) setBairro(achado.bairro);
     if (achado.rua) setRua(achado.rua);
+  }
+
+  /**
+   * Confere o cupom para o atendente ver o desconto antes de fechar.
+   * Quem aplica de verdade é o banco, na criação do pedido — aqui é só
+   * mostrar, para não haver duas contas de desconto divergindo.
+   */
+  async function conferir() {
+    setErroCupom(null);
+    if (!cupom.trim()) { setDescontoCupom(0); return; }
+
+    setConferindoCupom(true);
+    const r = await conferirCupom(cupom.trim(), subtotal);
+    setConferindoCupom(false);
+
+    if (r.ok) {
+      setDescontoCupom(r.desconto ?? 0);
+    } else {
+      setDescontoCupom(0);
+      setErroCupom(r.erro ?? "Cupom inválido.");
+    }
   }
 
   const faltaEndereco = !bairro.trim() || !rua.trim() || !numero.trim();
@@ -134,6 +159,7 @@ export function NovoPedido({
         forma_pagamento: pagamento,
         troco_para: pagamento === "dinheiro" && trocoPara > 0 ? trocoPara : null,
         observacoes: observacoes || null,
+        cupom_codigo: cupom.trim() || null,
       });
 
       if (r.ok) {
@@ -351,10 +377,49 @@ export function NovoPedido({
                 {entrega === 0 && subtotal > 0 ? "grátis" : brl(entrega)}
               </span>
             </div>
+            {descontoCupom > 0 && (
+              <div className="flex justify-between">
+                <span className="text-ok-400">Cupom {cupom.trim().toUpperCase()}</span>
+                <span className="numero text-ok-400">− {brl(descontoCupom)}</span>
+              </div>
+            )}
             <div className="flex items-baseline justify-between border-t border-[var(--linha)] pt-2.5">
               <span className="font-medium text-ink-200">Total</span>
               <span className="numero-destaque text-ink-100">{brl(total)}</span>
             </div>
+          </div>
+
+          {/* ------------------------------ cupom ------------------------------ */}
+          <div className="border-t border-[var(--linha)] px-4 py-3.5">
+            <p className="rotulo mb-2">Cupom de desconto</p>
+            <div className="flex gap-2">
+              <Input
+                value={cupom}
+                onChange={(e) => {
+                  setCupom(e.target.value.toUpperCase());
+                  setDescontoCupom(0);
+                  setErroCupom(null);
+                }}
+                onBlur={conferir}
+                placeholder="LUXX10"
+                className="flex-1 uppercase"
+              />
+              <Button
+                variante="suave"
+                onClick={conferir}
+                disabled={conferindoCupom || !cupom.trim() || subtotal === 0}
+              >
+                {conferindoCupom ? "…" : "Aplicar"}
+              </Button>
+            </div>
+            {erroCupom && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-warn-400">{erroCupom}</p>
+            )}
+            {descontoCupom > 0 && (
+              <p className="mt-1.5 text-[11px] text-ok-400">
+                Desconto de {brl(descontoCupom)} aplicado.
+              </p>
+            )}
           </div>
 
           <div className="border-t border-[var(--linha)] px-4 py-3.5">

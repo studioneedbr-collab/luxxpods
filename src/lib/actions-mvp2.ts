@@ -9,7 +9,8 @@ import {
   demoExcluirLancamento, demoExcluirUpsell, demoSalvarCategoria, demoSalvarConta,
   demoSalvarCupom, demoSalvarEvento, demoSalvarFornecedor, demoSalvarLancamento,
   demoSalvarNota, demoSalvarTarefa, demoSalvarUpsell, demoSalvarUsuario,
-  demoStatusTroca, demoSalvarTroca,
+  demoStatusTroca, demoSalvarTroca, demoExcluirTarefa, demoExcluirTroca,
+  demoExcluirFornecedor, demoCancelarNota,
 } from "./demo-mvp2";
 import type {
   CategoriaFinanceira, ContaBancaria, Cupom, EventoCalendario, Fornecedor,
@@ -597,4 +598,110 @@ export async function concluirTarefa(id: string, concluida: boolean): Promise<Re
     status: concluida ? "concluida" : "aberta",
     ...(concluida ? { concluida_em: new Date().toISOString() } as Partial<Tarefa> : {}),
   });
+}
+
+/* ------------------------------------------------------- EXCLUSÕES QUE FALTAVAM */
+
+/**
+ * Tarefa some de vez.
+ *
+ * Concluir e excluir são coisas diferentes: concluída fica no histórico de
+ * quem fez o quê; excluída é a que nunca devia ter existido — duplicada, ou
+ * aberta por engano. Sem este caminho a lista só crescia.
+ */
+export async function excluirTarefa(id: string): Promise<Resultado> {
+  const c = await cli();
+  if (!c) { demoExcluirTarefa(id); }
+  else {
+    const { error } = await c.from("tasks").delete().eq("id", id);
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  }
+  revalidatePath("/tarefas");
+  return { ok: true };
+}
+
+/**
+ * Troca registrada por engano sai.
+ *
+ * Só antes de ser finalizada: depois dela o estoque já se moveu, e apagar o
+ * registro deixaria a movimentação sem explicação no histórico.
+ */
+export async function excluirTroca(id: string): Promise<Resultado> {
+  const c = await cli();
+  if (!c) { demoExcluirTroca(id); }
+  else {
+    const { data: troca } = await c.from("exchanges")
+      .select("status").eq("id", id).maybeSingle();
+    if (troca?.status === "finalizada") {
+      return {
+        ok: false,
+        erro: "Esta troca já foi finalizada e movimentou estoque. Ela fica no histórico.",
+      };
+    }
+    const { error } = await c.from("exchanges").delete().eq("id", id);
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  }
+  revalidatePath("/trocas");
+  return { ok: true };
+}
+
+/**
+ * Fornecedor sai do cadastro, mas a nota que ele emitiu fica.
+ *
+ * Por isso é desativação e não DELETE: apagar a linha quebraria a nota
+ * antiga, que aponta para ele.
+ */
+export async function excluirFornecedor(id: string): Promise<Resultado> {
+  const c = await cli();
+  if (!c) { demoExcluirFornecedor(id); }
+  else {
+    const { count } = await c.from("purchase_entries")
+      .select("id", { count: "exact", head: true }).eq("supplier_id", id);
+
+    if ((count ?? 0) > 0) {
+      const { error } = await c.from("suppliers")
+        .update({ status: "inativo", deleted_at: new Date().toISOString() }).eq("id", id);
+      if (error) return { ok: false, erro: traduzirErroBanco(error) };
+      revalidatePath("/notas");
+      return { ok: true };
+    }
+
+    const { error } = await c.from("suppliers").delete().eq("id", id);
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  }
+  revalidatePath("/notas");
+  return { ok: true };
+}
+
+/**
+ * Nota de entrada cancelada.
+ *
+ * Nota já concluída não é cancelada aqui: ela precisa ser REABERTA primeiro,
+ * porque é a reabertura que estorna o estoque e as contas que ela gerou.
+ * Cancelar direto deixaria peça fantasma na prateleira e conta a pagar viva.
+ */
+export async function cancelarNota(id: string, motivo?: string): Promise<Resultado> {
+  const c = await cli();
+  if (!c) { demoCancelarNota(id); }
+  else {
+    const { data: nota } = await c.from("purchase_entries")
+      .select("situacao, estoque_aplicado").eq("id", id).maybeSingle();
+
+    if (nota?.estoque_aplicado) {
+      return {
+        ok: false,
+        erro: "Esta nota já deu entrada no estoque. Reabra primeiro, para estornar, e depois cancele.",
+      };
+    }
+
+    const { error } = await c.from("purchase_entries").update({
+      situacao: "cancelada", status: "cancelada",
+      cancelada_em: new Date().toISOString(),
+      observacao: motivo ?? null,
+    }).eq("id", id);
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  }
+  revalidatePath("/notas");
+  revalidatePath("/estoque");
+  return { ok: true };
 }

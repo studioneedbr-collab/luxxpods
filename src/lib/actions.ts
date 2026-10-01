@@ -13,6 +13,7 @@ import { enfileirar } from "./fila/worker";
 import { agendarFollowup } from "./bot/recepcao";
 import type { PedidoStatus } from "./types";
 import { traduzirErroBanco } from "./erros-banco";
+import { avaliarCupom } from "./cupom-core";
 import { perfilAtual } from "./perfil-atual";
 
 /** O que o cliente recebe quando o pedido anda (ETAPA 16 e 17 do escopo). */
@@ -368,6 +369,8 @@ export interface DadosPedido {
   forma_pagamento: "pix" | "dinheiro";
   troco_para?: number | null;
   observacoes?: string | null;
+  /** código digitado pelo atendente; o desconto é recalculado no banco */
+  cupom_codigo?: string | null;
 }
 
 /**
@@ -438,7 +441,28 @@ export async function criarPedido(
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
-  // 4) o carrinho vira pedido
+  // 4) o cupom, quando houver. Ele é amarrado ao carrinho e o desconto sai
+  // de `recalcular_carrinho` no banco — a conta do desconto fica num lugar
+  // só, senão painel e bot cobrariam diferente do mesmo cupom.
+  if (dados.cupom_codigo?.trim()) {
+    const { data: cupom } = await c.from("coupons")
+      .select("id, codigo, tipo_desconto, valor, valor_minimo, status, inicio, fim, limite_total, usos")
+      .eq("store_id", STORE_ID)
+      .ilike("codigo", dados.cupom_codigo.trim())
+      .maybeSingle();
+
+    const { data: carrinho } = await c.from("carts")
+      .select("subtotal").eq("id", cart.id).maybeSingle();
+
+    const r = avaliarCupom(cupom as never, Number(carrinho?.subtotal ?? 0));
+    if (!r.vale) return { ok: false, erro: r.motivo };
+
+    const { error } = await c.from("carts")
+      .update({ coupon_id: (cupom as { id: string }).id }).eq("id", cart.id);
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  }
+
+  // 5) o carrinho vira pedido
   const { data: pedido, error: erroPedido } = await c.rpc("criar_pedido", {
     p_cart_id: cart.id,
     p_address_id: addressId,
@@ -548,4 +572,35 @@ export async function confirmarPagamentoPix(pedidoId: string): Promise<Resultado
   revalidatePath("/entregas");
   revalidatePath(`/pedidos/${pedidoId}`);
   return { ok: true };
+}
+
+/**
+ * Confere o cupom antes de fechar o pedido.
+ *
+ * Serve para o atendente ver o desconto na tela — quem aplica de verdade é o
+ * banco, na criação do pedido. Duas contas separadas divergiriam.
+ */
+export async function conferirCupom(
+  codigo: string, subtotal: number,
+): Promise<{ ok: boolean; desconto?: number; erro?: string }> {
+  if (!codigo.trim()) return { ok: false, erro: "Informe o código." };
+
+  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+
+  if (!c) {
+    const { demo2 } = await import("./demo-mvp2");
+    const achado = demo2().cupons.find(
+      (x) => x.codigo.toLowerCase() === codigo.trim().toLowerCase());
+    const r = avaliarCupom(achado as never, subtotal);
+    return r.vale ? { ok: true, desconto: r.desconto } : { ok: false, erro: r.motivo };
+  }
+
+  const { data: cupom } = await c.from("coupons")
+    .select("id, codigo, tipo_desconto, valor, valor_minimo, status, inicio, fim, limite_total, usos")
+    .eq("store_id", STORE_ID)
+    .ilike("codigo", codigo.trim())
+    .maybeSingle();
+
+  const r = avaliarCupom(cupom as never, subtotal);
+  return r.vale ? { ok: true, desconto: r.desconto } : { ok: false, erro: r.motivo };
 }

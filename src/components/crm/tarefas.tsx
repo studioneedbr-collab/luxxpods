@@ -2,9 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import {
-  Bot, Check, Clock, ListChecks, Pencil, Plus, Settings2, User, Search, RotateCcw,
+  Bot, Check, Clock, ListChecks, Pencil, Trash2, Plus, Settings2, User, Search, RotateCcw,
 } from "lucide-react";
-import { concluirTarefa, salvarTarefa } from "@/lib/actions-mvp2";
+import { concluirTarefa, excluirTarefa, salvarTarefa } from "@/lib/actions-mvp2";
 import { Badge, Button, Input, Panel, PanelHeader, Select, Vazio } from "@/components/ui";
 import { Campo, Modal, Textarea } from "@/components/ui/modal";
 import { PRIORIDADE } from "@/lib/labels";
@@ -31,7 +31,26 @@ export function TelaTarefas({
   const [filtro, setFiltro] = useState("abertas");
   const [editando, setEditando] = useState<Partial<Tarefa> | null>(null);
   const [, iniciar] = useTransition();
+  const [paraExcluir, setParaExcluir] = useState<string | null>(null);
   const toast = useToast();
+
+  /**
+   * Concluir e excluir não são a mesma coisa: concluída fica no histórico;
+   * excluída é a que nunca devia ter existido. Dois toques no mesmo botão
+   * em vez de um modal — é lista, e abrir janela para cada linha cansa.
+   */
+  function remover(t: Tarefa) {
+    setParaExcluir(null);
+    setTarefas((l) => l.filter((x) => x.id !== t.id));
+    iniciar(async () => {
+      const r = await excluirTarefa(t.id);
+      if (r.ok) toast.ok("Tarefa excluída", t.titulo);
+      else {
+        setTarefas(iniciais);
+        toast.erro("Não consegui excluir", r.erro);
+      }
+    });
+  }
 
   const filtradas = useMemo(() => {
     const t = busca.trim().toLowerCase();
@@ -190,6 +209,15 @@ export function TelaTarefas({
                         <RotateCcw className="size-3.5" />
                       </Button>
                     )}
+                    <Button
+                      tamanho="iconeSm"
+                      variante={paraExcluir === t.id ? "perigo" : "fantasma"}
+                      aria-label={`Excluir ${t.titulo}`}
+                      title={paraExcluir === t.id ? "Clique de novo para excluir" : "Excluir tarefa"}
+                      onClick={() => (paraExcluir === t.id ? remover(t) : setParaExcluir(t.id))}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
                   </div>
                 </li>
               );

@@ -3,9 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  CheckCircle2, RefreshCcw, Search, XCircle, Clock, PackageCheck, Eye, Plus, Check,
+  CheckCircle2, RefreshCcw, Search, XCircle, Clock, PackageCheck, Eye, Trash2, Plus, Check,
 } from "lucide-react";
-import { alterarStatusTroca, criarTroca } from "@/lib/actions-mvp2";
+import { alterarStatusTroca, criarTroca, excluirTroca } from "@/lib/actions-mvp2";
 import {
   Badge, Button, Input, Panel, PanelHeader, Select, Table, Td, Th, Tr, Vazio,
 } from "@/components/ui";
@@ -54,7 +54,26 @@ export function TelaTrocas({
   const [filtro, setFiltro] = useState("todas");
   const [vendo, setVendo] = useState<Troca | null>(null);
   const [, iniciar] = useTransition();
+  const [paraExcluir, setParaExcluir] = useState<string | null>(null);
   const toast = useToast();
+
+  /**
+   * Troca aberta por engano sai. Finalizada não aparece com este botão: ela
+   * já movimentou estoque, e apagar o registro deixaria a movimentação sem
+   * explicação no histórico.
+   */
+  function remover(t: Troca) {
+    setParaExcluir(null);
+    setTrocas((l) => l.filter((x) => x.id !== t.id));
+    iniciar(async () => {
+      const r = await excluirTroca(t.id);
+      if (r.ok) toast.ok("Troca excluída", t.cliente_nome ?? "");
+      else {
+        setTrocas(iniciais);
+        toast.erro("Não consegui excluir", r.erro);
+      }
+    });
+  }
 
   const filtradas = useMemo(() => {
     const t = busca.trim().toLowerCase();
@@ -207,6 +226,18 @@ export function TelaTrocas({
                             {a.rotulo}
                           </Button>
                         ))}
+                        {t.status !== "finalizada" && (
+                          <Button
+                            tamanho="sm"
+                            variante={paraExcluir === t.id ? "perigo" : "fantasma"}
+                            title={paraExcluir === t.id
+                              ? "Clique de novo para excluir"
+                              : "Excluir esta troca"}
+                            onClick={() => (paraExcluir === t.id ? remover(t) : setParaExcluir(t.id))}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </Td>
                   </Tr>
