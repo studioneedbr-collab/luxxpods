@@ -491,18 +491,20 @@ export async function criarPedido(
 export async function enviarCatalogo(conversationId: string): Promise<Resultado> {
   const c = await cli();
 
-  let arquivo: string | null = null;
-  let texto = "Esse é nosso catálogo 🖤 Me fala qual modelo te interessou que já mando os sabores disponíveis!";
+  // o catálogo é montado agora, do estoque. Antes isto mandava um PNG salvo
+  // nas configurações — e imagem de catálogo envelhece no minuto seguinte,
+  // fazendo o cliente escolher sabor que já tinha acabado.
+  const { getCatalogo } = await import("./data");
+  const { catalogoEmTexto } = await import("./catalogo-texto");
 
-  if (c) {
-    const { data } = await c.from("settings")
-      .select("valor").eq("store_id", STORE_ID).eq("chave", "catalogo").maybeSingle();
-    arquivo = (data?.valor as { arquivo_png?: string } | undefined)?.arquivo_png ?? null;
-  }
-
-  if (!arquivo) {
-    texto = "Me fala qual marca ou modelo você procura que já te mando os sabores disponíveis 🖤";
-  }
+  const catalogo = await getCatalogo();
+  const texto = catalogoEmTexto(
+    catalogo.map((x) => ({
+      marca: x.marca, produto: x.produto, puffs: x.puffs, preco: x.preco,
+      sabor: x.sabor, estoque_disponivel: x.estoque_disponivel, vendavel: x.vendavel,
+    })),
+    { limiteSabores: 6 },
+  );
 
   const envio = await enviarMensagem(conversationId, texto);
   if (!envio.ok) return envio;

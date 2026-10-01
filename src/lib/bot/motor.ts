@@ -194,9 +194,38 @@ async function decidir(
     case "saudacao":
       return manter(fala.saudacao(nome, conversa.ja_comprou));
 
-    case "catalogo":
+    case "catalogo": {
+      // "manda o catálogo" quer a lista inteira, não uma pergunta de volta.
+      // O texto é montado agora, do estoque: sabor esgotado não aparece.
+      if (ctx.product_flavor_id && estadoAtual === "CART") {
+        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa);
+      }
+
+      const r = await executar("catalogo_completo", {}, amb);
+      const d = r.dados as { texto?: string; vazio?: boolean };
+
+      if (!r.ok || !d?.texto || d.vazio) {
+        // sem estoque nenhum não há catálogo para mandar
+        const marcas = await executar("buscar_marcas", {}, amb);
+        const lista = (marcas.dados as { marcas: string[] })?.marcas ?? [];
+        return {
+          texto: fala.listarMarcas(lista, nome),
+          estado: "PRODUCT_SELECTION",
+          contexto: {},
+        };
+      }
+
+      return {
+        texto: d.texto,
+        estado: "CATALOG_SENT",
+        contexto: {},
+        enviarCatalogo: true,
+      };
+    }
+
     case "comprar": {
-      // já tem item no carrinho: é hora de fechar, e o upsell entra aqui
+      // quem diz "quero comprar" está pronto para escolher: perguntar a
+      // marca é mais rápido que mandar tudo e esperar ele ler
       if (ctx.product_flavor_id && estadoAtual === "CART") {
         return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa);
       }

@@ -74,6 +74,16 @@ export const FERRAMENTAS: Ferramenta[] = [
     estados: ["INITIAL", "CATALOG_SENT", "PRODUCT_SELECTION"],
   },
   {
+    nome: "catalogo_completo",
+    descricao:
+      "Monta o catálogo inteiro em texto, com marca, modelo, puffs, preço e "
+      + "os sabores DISPONÍVEIS agora. Só leitura, montado na hora: nunca "
+      + "mostra sabor esgotado nem reservado por outro cliente.",
+    parametros: [],
+    escreve: false,
+    estados: ["INITIAL", "CATALOG_SENT", "PRODUCT_SELECTION", "CART", "HUMAN"],
+  },
+  {
     nome: "adicionar_carrinho",
     descricao:
       "Põe um produto + sabor no carrinho e RESERVA o estoque. Falha se não " +

@@ -170,9 +170,25 @@ async function despachar(
       const catalogo = await lerCatalogo();
       const achados = acharProduto(catalogo, String(a.produto));
       if (achados.length === 0) return { ok: true, dados: { encontrado: false } };
+
+      // o preço vem do que está vendável. Cotar o preço de algo esgotado
+      // leva o cliente a pedir e descobrir depois que não tem — pior que
+      // dizer na hora que acabou.
+      const comEstoque = achados.filter((x) => x.vendavel && x.estoque_disponivel > 0);
+      const base = comEstoque[0] ?? achados[0];
+
       return {
         ok: true,
-        dados: { encontrado: true, produto: achados[0].produto, preco: achados[0].preco },
+        dados: {
+          encontrado: true,
+          produto: base.produto,
+          // o menor preço entre os sabores com estoque
+          preco: comEstoque.length
+            ? Math.min(...comEstoque.map((x) => x.preco))
+            : base.preco,
+          disponivel: comEstoque.length > 0,
+          sabores_disponiveis: comEstoque.length,
+        },
       };
     }
 
@@ -628,8 +644,17 @@ async function despachar(
             }))
         : (await import("../demo-mvp2")).demo2().upsell;
 
+      // a oferta não pode cair num produto esgotado: o bot ofereceria sozinho
+      // algo que não consegue vender, e a conversa trava no melhor momento
+      const disponiveis = new Set(
+        vendaveis(catalogo).filter((x) => x.estoque_disponivel > 0).map((x) => x.product_id),
+      );
+      const regrasComEstoque = (regras as RegraAplicavel[]).filter(
+        (r) => !r.produto_destino || disponiveis.has(r.produto_destino),
+      );
+
       const oferta = escolherOferta(
-        regras as RegraAplicavel[],
+        regrasComEstoque,
         itens,
         amb.contexto.upsell_oferecidos ?? [],
       );
@@ -688,6 +713,37 @@ async function despachar(
     case "enviar_catalogo":
       // quem envia é o motor, que tem acesso à fila
       return { ok: true, dados: { enviar: true } };
+
+    /**
+     * O catálogo inteiro numa mensagem, montado agora.
+     *
+     * O caminho progressivo (marca → modelo → sabor) é melhor para quem já
+     * sabe o que quer; este serve para quem pede "manda o catálogo". Em
+     * qualquer um dos dois, o que não tem estoque não aparece.
+     */
+    case "catalogo_completo": {
+      const catalogo = await lerCatalogo();
+      const { catalogoEmTexto } = await import("../catalogo-texto");
+
+      const texto = catalogoEmTexto(
+        catalogo.map((c) => ({
+          marca: c.marca, produto: c.produto, puffs: c.puffs, preco: c.preco,
+          sabor: c.sabor, estoque_disponivel: c.estoque_disponivel,
+          vendavel: c.vendavel,
+        })),
+        // no WhatsApp a mensagem gigante não é lida; o resto sai quando o
+        // cliente disser o modelo
+        { limiteSabores: 6 },
+      );
+
+      return {
+        ok: true,
+        dados: {
+          texto,
+          vazio: catalogo.every((c) => !c.vendavel || c.estoque_disponivel <= 0),
+        },
+      };
+    }
 
     case "remover_carrinho": {
       const c = await clienteDoSistema();
