@@ -1,6 +1,6 @@
 import "server-only";
-import { getSupabaseServer } from "../supabase/server";
-import { STORE_ID, supabaseConfigurado } from "../supabase/config";
+import { clienteDoSistema, type ClienteSistema } from "../supabase/sistema";
+import { STORE_ID } from "../supabase/config";
 import { canalAtivo } from "../canal";
 import { validarTelefone } from "../bot/telefone";
 import { envioLiberado, type Natureza } from "../bot/ritmo";
@@ -33,7 +33,7 @@ export async function rodarFila(): Promise<ResultadoRodada> {
     processados: 0, concluidos: 0, falhados: 0, cancelados: 0, detalhes: [],
   };
 
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   const jobs = c ? await pegarJobsDoBanco(c) : pegarJobsDaDemo();
 
   for (const job of jobs) {
@@ -185,7 +185,7 @@ async function imprimirPedido(job: Job): Promise<ResultadoJob> {
     });
     if (!r.ok) return { ok: false, erro: `Impressora respondeu ${r.status}`, tentarDeNovo: true };
 
-    const c = supabaseConfigurado ? await getSupabaseServer() : null;
+    const c = await clienteDoSistema();
     await c?.from("orders")
       .update({ impresso: true, impresso_em: new Date().toISOString() })
       .eq("id", orderId);
@@ -202,7 +202,7 @@ async function imprimirPedido(job: Job): Promise<ResultadoJob> {
 
 /** Devolve ao estoque o que ficou preso em carrinho abandonado. */
 async function liberarReservas(): Promise<ResultadoJob> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   if (!c) return { ok: true, detalhe: "sem banco: nada a liberar" };
 
   const { data, error } = await c.rpc("liberar_reservas_expiradas");
@@ -214,7 +214,7 @@ async function liberarReservas(): Promise<ResultadoJob> {
 /* -------------------------------------------------------------- apoio ---- */
 
 async function pegarJobsDoBanco(
-  c: NonNullable<Awaited<ReturnType<typeof getSupabaseServer>>>,
+  c: ClienteSistema,
 ): Promise<Job[]> {
   const { data } = await c.from("jobs")
     .select("*")
@@ -233,7 +233,7 @@ function pegarJobsDaDemo(): Job[] {
 }
 
 async function marcar(
-  c: Awaited<ReturnType<typeof getSupabaseServer>>,
+  c: ClienteSistema | null,
   job: Job,
   status: Job["status"],
   erro?: string,
@@ -258,7 +258,7 @@ async function marcar(
 }
 
 async function lerInterruptor() {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   if (!c) {
     // na demonstração tudo transacional passa; marketing fica desligado
     return { transacional: true, interno: true, cobranca: false, marketing: false };
@@ -273,7 +273,7 @@ async function lerInterruptor() {
 }
 
 async function telefoneDaConversa(conversationId: string): Promise<string | null> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) {
     const conversa = demo().conversas.find((x) => x.id === conversationId);
@@ -292,7 +292,7 @@ async function telefoneDaConversa(conversationId: string): Promise<string | null
 }
 
 async function lerConversa(conversationId: string) {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) {
     const conversa = demo().conversas.find((x) => x.id === conversationId);
@@ -318,7 +318,7 @@ async function lerConversa(conversationId: string) {
 
 async function marcarMensagemEnviada(messageId: string, idExterno?: string) {
   if (!messageId) return;
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (c) {
     await c.from("messages")
@@ -337,7 +337,7 @@ export async function enfileirar(
   opcoes?: { conversationId?: string | null; atrasoMs?: number },
 ): Promise<{ ok: boolean; id?: number; erro?: string }> {
   const executarEm = new Date(Date.now() + (opcoes?.atrasoMs ?? 0)).toISOString();
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) {
     const d = demo();
@@ -364,7 +364,7 @@ export async function enfileirar(
 
 /** Cancela jobs pendentes de um tipo numa conversa — usado no follow-up. */
 export async function cancelarJobs(conversationId: string, tipo: TipoJob) {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) {
     demo().jobs.forEach((j) => {

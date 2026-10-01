@@ -1,6 +1,6 @@
 import "server-only";
-import { getSupabaseServer } from "../supabase/server";
-import { STORE_ID, supabaseConfigurado } from "../supabase/config";
+import { clienteDoSistema } from "../supabase/sistema";
+import { STORE_ID } from "../supabase/config";
 import { demo } from "../demo";
 import { validarChamada } from "./ferramentas";
 import type { Contexto } from "./estados";
@@ -37,7 +37,7 @@ const semAcento = (v: string) =>
 /* ------------------------------------------------------------- CATÁLOGO -- */
 
 async function lerCatalogo(): Promise<ItemCatalogo[]> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   if (!c) return demo().catalogo;
 
   const { data, error } = await c.from("v_catalogo")
@@ -197,7 +197,7 @@ async function despachar(
         };
       }
 
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
 
       if (c) {
         const { data: cart, error: erroCarrinho } = await c.rpc("abrir_carrinho", {
@@ -242,7 +242,7 @@ async function despachar(
     }
 
     case "consultar_carrinho": {
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
 
       if (!c || !amb.contexto.cart_id) {
         const ctx = amb.contexto;
@@ -290,7 +290,7 @@ async function despachar(
 
     case "buscar_enderecos": {
       if (!amb.customerId) return { ok: true, dados: { enderecos: [] } };
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       if (!c) return { ok: true, dados: { enderecos: [] } };
 
       const { data } = await c.from("customer_addresses")
@@ -303,7 +303,7 @@ async function despachar(
 
     case "cadastrar_endereco": {
       if (!amb.customerId) return { ok: false, erro: "Cliente ainda não identificado." };
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
 
       const endereco = {
         bairro: String(a.bairro), rua: String(a.rua), numero: String(a.numero),
@@ -327,7 +327,7 @@ async function despachar(
     }
 
     case "calcular_entrega": {
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       let taxa = 5, gratisAcima = 150;
 
       if (c) {
@@ -437,7 +437,7 @@ async function despachar(
     }
 
     case "consultar_pagamento": {
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       if (!c || !amb.contexto.order_id) {
         return { ok: true, dados: { status: amb.contexto.pagamento_status ?? "aguardando" } };
       }
@@ -473,7 +473,7 @@ async function despachar(
         return { ok: false, erro: "O PIX ainda não caiu." };
       }
 
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       if (!c) {
         return {
           ok: true,
@@ -502,7 +502,7 @@ async function despachar(
 
     case "consultar_pedido": {
       if (!amb.customerId) return { ok: true, dados: { encontrado: false } };
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
 
       if (!c) {
         const pedido = demo().pedidos.find((p) => p.customer_id === amb.customerId);
@@ -524,7 +524,7 @@ async function despachar(
     /* ----------------------------------------------------------- apoio -- */
 
     case "criar_tarefa": {
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       const titulo = String(a.titulo);
       const prioridade = String(a.prioridade ?? "alta");
 
@@ -552,7 +552,7 @@ async function despachar(
 
     case "transferir_atendimento": {
       const motivo = String(a.motivo);
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
 
       if (c) {
         await c.from("conversations")
@@ -579,7 +579,7 @@ async function despachar(
         return { ok: true, dados: { confirmou: false } };
       }
 
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       if (c && amb.customerId) {
         await c.from("customers").update({
           maioridade_validada: true,
@@ -599,7 +599,7 @@ async function despachar(
     /* --------------------------------------------------------- upsell -- */
 
     case "buscar_upsell": {
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       const carrinho = await despachar("consultar_carrinho", {}, amb);
       const d = carrinho.dados as {
         vazio?: boolean;
@@ -668,7 +668,7 @@ async function despachar(
       if (!regraId) return { ok: true, dados: { registrado: false } };
 
       const aceita = Boolean(a.aceita);
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
 
       if (c) {
         await c.from("upsell_events")
@@ -690,7 +690,7 @@ async function despachar(
       return { ok: true, dados: { enviar: true } };
 
     case "remover_carrinho": {
-      const c = supabaseConfigurado ? await getSupabaseServer() : null;
+      const c = await clienteDoSistema();
       if (!c || !amb.contexto.cart_id) {
         return { ok: true, dados: { removido: true }, contexto: { product_flavor_id: undefined } };
       }

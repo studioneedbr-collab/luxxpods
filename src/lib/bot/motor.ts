@@ -1,6 +1,6 @@
 import "server-only";
-import { getSupabaseServer } from "../supabase/server";
-import { STORE_ID, supabaseConfigurado } from "../supabase/config";
+import { clienteDoSistema } from "../supabase/sistema";
+import { STORE_ID } from "../supabase/config";
 import { enfileirar } from "../fila/worker";
 import { demo, demoEnviarMensagem } from "../demo";
 import { classificar, ehNao, ehSim, type Intencao } from "./intencoes";
@@ -416,7 +416,7 @@ interface ConversaLida {
 }
 
 async function lerConversa(id: string): Promise<ConversaLida | null> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) {
     const conversa = demo().conversas.find((x) => x.id === id);
@@ -458,7 +458,7 @@ async function salvarContexto(
   contexto: Partial<Contexto>,
   estado: ConversaEstado,
 ) {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) {
     const conversa = demo().conversas.find((x) => x.id === conversationId);
@@ -481,7 +481,7 @@ async function salvarContexto(
 
 /** Grava a resposta do bot e enfileira a entrega. */
 async function responder(conversationId: string, texto: string) {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   let messageId = "";
   if (!c) {
@@ -512,7 +512,7 @@ async function responder(conversationId: string, texto: string) {
 
 /** Marcas, modelos e sabores reais — para a classificação não chutar. */
 async function termosDoCatalogo() {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   const itens = c
     ? ((await c.from("v_catalogo").select("marca, produto, modelo, sabor")
         .eq("store_id", STORE_ID)).data ?? [])
@@ -526,7 +526,7 @@ async function termosDoCatalogo() {
 }
 
 async function dentroDoHorario(): Promise<boolean> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   if (!c) return true;
 
   const { data } = await c.from("settings")
@@ -541,7 +541,7 @@ async function dentroDoHorario(): Promise<boolean> {
 }
 
 async function horarioDeAbertura(): Promise<string> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   if (!c) return "10h";
   const { data } = await c.from("settings")
     .select("valor").eq("store_id", STORE_ID).eq("chave", "atendimento").maybeSingle();

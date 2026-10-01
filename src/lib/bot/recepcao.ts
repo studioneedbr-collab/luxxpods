@@ -1,6 +1,6 @@
 import "server-only";
-import { getSupabaseServer } from "../supabase/server";
-import { STORE_ID, supabaseConfigurado } from "../supabase/config";
+import { clienteDoSistema, type ClienteSistema } from "../supabase/sistema";
+import { STORE_ID } from "../supabase/config";
 import { enfileirar, cancelarJobs } from "../fila/worker";
 import { demo, demoAbrirAtendimento, demoEnviarMensagem } from "../demo";
 import { validarTelefone } from "./telefone";
@@ -33,14 +33,14 @@ export async function receberMensagem(
     return null;
   }
 
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   return c
     ? receberNoBanco(c, mensagem, telefone.e164, canal)
     : receberNaDemo(mensagem, telefone.e164);
 }
 
 async function receberNoBanco(
-  c: NonNullable<Awaited<ReturnType<typeof getSupabaseServer>>>,
+  c: ClienteSistema,
   mensagem: MensagemEntrada,
   telefone: string,
   canal: string,
@@ -226,7 +226,7 @@ function receberNaDemo(mensagem: MensagemEntrada, telefone: string): Recepcao | 
 export async function registrarStatus(s: AtualizacaoStatus): Promise<void> {
   if (!s.idExterno) return;
 
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
   if (!c) {
     const msg = demo().mensagens.find((m) => m.id === s.idExterno);
     if (msg) msg.status = s.status;
@@ -243,7 +243,7 @@ export async function registrarStatus(s: AtualizacaoStatus): Promise<void> {
 
 /** Agenda o follow-up do catálogo com o tempo que estiver configurado. */
 export async function agendarFollowup(conversationId: string): Promise<void> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   let minutos = 5;
   if (c) {

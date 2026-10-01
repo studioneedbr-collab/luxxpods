@@ -1,6 +1,6 @@
 import "server-only";
-import { getSupabaseServer } from "../supabase/server";
-import { STORE_ID, supabaseConfigurado } from "../supabase/config";
+import { clienteDoSistema, type ClienteSistema } from "../supabase/sistema";
+import { STORE_ID } from "../supabase/config";
 import { enfileirar } from "../fila/worker";
 import { demo } from "../demo";
 import { decidirPagamento } from "./conferencia-core";
@@ -30,7 +30,7 @@ export async function registrarPagamento(
   evento: EventoPagamento,
   gateway: string,
 ): Promise<ResultadoPagamento> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDoSistema();
 
   if (!c) return registrarNaDemo(evento, gateway);
 
@@ -180,7 +180,7 @@ export async function registrarPagamento(
 }
 
 async function marcarProcessado(
-  c: NonNullable<Awaited<ReturnType<typeof getSupabaseServer>>>,
+  c: ClienteSistema,
   origem: string, eventId: string, erro?: string,
 ) {
   await c.from("webhook_events").update({
