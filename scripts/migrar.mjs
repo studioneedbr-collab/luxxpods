@@ -22,9 +22,13 @@ import pg from "pg";
 const url = process.env.DATABASE_URL;
 if (!url) {
   console.error(
-    "Falta DATABASE_URL.\n" +
-    "No Supabase: Settings → Database → Connection string → URI\n" +
-    "Troque [YOUR-PASSWORD] pela senha do banco.",
+    "Falta DATABASE_URL.\n\n" +
+    "1. No Supabase: Settings → Database → Connection string → URI\n" +
+    "2. Troque [YOUR-PASSWORD] pela senha do banco\n" +
+    "3. Cole no .env.local, numa linha:\n" +
+    "     DATABASE_URL=postgresql://postgres.xxx:senha@aws-0-sa-east-1.pooler.supabase.com:5432/postgres\n" +
+    "4. npm run migrar -- --base=0011\n\n" +
+    "O .env.local é lido automaticamente e está no .gitignore.",
   );
   process.exit(1);
 }

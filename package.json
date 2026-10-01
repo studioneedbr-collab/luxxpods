@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "schema": "node scripts/gerar-schema.mjs",
-    "migrar": "node scripts/migrar.mjs"
+    "migrar": "node --env-file-if-exists=.env.local scripts/migrar.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
