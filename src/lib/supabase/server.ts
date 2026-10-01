@@ -1,9 +1,8 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import {
-  SUPABASE_ANON_KEY, SUPABASE_SECRET_KEY, SUPABASE_URL, supabaseConfigurado,
-} from "./config";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigurado } from "./config";
+import { SUPABASE_SECRET_KEY } from "./segredo";
 
 export async function getSupabaseServer() {
   if (!supabaseConfigurado) return null;
