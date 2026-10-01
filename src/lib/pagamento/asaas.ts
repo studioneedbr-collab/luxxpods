@@ -135,6 +135,70 @@ export class MeioAsaas implements MeioPagamento {
   }
 
   /**
+   * Está pronto para cobrar?
+   *
+   * Não basta a chave existir: ela pode estar errada, ser de sandbox numa
+   * configuração de produção, ou a conta pode não ter chave PIX cadastrada —
+   * e nesse último caso tudo parece certo até a primeira venda falhar. Então
+   * a conferência pergunta ao Asaas em vez de olhar só o ambiente.
+   */
+  async diagnosticar(): Promise<
+    { ok: true; chavePix: string; ambiente: string }
+    | { ok: false; erro: string; ambiente: string }
+  > {
+    const ambiente = process.env.ASAAS_AMBIENTE === "producao" ? "produção" : "sandbox";
+
+    if (!this.chaveApi) {
+      return { ok: false, erro: "Falta ASAAS_API_KEY.", ambiente };
+    }
+
+    try {
+      const r = await fetch(
+        `${this.base}/pix/addressKeys?status=ACTIVE&limit=100`,
+        { headers: this.cabecalhos() },
+      );
+
+      if (r.status === 401) {
+        return {
+          ok: false,
+          erro: `A chave da API foi recusada. Confira se ela é de ${ambiente}.`,
+          ambiente,
+        };
+      }
+      if (!r.ok) {
+        return { ok: false, erro: `O Asaas respondeu ${r.status}.`, ambiente };
+      }
+
+      const d = await r.json();
+      const ativa = (d?.data as Array<{ key?: string; type?: string }> | undefined)
+        ?.find((k) => k.key);
+
+      if (!ativa?.key) {
+        return {
+          ok: false,
+          erro: "A chave da API funciona, mas a conta não tem chave PIX ativa. "
+            + "Cadastre uma no Asaas, em Pix → Minhas chaves.",
+          ambiente,
+        };
+      }
+
+      // a chave inteira não vai para a tela: é dado de recebimento
+      const inicio = ativa.key.slice(0, 8);
+      return {
+        ok: true,
+        chavePix: `${ativa.type ?? "chave"} · ${inicio}…`,
+        ambiente,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        erro: e instanceof Error ? e.message : "não consegui falar com o Asaas",
+        ambiente,
+      };
+    }
+  }
+
+  /**
    * Webhook de cobrança do Asaas: `{ event, payment }`.
    *
    * Dois eventos dizem que o dinheiro entrou: PAYMENT_CONFIRMED (pago, saldo

@@ -1,27 +1,32 @@
 import { AtSign, MessageCircle, Printer, QrCode, Database, Webhook } from "lucide-react";
 import { Badge, Panel, PanelHeader } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import { usandoDemo } from "@/lib/data";
+import {
+  diagnosticarAsaas, diagnosticarImpressora, diagnosticarInstagram,
+  diagnosticarWhatsapp, type Situacao,
+} from "@/lib/diagnostico-integracoes";
 
 export const dynamic = "force-dynamic";
 
 const INTEGRACOES = [
   {
     nome: "WhatsApp Business (Meta)", icone: MessageCircle, cor: "#25D366",
-    status: "pendente" as const,
+    chave: "whatsapp" as const,
     descricao: "Recebe e envia texto, imagem, catálogo e PIX. Guarda ID, status, entrega e leitura de cada mensagem.",
     campos: ["Phone Number ID", "WABA ID", "Access Token", "Verify Token do webhook"],
     endpoint: "POST /api/webhooks/whatsapp",
   },
   {
     nome: "Instagram Direct (Meta)", icone: AtSign, cor: "#E1306C",
-    status: "pendente" as const,
+    chave: "instagram" as const,
     descricao: "Centraliza o Direct na mesma caixa de entrada. Um cliente pode ter contato nos dois canais.",
     campos: ["Instagram Business Account ID", "Page Access Token"],
     endpoint: "POST /api/webhooks/instagram",
   },
   {
     nome: "Asaas", icone: QrCode, cor: "#00b46e",
-    status: "pendente" as const,
+    chave: "asaas" as const,
     descricao:
       "PIX com copia e cola no próprio chat e confirmação automática por " +
       "webhook — as duas coisas. Usa QR Code com valor, sem exigir o CPF do " +
@@ -35,7 +40,7 @@ const INTEGRACOES = [
   },
   {
     nome: "Impressora térmica", icone: Printer, cor: "#38bdf8",
-    status: "pendente" as const,
+    chave: "impressora" as const,
     descricao: "Impressão da comanda 80mm ao confirmar o pedido. Registra falha e permite reimpressão.",
     campos: ["Nome da impressora", "Endereço do agente local"],
     endpoint: "fila jobs → imprimir_pedido",
@@ -43,6 +48,14 @@ const INTEGRACOES = [
 ];
 
 export default async function IntegracoesPage() {
+  // o Asaas é consultado de verdade; os outros dependem só do ambiente
+  const situacoes: Record<string, Situacao> = {
+    asaas: await diagnosticarAsaas(),
+    whatsapp: diagnosticarWhatsapp(),
+    instagram: diagnosticarInstagram(),
+    impressora: diagnosticarImpressora(),
+  };
+
   return (
     <div className="space-y-3">
       <Panel>
@@ -77,8 +90,20 @@ export default async function IntegracoesPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-[13px] font-semibold text-ink-100">{i.nome}</h3>
-                  <Badge tom="warn">aguardando credenciais</Badge>
+                  <Badge tom={situacoes[i.chave].tom} ponto>
+                    {situacoes[i.chave].rotulo}
+                  </Badge>
                 </div>
+                {situacoes[i.chave].detalhe && (
+                  <p className={cn(
+                    "mt-1 text-[11px] leading-relaxed",
+                    situacoes[i.chave].tom === "ok" ? "text-ok-300"
+                      : situacoes[i.chave].tom === "bad" ? "text-bad-300"
+                      : "text-warn-300",
+                  )}>
+                    {situacoes[i.chave].detalhe}
+                  </p>
+                )}
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-400">{i.descricao}</p>
               </div>
             </div>
