@@ -9,8 +9,14 @@ import pg from "pg";
  * mas depende de alguém lembrar quais já rodaram. Aqui o próprio banco
  * guarda o registro, então rodar de novo é seguro e barato.
  *
- * Uso:  DATABASE_URL="postgresql://…" node scripts/migrar.mjs
+ * Uso:  DATABASE_URL="postgresql://…" npm run migrar
  *       (a URL sai do Supabase em Settings → Database → Connection string)
+ *
+ * Banco que já tem schema, aplicado à mão antes deste executor existir:
+ *       npm run migrar -- --base=0011
+ * marca tudo até a 0011 como aplicada SEM rodar, e aplica só o que vem
+ * depois. Sem isso o seed rodaria de novo e recriaria os dados fictícios
+ * logo depois de alguém limpá-los.
  */
 
 const url = process.env.DATABASE_URL;
@@ -25,6 +31,13 @@ if (!url) {
 
 const pasta = join(import.meta.dirname, "..", "supabase", "migrations");
 const arquivos = readdirSync(pasta).filter((f) => f.endsWith(".sql")).sort();
+
+/** --base=0011: tudo até aí entra no registro sem ser executado. */
+const base = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
+if (base && !arquivos.some((f) => f.startsWith(base))) {
+  console.error(`Não existe migração começando com "${base}".`);
+  process.exit(1);
+}
 
 const cliente = new pg.Client({
   connectionString: url,
@@ -42,6 +55,17 @@ await cliente.query(`
     duracao_ms integer
   )
 `);
+
+if (base) {
+  const ate = arquivos.filter((f) => f.slice(0, base.length) <= base);
+  for (const nome of ate) {
+    await cliente.query(
+      "insert into _migracoes (nome, duracao_ms) values ($1, null) on conflict (nome) do nothing",
+      [nome],
+    );
+  }
+  console.log(`  marcadas como aplicadas sem rodar: ${ate.length} (até ${base})\n`);
+}
 
 const { rows } = await cliente.query("select nome from _migracoes");
 const jaAplicadas = new Set(rows.map((r) => r.nome));
