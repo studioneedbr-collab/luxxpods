@@ -1275,6 +1275,16 @@ alter table inventory replica identity full;
 
 -- =====================================================================
 -- LUXX PODS — 0006 SEED (idempotente)
+--
+-- ATENÇÃO depois de rodar supabase/limpar-demonstracao.sql:
+-- esta migração recria cupons de exemplo, a regra de upsell, tarefas e
+-- eventos se for executada de novo, porque cada um desses blocos só verifica
+-- se a própria tabela está vazia. Os 20 clientes e os 16 pedidos NÃO voltam
+-- (o bloco deles exige customers vazio e é o único com essa guarda forte).
+--
+-- O executor de migrações (`npm run migrar`) registra o que já rodou em
+-- `_migracoes`, então ele não repete. O risco existe só para quem colar o
+-- schema-completo.sql à mão uma segunda vez.
 -- =====================================================================
 do $$
 declare
