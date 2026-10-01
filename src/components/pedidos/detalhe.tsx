@@ -2,11 +2,14 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Banknote, Bike, CheckCircle2, MapPin, MessageCircle, Package,
-  Printer, QrCode, User, X, AlertTriangle, Clock, Check,
+  Printer, QrCode, User, Trash2, X, AlertTriangle, Clock, Check,
 } from "lucide-react";
-import { alterarStatusPedido, cancelarPedido, confirmarPagamentoPix } from "@/lib/actions";
+import {
+  alterarStatusPedido, cancelarPedido, confirmarPagamentoPix, excluirPedido,
+} from "@/lib/actions";
 import { CobrancaPix } from "./pix";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui";
 import { FLUXO_PEDIDO, METODO_PAGAMENTO, STATUS_PAGAMENTO, STATUS_PEDIDO } from "@/lib/labels";
@@ -25,7 +28,9 @@ const PROXIMO: Partial<Record<PedidoStatus, { status: PedidoStatus; rotulo: stri
 
 export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
   const [pedido, setPedido] = useState(inicial);
+  const router = useRouter();
   const [cancelando, setCancelando] = useState(false);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [salvando, iniciar] = useTransition();
   const toast = useToast();
@@ -83,6 +88,23 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
     });
   }
 
+  /**
+   * Apaga o pedido cancelado. O cancelamento já devolveu o estoque e
+   * resolveu o financeiro; aqui só o registro sai.
+   */
+  function excluir() {
+    setConfirmandoExclusao(false);
+    iniciar(async () => {
+      const r = await excluirPedido(pedido.id);
+      if (r.ok) {
+        toast.ok("Pedido excluído", pedido.numero_pedido);
+        router.push("/pedidos");
+      } else {
+        toast.erro("Não consegui excluir", r.erro);
+      }
+    });
+  }
+
   return (
     <div className="space-y-3">
       <Comanda pedido={pedido} />
@@ -107,6 +129,19 @@ export function DetalhePedido({ pedido: inicial }: { pedido: Pedido }) {
           {pedido.status_pedido !== "cancelado" && pedido.status_pedido !== "entregue" && (
             <Button variante="perigo" tamanho="sm" onClick={() => setCancelando(true)}>
               <X className="size-3.5" /> Cancelar
+            </Button>
+          )}
+          {/* excluir só depois de cancelado: é o cancelamento que devolve o
+              estoque e resolve o financeiro */}
+          {pedido.status_pedido === "cancelado" && (
+            <Button
+              variante={confirmandoExclusao ? "perigo" : "fantasma"}
+              tamanho="sm"
+              disabled={salvando}
+              onClick={() => (confirmandoExclusao ? excluir() : setConfirmandoExclusao(true))}
+            >
+              <Trash2 className="size-3.5" />
+              {confirmandoExclusao ? "Excluir mesmo?" : "Excluir"}
             </Button>
           )}
           {proximo && pedido.status_pedido !== "cancelado" && (

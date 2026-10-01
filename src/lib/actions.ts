@@ -604,3 +604,65 @@ export async function conferirCupom(
   const r = avaliarCupom(cupom as never, subtotal);
   return r.vale ? { ok: true, desconto: r.desconto } : { ok: false, erro: r.motivo };
 }
+
+/**
+ * Apaga o pedido de vez — e só depois de cancelado.
+ *
+ * Cancelar e excluir fazem coisas diferentes, e a ordem importa: é o
+ * cancelamento que devolve o estoque, cancela a conta a receber e lança o
+ * estorno quando o dinheiro já entrou. Apagar a linha direto deixaria a peça
+ * fora da prateleira e o dinheiro no caixa sem venda que o explique — e sem
+ * nada no histórico para alguém descobrir depois.
+ *
+ * Então: cancela primeiro (a regra roda), apaga depois (se quiser mesmo).
+ * Pedido entregue não some: é venda que aconteceu, e nota fiscal, troca e
+ * garantia dependem dela existir.
+ */
+export async function excluirPedido(pedidoId: string): Promise<Resultado> {
+  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+
+  if (!c) {
+    const d = demo();
+    d.pedidos = d.pedidos.filter((p) => p.id !== pedidoId);
+    revalidatePath("/pedidos");
+    return { ok: true };
+  }
+
+  const { data: pedido } = await c.from("orders")
+    .select("numero_pedido, status_pedido, status_pagamento")
+    .eq("id", pedidoId).maybeSingle();
+
+  if (!pedido) return { ok: false, erro: "Pedido não encontrado." };
+
+  if (pedido.status_pedido === "entregue") {
+    return {
+      ok: false,
+      erro: `O pedido ${pedido.numero_pedido} foi entregue — é venda que aconteceu. `
+        + `Troca, garantia e nota dependem dele existir.`,
+    };
+  }
+
+  if (pedido.status_pedido !== "cancelado") {
+    return {
+      ok: false,
+      erro: `Cancele o pedido ${pedido.numero_pedido} primeiro. É o cancelamento que `
+        + `devolve o estoque e resolve o financeiro; apagar direto deixaria a peça `
+        + `fora da prateleira sem explicação.`,
+    };
+  }
+
+  // itens, histórico e contas apontam para o pedido; o que não tem cascade
+  // sai antes, para a exclusão não falhar no meio
+  await c.from("accounts_receivable").delete().eq("order_id", pedidoId);
+  await c.from("order_status_history").delete().eq("order_id", pedidoId);
+  await c.from("order_items").delete().eq("order_id", pedidoId);
+  await c.from("payments").delete().eq("order_id", pedidoId);
+
+  const { error } = await c.from("orders").delete().eq("id", pedidoId);
+  if (error) return { ok: false, erro: traduzirErroBanco(error) };
+
+  revalidatePath("/pedidos");
+  revalidatePath("/financeiro");
+  revalidatePath("/entregas");
+  return { ok: true };
+}
