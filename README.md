@@ -141,20 +141,107 @@ impressão, expiração de reserva), controle de ritmo de envio.
 
 ## O que falta
 
-Em ordem de quem trava a venda primeiro:
+Levantado por uma varredura com um auditor por área, em 2 de outubro de 2026.
+Ordenado por quanto custa, não por tamanho.
 
-1. **Ligar o banco** — as migrações estão em [`supabase/`](supabase/migrations)
-   e o sistema roda inteiro na base de demonstração até elas subirem.
-2. **Credenciais dos canais** — o webhook do WhatsApp existe e o motor responde,
-   mas sem `WHATSAPP_TOKEN` (ou Z-API) a mensagem fica na fila e não sai.
-3. **Instagram Direct** — o canal está previsto na caixa de entrada, falta o
-   adaptador.
-4. **Upload de arquivo** — foto de produto, PNG do catálogo, evidência de troca.
-5. **Relatórios de clientes e produtos** e exportação em Excel/PDF (hoje só CSV).
-6. **2FA, rotina de backup, alertas de monitoramento**, e `audit_logs`, que
-   existe mas ainda não recebe escrita.
-7. **Agente de impressão local** — `jobs` já enfileira `imprimir_pedido`, falta
-   quem consuma do lado da loja.
+### Esperando migração no banco
+
+As duas estão escritas e revisadas; falta rodar.
+
+- **`0015`** — reserva presa quando PIX é abandonado e cancelado (algumas
+  vezes e o sistema diz "esgotado" com produto na prateleira), o `ON CONFLICT`
+  com índice parcial que sobrevivia em `payments` (nenhum pagamento era
+  gravado), entrega paga em cartão ou transferência que não registrava o
+  dinheiro, e o lucro bruto que descontava o desconto duas vezes.
+- **`0016`** — a troca passa a mexer no estoque, com a peça de reposição
+  baixando e a defeituosa não voltando à prateleira.
+
+### Mexe em dinheiro ou estoque
+
+- **Nota de entrada pode gerar conta a pagar duplicada.** Pagar o fornecedor,
+  reabrir a nota e concluir de novo cria uma segunda conta: a reabertura só
+  cancela conta não paga, mas limpa o vínculo sem condição.
+- **"Dar baixa" no financeiro não fecha o pedido.** `baixarLancamento` só
+  mexe em `accounts_receivable`; o painel do financeiro calcula recebido a
+  partir de `orders.status_pagamento`. As duas telas mostram números
+  diferentes para o mesmo dinheiro.
+- **Baixa em lançamento cancelado ressuscita a receita.** O botão "Recebi"
+  aparece em lançamento que o cancelamento de pedido já marcou como cancelado,
+  e a ação não confere o status.
+- **Saldo de conta bancária ignora venda e nota.** Nenhum lançamento
+  automático preenche `bank_account_id`, e a baixa não pergunta em qual conta
+  o dinheiro entrou. O saldo consolidado só reflete lançamento feito à mão.
+- **Excluir pedido cancelado apaga a conta a receber paga** e deixa o estorno
+  órfão em contas a pagar.
+- **Categoria escolhida pelo banco é arbitrária** — o estorno cai na primeira
+  despesa em ordem alfabética ("Aluguel"), e a receita da venda pode cair numa
+  categoria inativa.
+
+### Diz que fez e não fez
+
+Todas pela mesma causa: `UPDATE`/`DELETE` barrado por controle de acesso não
+é erro no Postgres — ele filtra as linhas e devolve sucesso com zero linhas.
+São **47 escritas** sem conferência de quantas linhas mudaram. Só morde com
+usuário que não é administrador, e hoje os dois são.
+
+O agravante que custa: em "Marcar entregue" o update silenciosamente vazio é
+seguido de `receber_na_entrega`, que ignora o controle de acesso — o dinheiro
+é marcado como recebido num pedido que o sistema não considera entregue.
+
+### Promessa falsa na interface
+
+- **Tela de Permissões é só visual.** `user_permissions` nunca é escrita nem
+  lida, e o texto promete concessão individual que não existe. Das 20
+  permissões, só `gerenciar_usuarios` é consultada em algum lugar.
+- **`audit_logs` nunca recebe escrita**, e a tela de Logs afirma que registra
+  alteração de preço, exclusão e criação de usuário. O que ela mostra é o
+  histórico de estoque.
+- **`/impressao` mostra estado fixo no código** — configure a impressora e a
+  tela continua dizendo que não há.
+- **`notifications` nunca é escrita** — as notificações do topo são todas
+  derivadas, o que funciona, mas a tabela existe sem uso.
+
+### Falta tela
+
+- **Cadastrar marca.** `salvarMarca` e `excluirMarca` existem e nada as chama:
+  as 6 marcas atuais só existem porque o seed criou. E o cadastro de produto
+  descobre a marca procurando outro produto que já a use, então marca sem
+  produto nunca aparece.
+- **Editar e desativar fornecedor.** `excluirFornecedor` existe e não é
+  chamada; só há "Novo fornecedor".
+- **Cancelar nota de entrada.** `cancelarNota` existe e não é chamada; nota
+  lançada por engano não tem saída.
+- **Reabrir troca.** `reabrir_troca` existe no banco e a tela não oferece.
+- **SKU e estoque mínimo por sabor** não têm campo em lugar nenhum: os 80
+  SKUs estão com `sku` nulo e `estoque_minimo` no padrão 3.
+
+### Horário
+
+Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
+"entregues hoje" usa o relógio do servidor, fazendo toda entrega depois das
+21h de Brasília contar como amanhã e desaparecer do painel.
+
+### Canais e integrações
+
+- **WhatsApp**: o Z-API está implementado e espera três credenciais. Sem
+  credencial o canal simulado responde "enviada" para mensagem que não saiu.
+- **Instagram Direct**: previsto na caixa de entrada, falta o adaptador. A
+  tela de integrações anuncia um webhook que não existe.
+- **Impressora térmica**: a comanda entra na fila ao confirmar o pedido e
+  ninguém consome. Uma página web não detecta impressora USB nem imprime
+  sozinha — precisa de WebUSB (Chrome, autorização uma vez) ou de um agente
+  rodando no computador da loja.
+
+### Dívida conhecida
+
+- Upsell não aparece no fluxo de venda do painel (o bot já oferece).
+- `limite_cliente` do cupom não é verificado em lugar nenhum.
+- Telas de dinheiro truncadas em 300 registros, com filtro de período
+  aplicado depois do corte.
+- Relatórios de clientes e produtos; exportação em Excel e PDF (hoje só CSV).
+- 2FA, rotina de backup, alertas de monitoramento.
+- As políticas de acesso não filtram por loja — irrelevante com uma loja,
+  vaza entre lojas no dia em que houver duas.
 
 ---
 
