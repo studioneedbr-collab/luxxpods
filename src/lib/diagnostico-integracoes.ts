@@ -46,26 +46,58 @@ export async function diagnosticarAsaas(): Promise<Situacao> {
   };
 }
 
+/**
+ * O WhatsApp tem dois caminhos, e o diagnóstico precisa conhecer os dois.
+ *
+ * Antes só olhava as variáveis da Meta: quem configurasse a Z-API continuava
+ * vendo "aguardando credenciais" com o canal funcionando — e o `canalAtivo()`
+ * já aceitava a Z-API como segunda opção.
+ */
 export function diagnosticarWhatsapp(): Situacao {
-  const falta = faltando([
+  const meta = faltando([
     "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_VERIFY_TOKEN",
   ]);
+  const zapi = faltando(["ZAPI_INSTANCE_ID", "ZAPI_TOKEN"]);
 
-  if (falta.length === 3) {
+  // Meta tem prioridade: é a via oficial, com status de entrega e sem risco
+  // de banimento. É a mesma ordem de `canalAtivo()`.
+  if (meta.length === 0) {
+    return { tom: "ok", rotulo: "no ar · Meta", detalhe: "Via oficial, com status de entrega." };
+  }
+
+  if (zapi.length === 0) {
+    const semSegredo = !process.env.ZAPI_WEBHOOK_SECRET;
     return {
-      tom: "warn",
-      rotulo: "aguardando credenciais",
-      detalhe: "A mensagem que o atendente escreve fica gravada e enfileirada, mas não sai.",
+      tom: "ok",
+      rotulo: "no ar · Z-API",
+      detalhe: semSegredo
+        ? "Funcionando. Sem ZAPI_WEBHOOK_SECRET o webhook aceita qualquer corpo — vale preencher."
+        : "Funcionando, com o webhook validando o segredo.",
     };
   }
-  if (falta.length > 0) {
+
+  // metade preenchida é pior que nada: o envio falha calado
+  if (meta.length > 0 && meta.length < 3) {
     return {
       tom: "bad",
-      rotulo: "configuração incompleta",
-      detalhe: `Falta ${falta.join(", ")} — com parte das variáveis o envio falha calado.`,
+      rotulo: "Meta incompleta",
+      detalhe: `Falta ${meta.join(", ")} — com parte das variáveis o envio falha calado.`,
     };
   }
-  return { tom: "ok", rotulo: "no ar", detalhe: "Recebendo e enviando pela Cloud API." };
+  if (zapi.length === 1) {
+    return {
+      tom: "bad",
+      rotulo: "Z-API incompleta",
+      detalhe: `Falta ${zapi.join(", ")} — com parte das variáveis o envio falha calado.`,
+    };
+  }
+
+  return {
+    tom: "warn",
+    rotulo: "aguardando credenciais",
+    detalhe: "A mensagem que o atendente escreve fica gravada e enfileirada, mas não sai. "
+      + "Dá para usar a Meta (oficial) ou a Z-API (mais rápida de ligar).",
+  };
 }
 
 export function diagnosticarInstagram(): Situacao {

@@ -1,6 +1,7 @@
 import { AtSign, MessageCircle, Printer, QrCode, Database, Webhook } from "lucide-react";
 import { Badge, Panel, PanelHeader } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { ImportarWhatsapp } from "@/components/sistema/importar-whatsapp";
 import { usandoDemo } from "@/lib/data";
 import {
   diagnosticarAsaas, diagnosticarImpressora, diagnosticarInstagram,
@@ -14,7 +15,10 @@ const INTEGRACOES = [
     nome: "WhatsApp Business (Meta)", icone: MessageCircle, cor: "#25D366",
     chave: "whatsapp" as const,
     descricao: "Recebe e envia texto, imagem, catálogo e PIX. Guarda ID, status, entrega e leitura de cada mensagem.",
-    campos: ["Phone Number ID", "WABA ID", "Access Token", "Verify Token do webhook"],
+    campos: [
+      "Meta: Phone Number ID, WABA ID, Access Token, Verify Token",
+      "ou Z-API: ZAPI_INSTANCE_ID, ZAPI_TOKEN, ZAPI_CLIENT_TOKEN",
+    ],
     endpoint: "POST /api/webhooks/whatsapp",
   },
   {
@@ -120,6 +124,11 @@ export default async function IntegracoesPage() {
                 <Webhook className="size-3 shrink-0 text-ink-500" />
                 <code className="truncate text-[11px] text-ink-300">{i.endpoint}</code>
               </div>
+
+              {/* a importação só faz sentido com o canal no ar */}
+              {i.chave === "whatsapp" && situacoes.whatsapp.tom === "ok" && (
+                <ImportarWhatsapp />
+              )}
             </div>
           </Panel>
         ))}
