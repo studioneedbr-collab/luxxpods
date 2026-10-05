@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import {
   AlertTriangle, Bot, Boxes, Building2, Check, Clock, CreditCard,
-  Image as ImageIcon, Printer, Send, Truck,
+  Image as ImageIcon, Printer, Send, Sparkles, Truck,
 } from "lucide-react";
 import { salvarConfiguracao } from "@/lib/actions-config";
 import type { ChaveConfig, Configuracoes } from "@/lib/configuracoes";
@@ -206,6 +206,45 @@ export function TelaConfiguracoes({ configuracoes }: { configuracoes: Configurac
             <Switch ligado={v.fallback_humano} onChange={(x) => set("fallback_humano", x)}
               rotulo="Chamar gente quando travar"
               descricao="Depois de três tentativas sem entender, passa para um atendente" />
+          </>
+        )}
+      </Grupo>
+
+      <Grupo
+        chave="ia"
+        titulo="Inteligência do bot"
+        descricao="Entra só no que a palavra-chave não entendeu — e nunca mexe no estoque"
+        icone={Sparkles}
+        inicial={configuracoes.ia}
+      >
+        {(v, set) => (
+          <>
+            <Switch ligado={v.ativo} onChange={(x) => set("ativo", x)}
+              rotulo="Usar a IA no que o bot não entender"
+              descricao="Desligada, a mensagem não entendida vira 'não entendi' e, na terceira, atendente" />
+
+            <Campo
+              rotulo="Treinamento"
+              dica="o que ele deve saber desta loja: o que recomendar, o que nunca dizer, como falar"
+            >
+              <Textarea
+                rows={8}
+                value={v.instrucoes}
+                onChange={(e) => set("instrucoes", e.target.value)}
+                placeholder={
+                  "Ex.: Quem pergunta de recarregável, ofereça o Oxbar primeiro.\n"
+                  + "Não falamos de nicotina em miligrama, só de puffs.\n"
+                  + "Se pedirem fiado, diga que não trabalhamos assim e chame um atendente."
+                }
+              />
+            </Campo>
+
+            <p className="text-[11px] leading-relaxed text-ink-500">
+              Isto vira instrução do bot na próxima mensagem. O que você escrever
+              aqui <strong className="text-ink-300">não desliga as travas</strong>:
+              ele continua sem poder dar desconto, afirmar preço sem consultar,
+              fechar pedido ou mexer no estoque — isso é do sistema, não dele.
+            </p>
           </>
         )}
       </Grupo>

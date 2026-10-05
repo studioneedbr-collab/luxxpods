@@ -1,11 +1,11 @@
-import { AtSign, MessageCircle, Printer, QrCode, Database, Webhook } from "lucide-react";
+import { AtSign, MessageCircle, Printer, QrCode, Database, Sparkles, Webhook } from "lucide-react";
 import { Badge, Panel, PanelHeader } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { ImportarWhatsapp } from "@/components/sistema/importar-whatsapp";
 import { usandoDemo } from "@/lib/data";
 import {
-  diagnosticarAsaas, diagnosticarImpressora, diagnosticarInstagram,
-  diagnosticarWhatsapp, type Situacao,
+  diagnosticarAsaas, diagnosticarIa, diagnosticarImpressora,
+  diagnosticarInstagram, diagnosticarWhatsapp, type Situacao,
 } from "@/lib/diagnostico-integracoes";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +43,18 @@ const INTEGRACOES = [
     endpoint: "POST /api/webhooks/pagamento",
   },
   {
+    nome: "DeepSeek (IA do bot)", icone: Sparkles, cor: "#a78bfa",
+    chave: "ia" as const,
+    descricao:
+      "Entra só na mensagem que a classificação por palavra-chave não " +
+      "entendeu — comparação entre produtos, recomendação, dúvida sobre a " +
+      "loja. Recebe apenas ferramentas de CONSULTA: não mexe no estoque, " +
+      "não fecha pedido e não cria cobrança. Preço afirmado sem consulta é " +
+      "barrado antes de virar mensagem. O treinamento fica em Configurações.",
+    campos: ["DEEPSEEK_API_KEY", "DEEPSEEK_MODELO (deepseek-flash)"],
+    endpoint: "POST api.deepseek.com/chat/completions",
+  },
+  {
     nome: "Impressora térmica", icone: Printer, cor: "#38bdf8",
     chave: "impressora" as const,
     descricao: "Impressão da comanda 80mm ao confirmar o pedido. Registra falha e permite reimpressão.",
@@ -55,6 +67,7 @@ export default async function IntegracoesPage() {
   // o Asaas é consultado de verdade; os outros dependem só do ambiente
   const situacoes: Record<string, Situacao> = {
     asaas: await diagnosticarAsaas(),
+    ia: await diagnosticarIa(),
     whatsapp: diagnosticarWhatsapp(),
     instagram: diagnosticarInstagram(),
     impressora: diagnosticarImpressora(),

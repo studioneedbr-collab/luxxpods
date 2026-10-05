@@ -1,5 +1,6 @@
 import "server-only";
 import { MeioAsaas } from "./pagamento/asaas";
+import { diagnosticar as diagnosticarDeepseek } from "./ia/deepseek";
 
 /**
  * O estado real de cada integração.
@@ -17,6 +18,39 @@ export type Situacao =
 
 function faltando(nomes: string[]): string[] {
   return nomes.filter((n) => !process.env[n]);
+}
+
+/**
+ * A IA é opcional de propósito: sem ela o bot segue vendendo, só
+ * determinístico. Por isso a ausência é aviso, não erro — mas chave
+ * RECUSADA é erro, porque aí alguém configurou e acha que está no ar.
+ */
+export async function diagnosticarIa(): Promise<Situacao> {
+  const d = await diagnosticarDeepseek();
+
+  if (!d.ok && d.erro?.includes("não configurada")) {
+    return {
+      tom: "warn",
+      rotulo: "desligada",
+      detalhe: "Sem DEEPSEEK_API_KEY o bot responde só pelo caminho determinístico.",
+    };
+  }
+
+  if (!d.ok) return { tom: "bad", rotulo: "erro", detalhe: d.erro };
+
+  if (!d.modeloExiste) {
+    return {
+      tom: "bad",
+      rotulo: "modelo inexistente",
+      detalhe: `DEEPSEEK_MODELO=${d.modelo} não está na conta. Disponíveis: ${d.disponiveis?.join(", ")}.`,
+    };
+  }
+
+  return {
+    tom: "ok",
+    rotulo: `no ar · ${d.modelo}`,
+    detalhe: "Entra só no que a palavra-chave não entendeu. Não escreve no banco.",
+  };
 }
 
 export async function diagnosticarAsaas(): Promise<Situacao> {

@@ -9,6 +9,8 @@ import { deveChamarHumano, proximoEstado, type Contexto } from "./estados";
 import { executar, type Ambiente } from "./executor";
 import { agendarFollowup } from "./recepcao";
 import * as fala from "./respostas";
+import { atenderComIa, iaLigada } from "../ia/atender";
+import { lerConfiguracoesDoSistema } from "../configuracoes-sistema";
 import type { ConversaEstado } from "../types";
 
 /**
@@ -420,6 +422,40 @@ async function decidir(
       return manter("Claro! O que você quer mudar no pedido?");
 
     default: {
+      /**
+       * O que a palavra-chave não resolveu.
+       *
+       * É aqui, e só aqui, que a IA entra — como o comentário em
+       * intencoes.ts sempre dizia. Todo o resto do fluxo continua
+       * determinístico, e por isso continua previsível.
+       *
+       * Se a IA não estiver ligada, falhar, demorar ou escrever algo que o
+       * conferidor recusa, o caminho abaixo é o mesmo de antes: conta a
+       * falha e na terceira chama gente. Nada depende de ela funcionar.
+       */
+      const cfg = await lerConfiguracoesDoSistema();
+
+      if (iaLigada(cfg)) {
+        const r = await atenderComIa(texto, amb, {
+          estado: estadoAtual,
+          nomeDoCliente: conversa.cliente_nome,
+          jaComprou: conversa.ja_comprou,
+          maioridadeValidada: conversa.maioridade_validada,
+        }, cfg);
+
+        if (r.ok && r.transferir) {
+          return { texto: fala.chamandoHumano, estado: "HUMAN",
+                   contexto: { ...r.mudancasDeContexto, falhas_seguidas: 0 },
+                   transferir: r.transferir };
+        }
+
+        if (r.ok && r.texto) {
+          // entendeu: zera o contador, senão uma conversa boa acabaria
+          // transferida por falhas antigas
+          return manter(r.texto, { ...r.mudancasDeContexto, falhas_seguidas: 0 });
+        }
+      }
+
       // não entendeu: conta a falha, e na terceira chama gente
       const falhas = (ctx.falhas_seguidas ?? 0) + 1;
       if (falhas >= 3) {

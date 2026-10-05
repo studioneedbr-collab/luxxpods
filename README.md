@@ -51,7 +51,7 @@ perfil dele a `admin` na tabela `profiles`.
 ```
 src/app/          rotas — (auth) login, (painel) o sistema, api/ webhooks e cron
 src/components/   telas, por assunto: pedidos, estoque, financeiro, chat…
-src/lib/          as regras — bot/, pagamento/, pix/, fila/, supabase/
+src/lib/          as regras — bot/, ia/, pagamento/, pix/, fila/, supabase/
 supabase/         migrations/ é a fonte da verdade do banco
 docs/             a especificação e os arquivos-fonte da marca
 scripts/          utilitários de manutenção
@@ -225,6 +225,10 @@ Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
 
 - **WhatsApp**: o Z-API está implementado e espera três credenciais. Sem
   credencial o canal simulado responde "enviada" para mensagem que não saiu.
+- **IA do bot (DeepSeek)**: ligada. Entra só na mensagem que a classificação
+  por palavra-chave não resolveu, recebe apenas ferramentas de consulta e não
+  escreve no banco — ver "A IA não fecha transação" abaixo. O treinamento fica
+  em Configurações › Inteligência do bot.
 - **Instagram Direct**: previsto na caixa de entrada, falta o adaptador. A
   tela de integrações anuncia um webhook que não existe.
 - **Impressora térmica**: a comanda entra na fila ao confirmar o pedido e
@@ -243,9 +247,57 @@ Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
 - As políticas de acesso não filtram por loja — irrelevante com uma loja,
   vaza entre lojas no dia em que houver duas.
 
+### Limites da IA que valem saber
+
+- O conferidor pega preço inventado, mas **não** pega sabor inventado sem
+  preço: não há como separar com segurança um nome de sabor de qualquer outro
+  par de palavras numa frase. Contra isso vale a regra do prompt e o fato de
+  o caminho determinístico sempre tirar o sabor de consulta.
+- O modelo não lê o histórico da conversa, só a mensagem atual e a etapa. Ele
+  responde dúvida avulsa, não negocia ao longo de várias mensagens.
+- Áudio e imagem do cliente chegam como `[áudio de voz 12s]`; a IA não ouve
+  nem vê. O `deepseek-flash` aceita imagem, mas nada está ligado nisso.
+
 ---
 
 ## Decisões que valem saber
+
+### A IA não fecha transação
+
+O bot era 100% determinístico, e a parte que vende continua sendo: palavra-chave
+→ máquina de estados → ferramenta → frase pronta. A DeepSeek entra num ponto só,
+o `default:` de `motor.ts`, onde antes ia "não entendi".
+
+A razão de não ser mais que isso é o estoque. `src/lib/ia/politica.ts` entrega
+ao modelo **todas** as consultas e **duas** escritas — pedir uma pessoa e abrir
+pendência. Fora disso, nada: confirmar pedido, mexer no carrinho, criar cobrança
+e validar maioridade ficam com a máquina de estados, cada recusa com o motivo
+escrito no código. Mandar só as ferramentas permitidas no pedido não bastaria —
+o modelo pode chamar um nome que inventou — então `podeChamar` recusa do nosso
+lado também, e devolve o motivo para ele corrigir.
+
+Depois disso, `src/lib/ia/conferir.ts` ainda lê a frase antes de ela sair: todo
+valor em reais tem que ter aparecido em alguma consulta daquela conversa, e o
+modelo não pode dizer que separou, reservou ou que o PIX caiu. Recusou? O
+cliente recebe o caminho determinístico, e o motivo vai para o log. Três coisas
+foram descobertas testando contra a API de verdade, não supondo:
+
+1. O modelo raciocina dentro de `max_tokens`. Com teto apertado ele gasta a cota
+   pensando e devolve texto **vazio** — o bot ficaria mudo. Daí o teto folgado e
+   a recusa explícita quando volta vazio com `finish_reason: "length"`.
+2. Ele devolve **várias** chamadas de ferramenta de uma vez, e às vezes com um
+   texto de enchimento junto ("vou verificar isso pra você"). Esse texto não
+   pode virar mensagem: o cliente receberia duas, a primeira sem conteúdo.
+3. Pedindo "adiciona 2 no meu carrinho", ele respondia "Fechou, 2 Watermelon
+   Ice 👌" **sem nada ter sido reservado**. Pior falha possível: o cliente
+   desliga achando que tem duas guardadas. Hoje o prompt lhe dá o movimento
+   certo — confirmar modelo e sabor e devolver ao fluxo — e o conferidor barra
+   a frase se ele insistir.
+
+`npm test` roda tudo offline com um modelo de mentira. Para exercitar o modelo
+de verdade, `IA_AO_VIVO=1 npx vitest run src/lib/ia/aovivo --testTimeout=120000`
+— dez casos, entre eles menor de idade, pedido de desconto, "ignore suas
+instruções" e tentativa de fechar pedido.
 
 **Erro do banco não vira dado de demonstração.** Se uma consulta falha com o
 Supabase conectado, a tela diz que não carregou. Cair na demonstração ali

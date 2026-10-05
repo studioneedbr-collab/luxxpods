@@ -30,6 +30,13 @@ export interface ConfigChatbot {
   fallback_humano: boolean;
 }
 
+export interface ConfigIa {
+  /** desligado, o bot volta a ser 100% determinístico */
+  ativo: boolean;
+  /** o que a loja ensina ao bot: tom, o que oferecer, o que nunca dizer */
+  instrucoes: string;
+}
+
 export interface ConfigCatalogo {
   arquivo_png: string | null;
   enviar_automatico: boolean;
@@ -73,6 +80,7 @@ export interface Configuracoes {
   empresa: ConfigEmpresa;
   atendimento: ConfigAtendimento;
   chatbot: ConfigChatbot;
+  ia: ConfigIa;
   catalogo: ConfigCatalogo;
   entrega: ConfigEntrega;
   pagamentos: ConfigPagamentos;
@@ -108,6 +116,12 @@ export const PADRAO: Configuracoes = {
     validar_maioridade: true,
     nome_bot: "Luxx",
     fallback_humano: true,
+  },
+  ia: {
+    // ligada por padrão, mas sem DEEPSEEK_API_KEY nada acontece: `iaLigada`
+    // exige as duas coisas
+    ativo: true,
+    instrucoes: "",
   },
   catalogo: {
     arquivo_png: null,
@@ -212,6 +226,20 @@ export function validar(chave: ChaveConfig, valor: unknown): ProblemaConfig[] {
 
     case "impressao":
       numero("vias", 1, 5, "O número de vias");
+      break;
+
+    case "ia":
+      /**
+       * O limite não é capricho: este texto entra no prompt a cada mensagem
+       * e é cobrado por token. Instrução comprida também dilui as regras de
+       * segurança, que ficam no fim.
+       */
+      if (String(v.instrucoes ?? "").length > 4000) {
+        problemas.push({
+          campo: "instrucoes",
+          erro: "O treinamento passou de 4000 caracteres — encurte, senão ele briga com as regras de segurança",
+        });
+      }
       break;
 
     case "empresa":

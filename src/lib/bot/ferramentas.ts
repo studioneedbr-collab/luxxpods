@@ -294,3 +294,26 @@ export function paraFormatoAnthropic() {
     },
   }));
 }
+
+/**
+ * Formato de tool do protocolo da OpenAI — é o que a DeepSeek fala.
+ *
+ * Recebe a lista em vez de usar FERRAMENTAS inteira porque quem chama é a
+ * política (src/lib/ia/politica.ts): o modelo só enxerga o que pode usar.
+ */
+export function paraFormatoOpenAI(lista: Ferramenta[] = FERRAMENTAS) {
+  return lista.map((f) => ({
+    type: "function" as const,
+    function: {
+      name: f.nome,
+      description: f.descricao,
+      parameters: {
+        type: "object" as const,
+        properties: Object.fromEntries(
+          f.parametros.map((p) => [p.nome, { type: p.tipo, description: p.descricao }]),
+        ),
+        required: f.parametros.filter((p) => p.obrigatorio).map((p) => p.nome),
+      },
+    },
+  }));
+}
