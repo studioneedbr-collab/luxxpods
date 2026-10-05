@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { FERRAMENTAS } from "../bot/ferramentas";
 import { ferramentasDoModelo, podeChamar } from "./politica";
 
+const confirmou = { clienteConfirmou: true };
+const naoConfirmou = { clienteConfirmou: false };
+
 describe("política da IA", () => {
   it("libera toda consulta: o risco nunca esteve em ler", () => {
     for (const f of FERRAMENTAS.filter((x) => !x.escreve)) {
@@ -9,33 +12,27 @@ describe("política da IA", () => {
     }
   });
 
-  it("recusa confirmar_pedido, que é irreversível", () => {
-    const v = podeChamar("confirmar_pedido");
-    expect(v.permitida).toBe(false);
-    if (!v.permitida) expect(v.motivo).toContain("irreversível");
-  });
-
-  it("recusa mexer no carrinho, porque isso reserva estoque", () => {
-    for (const nome of ["adicionar_carrinho", "remover_carrinho"]) {
-      const v = podeChamar(nome);
-      expect(v.permitida, nome).toBe(false);
-      if (!v.permitida) expect(v.motivo).toMatch(/estoque|reserva/);
+  /**
+   * O §24 do escopo lista estas como ferramentas do bot, e o que protege o
+   * estoque é a própria função: `adicionar_carrinho` falha sem unidade
+   * disponível, `criar_pagamento` tira o total do carrinho. Fechar a política
+   * aqui seria proteger duas vezes o que já está protegido, e em troca
+   * deixar o bot incapaz de vender.
+   */
+  it("deixa o modelo conduzir a venda, como o escopo manda", () => {
+    for (const nome of [
+      "adicionar_carrinho", "remover_carrinho", "cadastrar_endereco",
+      "criar_pagamento", "buscar_upsell", "responder_upsell",
+      "enviar_catalogo", "criar_tarefa", "transferir_atendimento",
+    ]) {
+      expect(podeChamar(nome).permitida, nome).toBe(true);
     }
   });
 
-  it("recusa criar cobrança", () => {
-    expect(podeChamar("criar_pagamento").permitida).toBe(false);
-  });
-
   it("recusa validar maioridade: é trava legal, não inferência", () => {
-    const v = podeChamar("validar_maioridade");
+    const v = podeChamar("validar_maioridade", confirmou);
     expect(v.permitida).toBe(false);
     if (!v.permitida) expect(v.motivo).toContain("legal");
-  });
-
-  it("deixa pedir gente e abrir pendência — é a saída honesta", () => {
-    expect(podeChamar("transferir_atendimento").permitida).toBe(true);
-    expect(podeChamar("criar_tarefa").permitida).toBe(true);
   });
 
   it("recusa nome que o modelo inventou", () => {
@@ -44,18 +41,43 @@ describe("política da IA", () => {
     if (!v.permitida) expect(v.motivo).toContain("não existe");
   });
 
+  /* ------------------------------------------- a trava do irreversível -- */
+
   /**
-   * Este é o teste que importa de verdade: ele falha se alguém, no futuro,
-   * marcar uma ferramenta nova como liberada sem pensar. Qualquer escrita
-   * fora das duas conhecidas quebra aqui.
+   * `confirmar_pedido` baixa estoque, gera financeiro e manda imprimir. A
+   * ETAPA 14 do escopo manda criar o pedido "somente após confirmação do
+   * cliente" — e essa é a única condição que nenhuma função consegue
+   * conferir sozinha. Então ela é conferida aqui, com o `ehSim` do sistema,
+   * e não pelo que o modelo achou que o cliente quis dizer.
    */
-  it("não entrega nenhuma escrita ao modelo além das duas conhecidas", () => {
-    const escritas = ferramentasDoModelo().filter((f) => f.escreve).map((f) => f.nome);
-    expect(escritas.sort()).toEqual(["criar_tarefa", "transferir_atendimento"]);
+  it("não fecha pedido sem o cliente ter dito sim nesta mensagem", () => {
+    const v = podeChamar("confirmar_pedido", naoConfirmou);
+    expect(v.permitida).toBe(false);
+    if (!v.permitida) {
+      expect(v.motivo).toContain("ainda não disse sim");
+      // a recusa ensina o caminho certo, senão o modelo insiste no erro
+      expect(v.motivo).toContain("resumir_pedido");
+    }
   });
 
-  it("entrega ao modelo todas as consultas que existem", () => {
-    const leituras = FERRAMENTAS.filter((f) => !f.escreve).length;
-    expect(ferramentasDoModelo().filter((f) => !f.escreve)).toHaveLength(leituras);
+  it("não fecha pedido quando ninguém informou a situação", () => {
+    expect(podeChamar("confirmar_pedido").permitida).toBe(false);
+  });
+
+  it("fecha pedido quando o cliente confirmou", () => {
+    expect(podeChamar("confirmar_pedido", confirmou).permitida).toBe(true);
+  });
+
+  /* ----------------------------------------------------------- a lista -- */
+
+  /**
+   * Este é o teste que importa de verdade: ele falha se alguém, no futuro,
+   * liberar a validação de maioridade sem pensar — e falha também se uma
+   * ferramenta nova entrar no sistema sem alguém decidir se o modelo a vê.
+   */
+  it("entrega ao modelo tudo menos a validação de maioridade", () => {
+    const vistas = ferramentasDoModelo().map((f) => f.nome);
+    const fora = FERRAMENTAS.map((f) => f.nome).filter((n) => !vistas.includes(n));
+    expect(fora).toEqual(["validar_maioridade"]);
   });
 });

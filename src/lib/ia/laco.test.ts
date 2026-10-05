@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
 import {
   responderComIa, type Conversador, type Dependencias, type Entrada,
+  type Executor,
 } from "./laco";
 import type { Ambiente, Saida } from "../bot/executor";
 import type { Resposta } from "./deepseek";
@@ -88,35 +89,115 @@ describe("laço de ferramentas da IA", () => {
   });
 
   /**
-   * O teste central. Mandar só as ferramentas permitidas no pedido não
-   * basta — o modelo pode chamar qualquer nome. A ferramenta NÃO pode
-   * executar, e o modelo tem que receber o motivo escrito.
+   * O teste central. O cliente escreveu "confirma meu pedido", que NÃO é um
+   * sim a um resumo que ele viu — é um pedido para fechar. A ferramenta não
+   * pode rodar, e o modelo tem que receber o motivo escrito, senão insiste.
    */
-  it("não executa confirmar_pedido, e diz ao modelo por quê", async () => {
+  it("não fecha o pedido sem o sim do cliente, e diz ao modelo por quê", async () => {
     const conversar = roteiro(
       chama("confirmar_pedido", {}),
-      fala("Vou chamar alguém pra fechar isso com você"),
+      fala("Deixa eu te mostrar o resumo antes"),
     );
     const executar = executorQueDevolve({});
 
-    const r = await responderComIa(entrada("confirma meu pedido"), { conversar, executar });
+    const r = await responderComIa(
+      { ...entrada("confirma meu pedido"), clienteConfirmou: false },
+      { conversar, executar });
 
     expect(executar).not.toHaveBeenCalled();
     expect(r.ok).toBe(true);
 
     const devolvido = resultadoDevolvido(conversar, 1);
-    expect(devolvido).toContain("não tem permissão");
-    expect(devolvido).toContain("irreversível");
+    expect(devolvido).toContain("ainda não disse sim");
+    expect(devolvido).toContain("resumir_pedido");
   });
 
-  it("não executa adicionar_carrinho: reserva de estoque é da máquina", async () => {
+  it("fecha o pedido quando o cliente respondeu que sim, em ORDER_REVIEW", async () => {
+    const emRevisao = { ...ambiente, estado: "ORDER_REVIEW" };
     const conversar = roteiro(
-      chama("adicionar_carrinho", { produto: "Ignite", sabor: "Uva", quantidade: 1 }),
-      fala("Me confirma o sabor que eu separo"),
+      chama("confirmar_pedido", {}),
+      fala("Pedido LX-2026-0042 fechado! 🖤"),
+    );
+    const executar = executorQueDevolve({ numero: "LX-2026-0042" });
+
+    const r = await responderComIa(
+      { ...entrada("isso, pode confirmar"), ambiente: emRevisao, clienteConfirmou: true },
+      { conversar, executar });
+
+    expect(executar).toHaveBeenCalledWith("confirmar_pedido", {}, emRevisao);
+    expect(r.ok).toBe(true);
+  });
+
+  /**
+   * A segunda trava, que já existia e vale também para o modelo: a etapa.
+   * Nem com o cliente dizendo sim dá para fechar um pedido que ainda não
+   * passou pelo resumo — foi este teste que me mostrou que o gate pegava.
+   */
+  it("não fecha pedido fora de ORDER_REVIEW nem com o sim do cliente", async () => {
+    const conversar = roteiro(
+      chama("confirmar_pedido", {}),
+      fala("Vamos escolher os produtos primeiro?"),
     );
     const executar = executorQueDevolve({});
 
-    await responderComIa(entrada("põe um de uva"), { conversar, executar });
+    await responderComIa(
+      { ...entrada("sim, confirma"), clienteConfirmou: true },
+      { conversar, executar });
+
+    expect(executar).not.toHaveBeenCalled();
+    expect(resultadoDevolvido(conversar, 1)).toContain("não pode ser usada");
+  });
+
+  /**
+   * O escopo quer o bot vendendo (§24 lista adicionar_carrinho entre as
+   * ferramentas dele). O que protege o estoque é a função: ela falha quando
+   * não há unidade. Aqui só se verifica que o laço deixa passar.
+   */
+  it("deixa o modelo pôr no carrinho, que é o trabalho dele", async () => {
+    const conversar = roteiro(
+      chama("adicionar_carrinho", { produto: "Ignite V150", sabor: "Mint", quantidade: 2 }),
+      fala("Fechou! 2 Mint do V150 no carrinho 🖤"),
+    );
+    const executar = executorQueDevolve(
+      { produto: "Ignite V150", sabor: "Mint", quantidade: 2, preco: 85 });
+
+    const r = await responderComIa(entrada("quero 2 mint do v150"), { conversar, executar });
+
+    expect(executar).toHaveBeenCalledWith(
+      "adicionar_carrinho",
+      { produto: "Ignite V150", sabor: "Mint", quantidade: 2 },
+      ambiente);
+    expect(r.ok).toBe(true);
+  });
+
+  /**
+   * E o contrário: a função recusou por falta de estoque. O laço não pode
+   * transformar isso em sucesso, e o conferidor não pode deixar o modelo
+   * dizer que separou.
+   */
+  it("a recusa por falta de estoque chega ao modelo, e ele não pode mentir", async () => {
+    const conversar = roteiro(
+      chama("adicionar_carrinho", { produto: "Ignite V150", sabor: "Mint", quantidade: 9 }),
+      fala("Separei as 9 unidades pra você"),
+    );
+    const executar = vi.fn<Executor>(async (): Promise<Saida> =>
+      ({ ok: false, erro: "Só tenho 4 unidades desse sabor" }));
+
+    const r = await responderComIa(entrada("quero 9 mint"), { conversar, executar });
+
+    expect(resultadoDevolvido(conversar, 1)).toContain("Só tenho 4");
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toContain("reservado");
+  });
+
+  it("recusa validar maioridade: isso é do sistema", async () => {
+    const conversar = roteiro(
+      chama("validar_maioridade", { confirmou: true }),
+      fala("Me fala sua idade"),
+    );
+    const executar = executorQueDevolve({});
+
+    await responderComIa(entrada("sou de maior sim"), { conversar, executar });
     expect(executar).not.toHaveBeenCalled();
   });
 
@@ -230,15 +311,18 @@ describe("laço de ferramentas da IA", () => {
     expect(r.motivo).toContain("502");
   });
 
-  it("desiste depois de três rodadas em vez de girar pedindo ferramenta", async () => {
+  it("desiste depois do limite de rodadas em vez de girar pedindo ferramenta", async () => {
     const conversar = vi.fn<Conversador>(async () => chama("buscar_marcas", {}));
     const r = await responderComIa(entrada("oi"), {
       conversar, executar: executorQueDevolve({ marcas: [] }),
     });
 
     expect(r.ok).toBe(false);
-    expect(r.rodadas).toBe(3);
-    expect(conversar).toHaveBeenCalledTimes(3);
+    expect(r.motivo).toContain("rodadas");
+    // o limite subiu de 3 para 5 quando a política abriu: ele encadeia
+    // buscar_sabores → adicionar_carrinho → consultar_carrinho
+    expect(conversar).toHaveBeenCalledTimes(r.rodadas);
+    expect(r.rodadas).toBeGreaterThanOrEqual(5);
   });
 
   it("desiste quando o prazo estoura, sem deixar o cliente esperando", async () => {

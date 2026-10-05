@@ -11,6 +11,7 @@ import { agendarFollowup } from "./recepcao";
 import * as fala from "./respostas";
 import { atenderComIa, iaLigada } from "../ia/atender";
 import { lerConfiguracoesDoSistema } from "../configuracoes-sistema";
+import type { TermosDoCatalogo } from "../ia/conferir";
 import type { ConversaEstado } from "../types";
 
 /**
@@ -57,7 +58,8 @@ export async function processar(
   const catalogo = await termosDoCatalogo();
   const { intencao } = classificar(textoDoCliente, catalogo);
 
-  const resposta = await decidir(intencao, textoDoCliente, ambiente, nome, conversa);
+  const resposta = await decidir(
+    intencao, textoDoCliente, ambiente, nome, conversa, catalogo);
 
   if (resposta.transferir) {
     await executar("transferir_atendimento",
@@ -113,6 +115,8 @@ async function decidir(
   amb: Ambiente,
   nome: string,
   conversa: ConversaLida,
+  /** já carregado em `processar` para classificar; reaproveitado aqui */
+  catalogo: TermosDoCatalogo,
 ): Promise<Decisao> {
   const ctx = amb.contexto;
   const estadoAtual = amb.estado as ConversaEstado;
@@ -131,6 +135,45 @@ async function decidir(
 
   const manter = (texto: string, novoContexto: Partial<Contexto> = {}): Decisao =>
     ({ texto, estado: proximo, contexto: novoContexto });
+
+  /**
+   * A IA, nos pontos em que o caminho determinístico desiste.
+   *
+   * Devolve `null` quando ela está desligada, falha, demora ou escreve algo
+   * que o conferidor recusa — e aí o chamador segue com a resposta genérica
+   * que já tinha. Nada depende de ela funcionar.
+   *
+   * Chamada em quatro lugares: quando a intenção não foi reconhecida, e nos
+   * três casos em que a busca não achou o produto que o cliente citou. Esses
+   * três respondiam listando as marcas ou pedindo o modelo de novo, o que
+   * ignora a pergunta — é onde "tem como pagar depois?" virava "me fala qual
+   * modelo que eu confiro".
+   */
+  const tentarIa = async (): Promise<Decisao | null> => {
+    const cfg = await lerConfiguracoesDoSistema();
+    if (!iaLigada(cfg)) return null;
+
+    const r = await atenderComIa(texto, amb, {
+      estado: estadoAtual,
+      nomeDoCliente: conversa.cliente_nome,
+      jaComprou: conversa.ja_comprou,
+      maioridadeValidada: conversa.maioridade_validada,
+    }, cfg, catalogo);
+
+    if (!r.ok) return null;
+
+    if (r.transferir) {
+      return { texto: fala.chamandoHumano, estado: "HUMAN",
+               contexto: { ...r.mudancasDeContexto, falhas_seguidas: 0 },
+               transferir: r.transferir };
+    }
+
+    if (!r.texto) return null;
+
+    // entendeu: zera o contador, senão uma conversa boa acabaria
+    // transferida por falhas antigas
+    return manter(r.texto, { ...r.mudancasDeContexto, falhas_seguidas: 0 });
+  };
 
   /* ---- oferta esperando resposta: é dela que a mensagem trata ---- */
 
@@ -200,7 +243,7 @@ async function decidir(
       // "manda o catálogo" quer a lista inteira, não uma pergunta de volta.
       // O texto é montado agora, do estoque: sabor esgotado não aparece.
       if (ctx.product_flavor_id && estadoAtual === "CART") {
-        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa);
+        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa, catalogo);
       }
 
       const r = await executar("catalogo_completo", {}, amb);
@@ -229,7 +272,7 @@ async function decidir(
       // quem diz "quero comprar" está pronto para escolher: perguntar a
       // marca é mais rápido que mandar tudo e esperar ele ler
       if (ctx.product_flavor_id && estadoAtual === "CART") {
-        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa);
+        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa, catalogo);
       }
       const marcas = await executar("buscar_marcas", {}, amb);
       const lista = (marcas.dados as { marcas: string[] })?.marcas ?? [];
@@ -281,13 +324,16 @@ async function decidir(
         return manter(falarErro(add.erro, "Esse sabor eu não tenho agora."));
       }
 
-      return decidir("modelo" as Intencao, texto, amb, nome, conversa);
+      return decidir("modelo" as Intencao, texto, amb, nome, conversa, catalogo);
     }
 
     case "modelo": {
       const r = await executar("buscar_sabores", { produto: texto }, amb);
       const d = r.dados as Parameters<typeof fala.listarSabores>[0] & { produto: string | null };
       if (!d.produto) {
+        const ia = await tentarIa();
+        if (ia) return ia;
+
         const marcas = await executar("buscar_marcas", {}, amb);
         const lista = (marcas.dados as { marcas: string[] })?.marcas ?? [];
         return manter(fala.listarMarcas(lista, nome));
@@ -318,6 +364,10 @@ async function decidir(
       const r = await executar("consultar_preco", { produto: texto }, amb);
       const d = r.dados as { encontrado: boolean; produto?: string; preco?: number };
       if (!d.encontrado) {
+        // "quanto sai a entrega?" cai aqui, e listar marcas não responde
+        const ia = await tentarIa();
+        if (ia) return ia;
+
         const marcas = await executar("buscar_marcas", {}, amb);
         const lista = (marcas.dados as { marcas: string[] })?.marcas ?? [];
         return manter(fala.listarMarcas(lista, nome));
@@ -410,7 +460,12 @@ async function decidir(
     case "estoque": {
       const r = await executar("buscar_sabores", { produto: texto }, amb);
       const d = r.dados as Parameters<typeof fala.listarSabores>[0] & { produto: string | null };
-      if (!d.produto) return manter("Me fala qual modelo que eu confiro pra você.");
+      if (!d.produto) {
+        // a regra de palavra-chave manda qualquer "tem ..." para cá
+        const ia = await tentarIa();
+        if (ia) return ia;
+        return manter("Me fala qual modelo que eu confiro pra você.");
+      }
       return manter(fala.listarSabores(d, nome), r.contexto ?? {});
     }
 
@@ -433,28 +488,8 @@ async function decidir(
        * conferidor recusa, o caminho abaixo é o mesmo de antes: conta a
        * falha e na terceira chama gente. Nada depende de ela funcionar.
        */
-      const cfg = await lerConfiguracoesDoSistema();
-
-      if (iaLigada(cfg)) {
-        const r = await atenderComIa(texto, amb, {
-          estado: estadoAtual,
-          nomeDoCliente: conversa.cliente_nome,
-          jaComprou: conversa.ja_comprou,
-          maioridadeValidada: conversa.maioridade_validada,
-        }, cfg);
-
-        if (r.ok && r.transferir) {
-          return { texto: fala.chamandoHumano, estado: "HUMAN",
-                   contexto: { ...r.mudancasDeContexto, falhas_seguidas: 0 },
-                   transferir: r.transferir };
-        }
-
-        if (r.ok && r.texto) {
-          // entendeu: zera o contador, senão uma conversa boa acabaria
-          // transferida por falhas antigas
-          return manter(r.texto, { ...r.mudancasDeContexto, falhas_seguidas: 0 });
-        }
-      }
+      const ia = await tentarIa();
+      if (ia) return ia;
 
       // não entendeu: conta a falha, e na terceira chama gente
       const falhas = (ctx.falhas_seguidas ?? 0) + 1;

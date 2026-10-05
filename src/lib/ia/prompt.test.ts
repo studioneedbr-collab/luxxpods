@@ -66,8 +66,30 @@ describe("prompt da loja", () => {
   it("proíbe o que estraga estoque e dinheiro", () => {
     const p = montarPrompt(loja);
     expect(p).toContain("Não faça conta de dinheiro");
-    expect(p).toContain("Você não fecha pedido");
     expect(p).toContain("menor de 18");
+    // pode fechar pedido, mas só depois do sim — e a ferramenta recusa antes
+    expect(p).toContain("Só quando o cliente responder que sim");
+  });
+
+  it("ensina o caminho da venda que o escopo descreve", () => {
+    const p = montarPrompt(loja);
+    for (const ferramenta of [
+      "buscar_modelos", "buscar_sabores", "catalogo_completo",
+      "adicionar_carrinho", "buscar_upsell", "buscar_enderecos",
+      "cadastrar_endereco", "criar_pagamento", "resumir_pedido",
+      "confirmar_pedido", "transferir_atendimento",
+    ]) {
+      expect(p, ferramenta).toContain(ferramenta);
+    }
+  });
+
+  it("traz a regra 4.8: lista curta não deixa o cliente na mão", () => {
+    const p = montarPrompt(loja);
+    expect(p).toContain("poucos sabores disponíveis");
+  });
+
+  it("manda ler a conversa antes de repetir pergunta", () => {
+    expect(montarPrompt(loja)).toContain("não repita pergunta");
   });
 
   it("não deixa seção vazia quando a loja não escreveu treinamento", () => {

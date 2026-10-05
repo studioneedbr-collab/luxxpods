@@ -1,58 +1,54 @@
 import { FERRAMENTAS, POR_NOME, type Ferramenta } from "../bot/ferramentas";
 
 /**
- * O que o modelo pode tocar — e o que é só da máquina de estados.
+ * O que o modelo pode tocar.
  *
- * Esta é a peça que protege o estoque, e por isso é uma lista explícita em
- * vez de uma regra esperta: quem revisa precisa conseguir ler de uma vez o
- * que a IA consegue fazer. O princípio é um só — o modelo ENTENDE e
- * RESPONDE; ele nunca fecha transação.
+ * O §24 do escopo é a régua: "o modelo de IA nunca deverá executar
+ * diretamente alterações críticas no banco. Deverá chamar funções
+ * previamente programadas e validadas." Ele não pede um bot sem mãos — pede
+ * que as mãos sejam funções conferidas, e lista `adicionar_carrinho`,
+ * `cadastrar_endereco`, `criar_pagamento` e `confirmar_pedido` entre elas.
  *
- * Toda ferramenta de leitura está liberada: preço, sabor e estoque saem de
- * consulta, então deixar o modelo consultar à vontade é o que o impede de
- * inventar. O risco nunca esteve em ler.
+ * E as funções conferem mesmo, no lugar que importa:
  *
- * A escrita é outra história, e cada recusa abaixo tem um motivo concreto.
+ * - `adicionar_carrinho` falha quando não há unidade disponível. É o banco
+ *   que recusa, não o bom senso do modelo.
+ * - `criar_pagamento` tira o total do CARRINHO; o modelo escolhe a forma, não
+ *   o valor, e troco menor que o total é recusado.
+ * - `confirmar_pedido` exige carrinho, endereço e forma de pagamento, e no
+ *   PIX exige o dinheiro já aprovado.
+ * - A reserva expira sozinha, então errar o carrinho não prende estoque.
+ *
+ * Sobra UMA coisa que função nenhuma consegue conferir: se o cliente
+ * realmente disse sim ao resumo. Essa trava está aqui embaixo.
  */
 
-/**
- * As escritas que o modelo pode fazer: as duas que não criam fato de
- * dinheiro nem de estoque, e que existem justamente para ele admitir que não
- * sabe. Tirar estas seria pior — sem elas, um modelo sem resposta inventa.
- */
-const ESCRITAS_LIBERADAS = new Set([
-  "transferir_atendimento",
-  "criar_tarefa",
-]);
-
-/**
- * Por que cada escrita fica fora. O texto não é decoração: entra no log
- * quando o modelo tenta chamar, e é o que explica a recusa a quem for
- * mexer nisso depois.
- */
+/** A única escrita que o modelo não faz, e o motivo. */
 export const MOTIVO_DA_RECUSA: Record<string, string> = {
-  confirmar_pedido:
-    "irreversível: baixa estoque, gera financeiro e manda imprimir. Só a "
-    + "máquina de estados chama, e só depois do cliente confirmar o resumo "
-    + "que ele viu.",
-  adicionar_carrinho:
-    "reserva estoque de verdade. O caminho determinístico já faz isso com o "
-    + "sabor conferido no catálogo.",
-  remover_carrinho: "devolve reserva ao estoque; mexe no que outro cliente pode comprar.",
-  criar_pagamento: "cria cobrança. Valor errado aqui é prejuízo ou venda perdida.",
-  cadastrar_endereco: "grava dado do cliente a partir de texto solto, sem ninguém conferir.",
   validar_maioridade:
-    "é trava legal. Tem que vir de um sim ou não explícito, nunca de inferência.",
-  buscar_upsell: "a oferta acontece uma vez, num ponto só do fluxo.",
-  responder_upsell: "registra decisão do cliente sobre uma oferta.",
-  enviar_catalogo: "manda mídia e agenda follow-up; o ritmo de envio é da máquina.",
+    "é trava legal, e tem que vir de um sim ou não explícito. O sistema já lê "
+    + "a idade declarada no texto antes de você entrar — não é sua.",
 };
+
+/**
+ * O passo irreversível: cria o pedido, baixa o estoque, gera o financeiro e
+ * manda imprimir. O escopo o lista como ferramenta do bot (ETAPA 14), e
+ * manda criar o pedido "somente após confirmação do cliente".
+ *
+ * Quem confere essa confirmação somos nós, com `ehSim` — a mesma função que
+ * o caminho determinístico usa, testada. Se dependesse do julgamento do
+ * modelo, bastaria ele se convencer de que o cliente concordou.
+ */
+const EXIGE_SIM_DO_CLIENTE = "confirmar_pedido";
+
+export interface Situacao {
+  /** a mensagem da vez é um sim, pelo `ehSim` do próprio sistema */
+  clienteConfirmou: boolean;
+}
 
 /** As ferramentas que vão no pedido ao modelo. */
 export function ferramentasDoModelo(): Ferramenta[] {
-  return FERRAMENTAS.filter(
-    (f) => !f.escreve || ESCRITAS_LIBERADAS.has(f.nome),
-  );
+  return FERRAMENTAS.filter((f) => !(f.nome in MOTIVO_DA_RECUSA));
 }
 
 export type Veredito =
@@ -63,23 +59,28 @@ export type Veredito =
  * Chamada pelo laço antes de executar qualquer coisa.
  *
  * Mandar só as ferramentas permitidas no pedido não basta: o modelo pode
- * chamar um nome que ele inventou ou lembrou de outro contexto, e aí a
- * recusa tem que acontecer aqui, do nosso lado.
+ * chamar um nome que inventou ou lembrou de outro contexto, e aí a recusa
+ * tem que acontecer aqui, do nosso lado.
  */
-export function podeChamar(nome: string): Veredito {
+export function podeChamar(nome: string, situacao?: Situacao): Veredito {
   const ferramenta = POR_NOME.get(nome);
 
   if (!ferramenta) {
     return { permitida: false, motivo: `a ferramenta "${nome}" não existe` };
   }
 
-  if (!ferramenta.escreve || ESCRITAS_LIBERADAS.has(nome)) {
-    return { permitida: true };
+  const recusa = MOTIVO_DA_RECUSA[nome];
+  if (recusa) return { permitida: false, motivo: recusa };
+
+  if (nome === EXIGE_SIM_DO_CLIENTE && !situacao?.clienteConfirmou) {
+    return {
+      permitida: false,
+      motivo:
+        "o cliente ainda não disse sim nesta mensagem. Mostre o resumo com "
+        + "resumir_pedido e pergunte se está tudo certo; quando ele "
+        + "confirmar, aí sim você fecha.",
+    };
   }
 
-  return {
-    permitida: false,
-    motivo: MOTIVO_DA_RECUSA[nome]
-      ?? "escreve no banco, e a IA não fecha transação",
-  };
+  return { permitida: true };
 }

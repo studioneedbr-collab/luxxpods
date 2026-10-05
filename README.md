@@ -253,8 +253,11 @@ Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
   preço: não há como separar com segurança um nome de sabor de qualquer outro
   par de palavras numa frase. Contra isso vale a regra do prompt e o fato de
   o caminho determinístico sempre tirar o sabor de consulta.
-- O modelo não lê o histórico da conversa, só a mensagem atual e a etapa. Ele
-  responde dúvida avulsa, não negocia ao longo de várias mensagens.
+- O modelo lê os 20 últimos turnos, não a conversa inteira. Compra de outro dia
+  não entra — e é de propósito, senão viraria outro assunto dentro deste.
+- `confirmar_pedido` pela IA é caminho raro: um "sim" quase sempre é
+  classificado como `confirmar` e tratado pela máquina de estados. A trava
+  existe para quando não for.
 - Áudio e imagem do cliente chegam como `[áudio de voz 12s]`; a IA não ouve
   nem vê. O `deepseek-flash` aceita imagem, mas nada está ligado nisso.
 
@@ -262,25 +265,53 @@ Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
 
 ## Decisões que valem saber
 
-### A IA não fecha transação
+### O que a IA faz, e o que o sistema garante
 
-O bot era 100% determinístico, e a parte que vende continua sendo: palavra-chave
-→ máquina de estados → ferramenta → frase pronta. A DeepSeek entra num ponto só,
-o `default:` de `motor.ts`, onde antes ia "não entendi".
+O bot era 100% determinístico. A parte que vende continua sendo — palavra-chave
+→ máquina de estados → ferramenta → frase pronta — e a IA entra em **quatro**
+pontos de `motor.ts`, todos eles lugares onde aquele caminho já tinha desistido:
 
-A razão de não ser mais que isso é o estoque. `src/lib/ia/politica.ts` entrega
-ao modelo **todas** as consultas e **duas** escritas — pedir uma pessoa e abrir
-pendência. Fora disso, nada: confirmar pedido, mexer no carrinho, criar cobrança
-e validar maioridade ficam com a máquina de estados, cada recusa com o motivo
-escrito no código. Mandar só as ferramentas permitidas no pedido não bastaria —
-o modelo pode chamar um nome que inventou — então `podeChamar` recusa do nosso
-lado também, e devolve o motivo para ele corrigir.
+- `default:`, quando a intenção não foi reconhecida;
+- `modelo`, `preco` e `estoque`, quando a busca não achou o produto citado.
 
-Depois disso, `src/lib/ia/conferir.ts` ainda lê a frase antes de ela sair: todo
-valor em reais tem que ter aparecido em alguma consulta daquela conversa, e o
-modelo não pode dizer que separou, reservou ou que o PIX caiu. Recusou? O
-cliente recebe o caminho determinístico, e o motivo vai para o log. Três coisas
-foram descobertas testando contra a API de verdade, não supondo:
+Esses três respondiam listando as marcas ou pedindo o modelo de novo, o que
+ignora a pergunta: a regra de palavra-chave manda qualquer "tem ..." para
+`estoque`, então **"tem como pagar depois?" virava "me fala qual modelo que eu
+confiro"**. Agora a IA lê a pergunta e responde.
+
+**O que ela pode fazer** segue o §24 do escopo: "o modelo de IA nunca deverá
+executar diretamente alterações críticas no banco. Deverá chamar funções
+previamente programadas e validadas." Não é um bot sem mãos — são mãos que
+passam por funções conferidas. `src/lib/ia/politica.ts` entrega todas, menos
+`validar_maioridade`, que é trava legal e sai do `ehSim`/`idadeDeclarada` do
+sistema, não de inferência.
+
+O que protege o estoque é a própria função, no lugar certo:
+`adicionar_carrinho` falha sem unidade disponível; `criar_pagamento` tira o
+total do CARRINHO (o modelo escolhe a forma, nunca o valor) e recusa troco
+menor que o total; `confirmar_pedido` exige carrinho, endereço e forma, e no
+PIX exige o dinheiro aprovado; a reserva expira sozinha.
+
+Sobrava **uma** condição que função nenhuma consegue conferir: se o cliente
+disse sim ao resumo. A ETAPA 14 manda criar o pedido "somente após confirmação
+do cliente", então `podeChamar("confirmar_pedido")` exige
+`clienteConfirmou` — calculado pelo `ehSim` do sistema em `atender.ts`, nunca
+pelo que o modelo achou que o cliente quis dizer. Rodando ao vivo ele foi além
+sozinho: em "pode confirmar" com PIX pendente, consultou o pagamento e disse
+que confirma quando cair.
+
+E mandar só as ferramentas permitidas no pedido não bastaria — o modelo pode
+chamar um nome que inventou — então `podeChamar` recusa do nosso lado também, e
+devolve o motivo escrito, porque recusa muda vira insistência no mesmo erro.
+
+Depois de tudo isso, `src/lib/ia/conferir.ts` lê a frase antes de ela sair.
+Todo valor em reais tem que ter saído de uma consulta, da configuração da loja
+ou da boca do cliente — e, nesse último caso, **menos quando o número está
+virando preço**, senão concordar com "faz R$ 60?" passaria. Ele também não pode
+dizer que separou, reservou, ou que o PIX caiu, sem a ferramenta ter rodado.
+Recusou? o cliente recebe o caminho determinístico e o motivo vai para o log.
+
+Três coisas foram descobertas testando contra a API de verdade, não supondo:
 
 1. O modelo raciocina dentro de `max_tokens`. Com teto apertado ele gasta a cota
    pensando e devolve texto **vazio** — o bot ficaria mudo. Daí o teto folgado e
@@ -294,10 +325,33 @@ foram descobertas testando contra a API de verdade, não supondo:
    certo — confirmar modelo e sabor e devolver ao fluxo — e o conferidor barra
    a frase se ele insistir.
 
+E três recusas FALSAS minhas, achadas do mesmo jeito — cada uma derrubava uma
+resposta certa e jogava o cliente no "não entendi" no meio da venda:
+
+4. "a entrega fica R$ 5,00" era barrado porque a taxa vem da configuração da
+   loja, não de consulta. É fato do sistema: entrou como origem válida.
+5. "troco pra 100" → "você paga com R$ 100" era barrado por ser do cliente, e
+   no turno seguinte era barrado de novo porque eu só olhava a mensagem da vez.
+   Hoje vale o que ele escreveu na conversa inteira.
+6. "vocês fazem fiado?" → "temos PIX e dinheiro" era barrado porque "temos"
+   bateu na regra de disponibilidade de PRODUTO. Hoje essa regra só vale quando
+   a frase cita uma marca, modelo ou sabor DESTA loja — exato, não chute. E
+   "vou separar" saiu da lista de "disse que fez": oferecer é o passo certo
+   antes de agir.
+
+**A memória** foi o maior salto. O modelo via só a mensagem da vez, e "e o
+outro, quanto sai?" não quer dizer nada sozinho. `src/lib/ia/historico.ts` passa
+os 20 últimos turnos como conversa de verdade, com o atendente humano contando
+como a mesma voz da loja — separar faria o modelo contradizer o que uma pessoa
+acabou de prometer.
+
 `npm test` roda tudo offline com um modelo de mentira. Para exercitar o modelo
-de verdade, `IA_AO_VIVO=1 npx vitest run src/lib/ia/aovivo --testTimeout=120000`
-— dez casos, entre eles menor de idade, pedido de desconto, "ignore suas
-instruções" e tentativa de fechar pedido.
+de verdade, `IA_AO_VIVO=1 npx vitest run src/lib/ia/aovivo --testTimeout=180000`
+— treze casos com carrinho, endereço e pagamento simulados, entre eles a venda
+inteira, menor de idade, pedido de desconto, "ignore suas instruções", PIX não
+pago e tentativa de fechar pedido sem o sim. O executor de mentira repete as
+travas do real de propósito: sem isso ele deixou "confirmar" passar com carrinho
+vazio e o teste viu um pedido criado do nada.
 
 **Erro do banco não vira dado de demonstração.** Se uma consulta falha com o
 Supabase conectado, a tela diz que não carregou. Cair na demonstração ali

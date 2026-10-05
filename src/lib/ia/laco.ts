@@ -1,6 +1,8 @@
 import { validarChamada } from "../bot/ferramentas";
-import { podeChamar } from "./politica";
-import { conferirResposta, type LeituraFeita } from "./conferir";
+import { podeChamar, type Situacao } from "./politica";
+import {
+  conferirResposta, type LeituraFeita, type OrigensValidas,
+} from "./conferir";
 import type { Ambiente, Saida } from "../bot/executor";
 import type { Contexto } from "../bot/estados";
 import type { Mensagem, Opcoes, Resposta } from "./deepseek";
@@ -35,9 +37,21 @@ export interface Entrada {
   prompt: string;
   /** a parte volátil, de montarContexto */
   contexto: string;
+  /** os turnos anteriores da conversa, de historicoDaConversa */
+  historico?: Mensagem[];
+  /** o que mais pode ser origem legítima de um valor em reais */
+  origens?: OrigensValidas;
   /** as tools no formato da OpenAI, já peneiradas pela política */
   ferramentas: unknown[];
   ambiente: Ambiente;
+  /**
+   * A mensagem da vez é um sim, pelo `ehSim` do próprio sistema.
+   *
+   * É o que libera `confirmar_pedido`. Vem de fora, calculado pela mesma
+   * função testada que o caminho determinístico usa — nunca do julgamento
+   * do modelo sobre o que o cliente quis dizer.
+   */
+  clienteConfirmou?: boolean;
 }
 
 export interface ResultadoIa {
@@ -53,8 +67,20 @@ export interface ResultadoIa {
   rodadas: number;
 }
 
-/** Três idas ao modelo bastam: pergunta, consulta, responde. */
-const MAX_RODADAS = 3;
+/**
+ * Quantas idas ao modelo.
+ *
+ * Eram três, e passou a faltar quando a política abriu: ele chama duas ou
+ * três ferramentas por rodada e encadeia — buscar_sabores, depois
+ * adicionar_carrinho, depois consultar_carrinho para dar o total. Medido
+ * contra a API, três rodadas estouravam no meio da venda e o cliente caía no
+ * caminho determinístico tendo o carrinho já montado; cinco ainda estouravam
+ * num turno em que ele conferiu carrinho, endereço e resumo de uma vez.
+ *
+ * O limite de verdade é o prazo total, logo abaixo: seis rodadas de ~4s
+ * cabem nele com folga.
+ */
+const MAX_RODADAS = 6;
 
 /** O cliente está olhando a tela do WhatsApp. Passando disso, desiste. */
 const PRAZO_TOTAL_MS = 35_000;
@@ -66,13 +92,22 @@ export async function responderComIa(
   const agora = dep.agora ?? (() => Date.now());
   const comecou = agora();
 
+  /**
+   * A ordem importa. O prompt estável vem primeiro, para a DeepSeek achar o
+   * prefixo que ela já viu e cobrar menos. Depois o histórico, como turnos
+   * de verdade. Por último o contexto volátil junto da mensagem da vez, que
+   * é onde o modelo presta mais atenção.
+   */
   const mensagens: Mensagem[] = [
     { role: "system", content: entrada.prompt },
+    ...(entrada.historico ?? []),
     {
       role: "user",
       content: `${entrada.contexto}\n\nMensagem do cliente: "${entrada.textoDoCliente}"`,
     },
   ];
+
+  const situacao: Situacao = { clienteConfirmou: entrada.clienteConfirmou === true };
 
   const leituras: LeituraFeita[] = [];
   const mudancas: Partial<Contexto> = {};
@@ -110,7 +145,10 @@ export async function responderComIa(
     /* ---- sem ferramenta: é a resposta final ---- */
 
     if (resposta.ferramentas.length === 0) {
-      const conferencia = conferirResposta(resposta.texto, leituras);
+      const conferencia = conferirResposta(resposta.texto, leituras, {
+        ...entrada.origens,
+        textoDoCliente: tudoQueOClienteEscreveu(entrada),
+      });
       if (!conferencia.ok) {
         return { ok: false, motivo: conferencia.motivo, leituras, rodadas: rodada };
       }
@@ -146,7 +184,8 @@ export async function responderComIa(
     mensagens.push(resposta.mensagemCrua);
 
     for (const chamada of resposta.ferramentas) {
-      const resultado = await executarComTravas(chamada, entrada.ambiente, dep.executar);
+      const resultado = await executarComTravas(
+        chamada, entrada.ambiente, situacao, dep.executar);
 
       if (resultado.leitura) {
         leituras.push(resultado.leitura);
@@ -169,6 +208,23 @@ export async function responderComIa(
   };
 }
 
+/**
+ * Tudo que o cliente escreveu nesta conversa, não só na mensagem da vez.
+ *
+ * O "troco pra 100" é dito uma vez e volta em várias respostas depois — no
+ * resumo, na confirmação. Olhando só a última mensagem, o conferidor
+ * barrava o R$ 100 no turno seguinte e derrubava a venda no fim. A brecha
+ * de concordar com um preço que o cliente propôs continua fechada por
+ * `afirmaPreco`, no conferidor.
+ */
+function tudoQueOClienteEscreveu(entrada: Entrada): string {
+  const anteriores = (entrada.historico ?? [])
+    .filter((m) => m.role === "user")
+    .map((m) => String(m.content ?? ""));
+
+  return [...anteriores, entrada.textoDoCliente].join(" \n ");
+}
+
 /* ---------------------------------------------------------------- TRAVAS -- */
 
 interface Executada {
@@ -185,6 +241,7 @@ interface Executada {
 async function executarComTravas(
   chamada: { nome: string; argumentos: Record<string, unknown>; argumentosCrus?: string },
   ambiente: Ambiente,
+  situacao: Situacao,
   executar: Executor,
 ): Promise<Executada> {
   if (chamada.argumentosCrus !== undefined) {
@@ -195,7 +252,7 @@ async function executarComTravas(
     };
   }
 
-  const veredito = podeChamar(chamada.nome);
+  const veredito = podeChamar(chamada.nome, situacao);
   if (!veredito.permitida) {
     console.warn(
       `[luxx:ia] recusei ${chamada.nome}: ${veredito.motivo}`,

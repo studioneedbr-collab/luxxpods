@@ -5,7 +5,10 @@ import { conversar, iaConfigurada } from "./deepseek";
 import { ferramentasDoModelo } from "./politica";
 import { montarContexto, montarPrompt, type EstadoDaConversa } from "./prompt";
 import { responderComIa, type ResultadoIa } from "./laco";
+import { historicoDaConversa } from "./historico";
+import { ehSim } from "../bot/intencoes";
 import type { Configuracoes } from "../configuracoes";
+import type { TermosDoCatalogo } from "./conferir";
 
 /**
  * O fio entre o motor do bot e a IA.
@@ -30,6 +33,7 @@ export async function atenderComIa(
   ambiente: Ambiente,
   conversa: EstadoDaConversa,
   cfg: Configuracoes,
+  catalogo?: TermosDoCatalogo,
 ): Promise<ResultadoIa> {
   const formas = [
     cfg.pagamentos.pix_ativo ? "PIX" : null,
@@ -54,8 +58,22 @@ export async function atenderComIa(
       textoDoCliente,
       prompt,
       contexto: montarContexto(conversa),
+      historico: await historicoDaConversa(ambiente.conversationId, textoDoCliente),
+      origens: {
+        catalogo,
+        // a taxa de entrega e o frete grátis estão no prompt: são fato do
+        // sistema, e o bot pode repeti-los sem consultar
+        valoresDaLoja: [cfg.entrega.taxa_padrao, cfg.entrega.taxa_gratis_acima],
+      },
       ferramentas: toolsDoModelo(),
       ambiente,
+      /**
+       * A trava do passo irreversível, calculada AQUI e não pelo modelo.
+       * `ehSim` é a mesma função que o caminho determinístico usa para ler
+       * "pode ser", "fechou", "isso mesmo" — testada, e cega a qualquer
+       * conversa que o modelo tenha tido consigo mesmo.
+       */
+      clienteConfirmou: ehSim(textoDoCliente),
     },
     { conversar, executar },
   );

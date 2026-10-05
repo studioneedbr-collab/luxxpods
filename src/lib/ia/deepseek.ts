@@ -22,8 +22,12 @@ const MODELO_PADRAO = "deepseek-flash";
  *
  * Daí o teto folgado e, em `conversar`, a recusa explícita quando a resposta
  * volta sem texto e sem ferramenta.
+ *
+ * Começou em 1600 e não bastou: com o treinamento do escopo no prompt e o
+ * histórico da conversa, ele estourou respondendo um endereço. 3000 deu
+ * folga em todos os casos medidos.
  */
-const TETO_TOKENS = 1600;
+const TETO_TOKENS = 3000;
 
 /** Esperar mais que isso é pior que cair no caminho determinístico. */
 const TIMEOUT_MS = 20_000;
