@@ -89,9 +89,11 @@ describe("o que chega do WhatsApp pela Z-API", () => {
 });
 
 describe("o que NÃO deve virar conversa", () => {
-  it("mensagem do próprio número", () => {
-    expect(canal.interpretarWebhook({ ...base, fromMe: true, text: { message: "oi" } }))
-      .toBeNull();
+  it("o eco do que o próprio sistema mandou pela API", () => {
+    // já está gravado na conversa; gravar de novo duplicaria
+    expect(canal.interpretarWebhook({
+      ...base, fromMe: true, fromApi: true, text: { message: "oi" },
+    })).toBeNull();
   });
 
   it("grupo — o número da loja entra em grupo o tempo todo", () => {
@@ -116,15 +118,58 @@ describe("o que NÃO deve virar conversa", () => {
   });
 });
 
+describe("o que a loja escreve direto no celular", () => {
+  it("entra na conversa do cliente, marcado como nosso", () => {
+    // antes era descartado e a conversa no painel ficava só com um lado
+    const m = canal.interpretarWebhook({
+      ...base, fromMe: true, senderName: "Luxx Pods", chatName: "Lucas",
+      text: { message: "já te mando" },
+    })!.mensagens[0];
+    expect(m.enviadaPorMim).toBe(true);
+    expect(m.de).toBe("5533999990000");
+    expect(m.nome).toBe("Lucas");
+    expect(m.texto).toBe("já te mando");
+  });
+
+  it("mensagem do cliente não vem marcada", () => {
+    expect(ler({ text: { message: "oi" } })!.enviadaPorMim).toBeUndefined();
+  });
+});
+
 describe("status de entrega", () => {
-  it("lida, entregue e erro", () => {
-    const st = (s: string) => canal.interpretarWebhook({
-      ...base, type: "MessageStatusCallback", status: s,
-    })?.statusAtualizados[0]?.status;
+  // o corpo real da Z-API: os ids vêm numa lista, sem `messageId`
+  const status = (s: string, extra: Record<string, unknown> = {}) => canal.interpretarWebhook({
+    instanceId: "I", type: "MessageStatusCallback", status: s,
+    ids: ["ABC"], momment: 1_760_000_000_000, phone: "5533999990000", ...extra,
+  });
+
+  it("lida, entregue, enviada e erro", () => {
+    const st = (s: string) => status(s)?.statusAtualizados[0]?.status;
     expect(st("READ")).toBe("lida");
-    expect(st("DELIVERED")).toBe("entregue");
+    expect(st("PLAYED")).toBe("lida");
     expect(st("RECEIVED")).toBe("entregue");
+    expect(st("DELIVERED")).toBe("entregue");
+    expect(st("SENT")).toBe("enviada");
     expect(st("ERROR")).toBe("erro");
+  });
+
+  it("lê o id da lista — era o que deixava todo tique parado", () => {
+    expect(status("READ")!.statusAtualizados[0].idExterno).toBe("ABC");
+    expect(status("READ", { ids: ["A", "B"] })!.statusAtualizados.map((x) => x.idExterno))
+      .toEqual(["A", "B"]);
+  });
+
+  it("a loja lendo a mensagem do cliente não muda nada", () => {
+    expect(status("READ_BY_ME")).toBeNull();
+  });
+
+  it("status de mensagem nossa não é descartado como eco", () => {
+    expect(status("READ", { fromMe: true })?.statusAtualizados).toHaveLength(1);
+  });
+
+  it("horário em segundos não vira 1970", () => {
+    const em = status("READ", { momment: 1_760_000_000 })!.statusAtualizados[0].em;
+    expect(em.getFullYear()).toBeGreaterThan(2020);
   });
 
   it("mensagem com conteúdo não é confundida com status", () => {

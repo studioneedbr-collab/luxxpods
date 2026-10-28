@@ -27,6 +27,16 @@ export interface ResultadoImportacao {
   conversas_novas?: number;
   ja_existiam?: number;
   grupos_ignorados?: number;
+  leads_abertos?: number;
+}
+
+const JANELA_KANBAN_DIAS = 30;
+
+/** Não lida conta como viva mesmo sem data: alguém está esperando resposta. */
+function ativaRecentemente(chat: { naoLidas: number; ultimaEm: Date | null }) {
+  if (chat.naoLidas > 0) return true;
+  if (!chat.ultimaEm) return false;
+  return Date.now() - chat.ultimaEm.getTime() < JANELA_KANBAN_DIAS * 86_400_000;
 }
 
 export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao> {
@@ -56,7 +66,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
     };
   }
 
-  const chats = await canal.listarChats(1, 100);
+  const chats = await canal.listarTodosChats();
   if (!chats) {
     return {
       ok: false,
@@ -73,6 +83,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
   let clientesNovos = 0;
   let conversasNovas = 0;
   let jaExistiam = 0;
+  let leadsAbertos = 0;
 
   for (const chat of chats) {
     // 1) cliente pelo telefone, que é único por loja
@@ -113,7 +124,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
 
     if (conversa) { jaExistiam++; continue; }
 
-    const { error } = await c.from("conversations").insert({
+    const { data: criada, error } = await c.from("conversations").insert({
       store_id: STORE_ID,
       customer_id: customerId,
       canal: "whatsapp",
@@ -129,13 +140,26 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
         : "(conversa importada do WhatsApp)",
       ultima_mensagem_em: chat.ultimaEm?.toISOString() ?? null,
       ultima_interacao_cliente: chat.ultimaEm?.toISOString() ?? null,
-    });
+    }).select("id").single();
 
-    if (error) {
-      console.error(`[luxx] conversa de ${chat.telefone} não importou: ${error.message}`);
+    if (error || !criada) {
+      console.error(`[luxx] conversa de ${chat.telefone} não importou: ${error?.message}`);
       continue;
     }
     conversasNovas++;
+
+    // conversa viva entra no kanban como atendimento aberto; a de meses
+    // atrás não — senão o funil nasceria com centenas de cards parados
+    if (!chat.arquivado && ativaRecentemente(chat)) {
+      const { error: erroLead } = await c.rpc("abrir_atendimento", {
+        p_conversation_id: criada.id, p_origem: "Importado do WhatsApp",
+      });
+      if (erroLead) {
+        console.error(`[luxx] atendimento de ${chat.telefone} não abriu: ${erroLead.message}`);
+      } else {
+        leadsAbertos++;
+      }
+    }
   }
 
   // o bot fica desligado nas importadas de propósito: ele não viu o começo
@@ -143,12 +167,14 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
   revalidatePath("/chats");
   revalidatePath("/clientes");
   revalidatePath("/painel-atendimento");
+  revalidatePath("/kanban");
 
   return {
     ok: true,
     clientes_novos: clientesNovos,
     conversas_novas: conversasNovas,
     ja_existiam: jaExistiam,
+    leads_abertos: leadsAbertos,
   };
 }
 
@@ -161,7 +187,7 @@ export async function contarChatsDoWhatsapp(): Promise<
     return { ok: false, erro: "Z-API não configurada." };
   }
 
-  const chats = await canal.listarChats(1, 100);
+  const chats = await canal.listarTodosChats();
   if (!chats) return { ok: false, erro: "Não consegui falar com a Z-API." };
 
   return { ok: true, total: chats.length };

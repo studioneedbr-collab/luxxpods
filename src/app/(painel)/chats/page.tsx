@@ -1,5 +1,6 @@
 import { Inbox } from "@/components/chat/inbox";
 import { getConversas, getMensagens } from "@/lib/data";
+import { CanalZApi } from "@/lib/canal/zapi";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function ChatsPage({
       conversas={conversas}
       mensagensIniciais={mensagens}
       conversaInicial={inicial}
+      podeImportar={new CanalZApi().configurado()}
     />
   );
 }

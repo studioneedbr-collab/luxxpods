@@ -9,7 +9,7 @@ import {
   demoSalvarProduto, demoFecharLeadDoPedido, demoReabrirLeadDoPedido,
   demoStatusPedido, demoCriarPedido, demoConversaDoPedido, demo,
 } from "./demo";
-import { enfileirar } from "./fila/worker";
+import { despacharFila, enfileirar } from "./fila/worker";
 import { agendarFollowup } from "./bot/recepcao";
 import type { PedidoStatus } from "./types";
 import { traduzirErroBanco } from "./erros-banco";
@@ -40,6 +40,7 @@ async function avisarClienteDoStatus(pedidoId: string, status: PedidoStatus) {
     { texto, order_id: pedidoId, natureza: "transacional" },
     { conversationId },
   );
+  despacharFila();
 }
 
 async function cli() {
@@ -93,12 +94,20 @@ export async function enviarMensagem(conversationId: string, conteudo: string): 
       ultima_interacao_sistema: new Date().toISOString(),
     }).eq("id", conversationId);
 
-    await enfileirar(
+    const fila = await enfileirar(
       "enviar_mensagem",
       { conteudo: texto, message_id: gravada.id, natureza: "transacional" },
       { conversationId },
     );
+    if (!fila.ok) {
+      await c.from("messages").update({ status: "erro", erro: fila.erro ?? "não entrou na fila" })
+        .eq("id", gravada.id);
+      return { ok: false, erro: "A mensagem foi gravada mas não entrou na fila de envio." };
+    }
   }
+
+  // sai agora, não no próximo minuto do cron
+  despacharFila();
 
   revalidatePath("/chats");
   return { ok: true };
@@ -161,13 +170,20 @@ export async function moverLead(leadId: string, stageId: string): Promise<Result
   } else {
     const { data: etapa } = await c
       .from("pipeline_stages").select("tipo").eq("id", stageId).maybeSingle();
-    const status = etapa?.tipo === "ganho" ? "ganho" : etapa?.tipo === "perdido" ? "perdido" : "aberto";
-    await c.from("leads").update({
+    if (!etapa) return { ok: false, erro: "Etapa não encontrada." };
+    const status = etapa.tipo === "ganho" ? "ganho" : etapa.tipo === "perdido" ? "perdido" : "aberto";
+
+    // UPDATE barrado pelo controle de acesso devolve sucesso com zero linhas:
+    // sem conferir, o card voltava para a etapa antiga no próximo carregamento
+    // depois de a tela ter dito que moveu
+    const { data: movido, error } = await c.from("leads").update({
       stage_id: stageId,
       status,
       data_ganho: status === "ganho" ? new Date().toISOString() : null,
       data_perda: status === "perdido" ? new Date().toISOString() : null,
-    }).eq("id", leadId);
+    }).eq("id", leadId).select("id");
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+    if (!movido?.length) return { ok: false, erro: "Seu perfil não pode mover este lead." };
   }
   revalidatePath("/kanban");
   return { ok: true };
@@ -692,6 +708,11 @@ export async function confirmarPagamentoPix(pedidoId: string): Promise<Resultado
       erro: `Pagamento marcado, mas o pedido não confirmou: ${erroConfirmacao.message}`,
     };
   }
+
+  // sem isto o bot continuava dizendo ao cliente que o PIX não tinha caído
+  const { avisarPagamentoAprovado } = await import("./bot/pos-pagamento");
+  await avisarPagamentoAprovado(pedidoId);
+  despacharFila();
 
   revalidatePath("/pedidos");
   revalidatePath("/entregas");

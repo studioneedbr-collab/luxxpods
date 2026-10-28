@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { meioDoWebhook } from "@/lib/pagamento";
 import { registrarPagamento } from "@/lib/pagamento/recepcao";
+import { despacharFila } from "@/lib/fila/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,8 @@ export async function POST(req: Request) {
 
   try {
     const r = await registrarPagamento(evento, meio.nome);
+    // o "pagamento confirmado" ao cliente sai agora, não no próximo cron
+    if (r.processado) despacharFila();
     return NextResponse.json({ success: true, ...r });
   } catch (e) {
     console.error("[luxx] falha ao registrar pagamento:", e);

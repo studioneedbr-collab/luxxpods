@@ -19,7 +19,7 @@ const INTEGRACOES = [
       "Meta: Phone Number ID, WABA ID, Access Token, Verify Token",
       "ou Z-API: ZAPI_INSTANCE_ID, ZAPI_TOKEN, ZAPI_CLIENT_TOKEN",
     ],
-    endpoint: "POST /api/webhooks/whatsapp",
+    endpoint: "POST /api/webhooks/whatsapp?token=ZAPI_WEBHOOK_SECRET",
   },
   {
     nome: "Instagram Direct (Meta)", icone: AtSign, cor: "#E1306C",

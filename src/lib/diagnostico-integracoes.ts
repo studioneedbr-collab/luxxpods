@@ -106,7 +106,7 @@ export function diagnosticarWhatsapp(): Situacao {
       rotulo: "no ar · Z-API",
       detalhe: semSegredo
         ? "Funcionando. Sem ZAPI_WEBHOOK_SECRET o webhook aceita qualquer corpo — vale preencher."
-        : "Funcionando, com o webhook validando o segredo.",
+        : "Funcionando. Cadastre na Z-API a URL do webhook com ?token= igual ao ZAPI_WEBHOOK_SECRET.",
     };
   }
 

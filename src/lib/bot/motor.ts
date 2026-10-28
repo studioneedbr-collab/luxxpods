@@ -3,10 +3,16 @@ import { clienteDoSistema } from "../supabase/sistema";
 import { STORE_ID } from "../supabase/config";
 import { enfileirar } from "../fila/worker";
 import { demo, demoEnviarMensagem } from "../demo";
-import { classificar, ehNao, ehSim, type Intencao } from "./intencoes";
+import { classificar, confirmouMaioridade, ehNao, idadeDeclarada, type Intencao } from "./intencoes";
 import { aceitouOferta } from "./upsell";
-import { deveChamarHumano, proximoEstado, type Contexto } from "./estados";
-import { executar, type Ambiente } from "./executor";
+import { deveChamarHumano, proximoEstado, type Contexto, type FormaPagamento } from "./estados";
+import { executar, lerPerfil, type Ambiente, type PerfilDoCliente } from "./executor";
+import {
+  enderecoEmLinha, extrairEndereco, extrairPreferencias, preferenciasEmTexto,
+  quantidadeNoTexto, semPreferencia,
+} from "./extrair";
+import { linhasDoPerfil } from "../ia/prompt";
+import type { Configuracoes } from "../configuracoes";
 import { agendarFollowup } from "./recepcao";
 import * as fala from "./respostas";
 import { atenderComIa, iaLigada } from "../ia/atender";
@@ -90,13 +96,66 @@ function falarErro(erro: string | undefined, alternativa: string): string {
   const doCliente = [
     /esgotad/i, /só tenho/i, /só tem/i, /não achei/i, /não está disponível/i,
     /carrinho está vazio/i, /menor que o total/i, /ainda não caiu/i,
-    /falta confirmar/i, /falta escolher/i,
+    /falta confirmar/i, /falta escolher/i, /acabou/i, /não achei esse endereço/i,
   ];
   if (doCliente.some((r) => r.test(erro))) return erro;
 
   // o resto é problema nosso: registra e responde como gente
   console.error(`[luxx] o bot escondeu um erro técnico do cliente: ${erro}`);
   return alternativa;
+}
+
+const normalizar = (t: string) =>
+  t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+/** "sim" curto, para responder a uma oferta do bot — mais estrito que `ehSim`. */
+const SIM_CURTO =
+  /^(sim|s|ss|isso|isso mesmo|pode|pode ser|manda|bora|claro|fechou|fechado|beleza|blz|show|uhum|aham|ok|okay|exato|esse mesmo|quero sim|o mesmo|a mesma)\b/;
+const QUER_O_MESMO = /\b(o mesmo|a mesma|mesma coisa|de novo|igual|repete|repetir)\b/;
+const PAGUEI = /\b(paguei|ja paguei|fiz o pix|fiz o pagamento|transferi|comprovante|ja caiu|caiu ai|ja foi|mandei o pix|enviei o pix)\b/;
+
+/**
+ * O sabor do catálogo que aparece na frase — "quero 2 watermelon ice" é o
+ * Watermelon Ice. O mais longo ganha: "Ice" sozinho não pode vencer "Mango Ice".
+ */
+function saborNoTexto(texto: string, catalogo: TermosDoCatalogo): string {
+  const t = normalizar(texto);
+  const achado = [...catalogo.sabores]
+    .sort((a, b) => b.length - a.length)
+    .find((s) => s && t.includes(normalizar(s)));
+  return achado ?? texto;
+}
+
+/** A forma dita no texto, se houver. */
+function formaNoTexto(t: string): FormaPagamento | null {
+  if (/\bpix\b/.test(t)) return "pix";
+  if (/\bdebito\b/.test(t)) return "cartao_debito";
+  if (/\b(cartao|credito|maquininha|maquina)\b/.test(t)) return "cartao_credito";
+  if (/\b(dinheiro|especie|na mao|cash)\b/.test(t)) return "dinheiro";
+  return null;
+}
+
+/** "50", "R$ 100", "100,00", "cinquenta não": só número. */
+function valorEmReais(t: string): number | null {
+  const m = t.match(/(?:r\$\s*)?(\d{1,4}(?:[.,]\d{2})?)/);
+  if (!m) return null;
+  const v = Number(m[1].replace(",", "."));
+  return v > 0 ? v : null;
+}
+
+/** O que a loja aceita, na ordem em que o bot oferece. */
+function formasAtivas(cfg: Configuracoes): FormaPagamento[] {
+  return [
+    cfg.pagamentos.pix_ativo ? "pix" : null,
+    cfg.pagamentos.dinheiro_ativo ? "dinheiro" : null,
+    cfg.pagamentos.cartao_ativo ? "cartao_credito" : null,
+  ].filter((f): f is FormaPagamento => f !== null);
+}
+
+function formaAceita(forma: FormaPagamento, cfg: Configuracoes): boolean {
+  if (forma === "pix") return cfg.pagamentos.pix_ativo;
+  if (forma === "dinheiro") return cfg.pagamentos.dinheiro_ativo;
+  return cfg.pagamentos.cartao_ativo;
 }
 
 /* --------------------------------------------------------------- DECISÃO -- */
@@ -118,6 +177,24 @@ async function decidir(
   /** já carregado em `processar` para classificar; reaproveitado aqui */
   catalogo: TermosDoCatalogo,
 ): Promise<Decisao> {
+  const d = await decidirFluxo(intencao, texto, amb, nome, conversa, catalogo);
+
+  // a oferta "vai o mesmo?" vale só para a resposta seguinte: se o cliente
+  // seguiu por outro caminho, um "sim" lá na frente não pode repetir o pedido
+  if (amb.contexto.repetir_pedido_id && !("repetir_pedido_id" in d.contexto)) {
+    d.contexto = { ...d.contexto, repetir_pedido_id: undefined };
+  }
+  return d;
+}
+
+async function decidirFluxo(
+  intencao: Intencao,
+  texto: string,
+  amb: Ambiente,
+  nome: string,
+  conversa: ConversaLida,
+  catalogo: TermosDoCatalogo,
+): Promise<Decisao> {
   const ctx = amb.contexto;
   const estadoAtual = amb.estado as ConversaEstado;
   const proximo = proximoEstado(estadoAtual, intencao, ctx);
@@ -135,6 +212,23 @@ async function decidir(
 
   const manter = (texto: string, novoContexto: Partial<Contexto> = {}): Decisao =>
     ({ texto, estado: proximo, contexto: novoContexto });
+
+  /** Lido uma vez por mensagem, e só quando alguém precisa. */
+  let perfilLido: PerfilDoCliente | null = null;
+  const perfil = async () => (perfilLido ??= await lerPerfil(amb.customerId));
+
+  /** O carrinho fechou: endereço salvo vira pergunta de sim ou não. */
+  const pedirEnderecoAntes = async (prefixo: string, extra: Partial<Contexto> = {}): Promise<Decisao> => {
+    const salvo = (await perfil()).endereco;
+    const pre = prefixo ? `${prefixo}\n\n` : "";
+    if (salvo) {
+      return { texto: pre + fala.confirmarEnderecoAnterior(salvo.linha, nome), estado: "ADDRESS",
+               contexto: { ...extra, endereco_sugerido_id: salvo.id, endereco_confirmado: undefined } };
+    }
+    return { texto: pre + fala.pedirEndereco, estado: "ADDRESS",
+             contexto: { ...extra, endereco_confirmado: undefined } };
+  };
+
 
   /**
    * A IA, nos pontos em que o caminho determinístico desiste.
@@ -158,6 +252,9 @@ async function decidir(
       nomeDoCliente: conversa.cliente_nome,
       jaComprou: conversa.ja_comprou,
       maioridadeValidada: conversa.maioridade_validada,
+      // o que o cliente gosta, compra e onde recebe — antes a IA sabia só
+      // "já comprou: sim ou não"
+      perfil: linhasDoPerfil(await perfil()),
     }, cfg, catalogo);
 
     if (!r.ok) return null;
@@ -177,25 +274,21 @@ async function decidir(
 
   /* ---- oferta esperando resposta: é dela que a mensagem trata ---- */
 
-  if (ctx.upsell_pendente && intencao !== "falar_humano" && intencao !== "problema") {
+  if (ctx.upsell_pendente && estadoAtual === "CART"
+      && intencao !== "falar_humano" && intencao !== "problema") {
     const aceita = aceitouOferta(texto);
     await executar("responder_upsell", { aceita }, { ...amb, estado: "CART" });
 
     if (aceita) {
       const carrinho = await executar("consultar_carrinho", {}, amb);
       const d = carrinho.dados as Parameters<typeof fala.resumoCarrinho>[0];
-      return {
-        texto: `Boa! Adicionei 🖤\n\n${fala.resumoCarrinho(d)}\n\n${fala.pedirEndereco}`,
-        estado: "ADDRESS",
-        contexto: { upsell_pendente: undefined },
-      };
+      return pedirEnderecoAntes(`Boa! Adicionei 🖤\n\n${fala.resumoCarrinho(d)}`,
+        { upsell_pendente: undefined });
     }
 
-    return {
-      texto: `Sem problema!\n\n${fala.pedirEndereco}`,
-      estado: "ADDRESS",
-      contexto: { upsell_pendente: undefined },
-    };
+    // a oferta sai do contexto: senão o endereço digitado em seguida era lido
+    // como resposta a ela, e um "sim" depois punha o item no carrinho
+    return pedirEnderecoAntes("Sem problema!", { upsell_pendente: undefined });
   }
 
   /* ---- o que interrompe qualquer fluxo ---- */
@@ -215,29 +308,279 @@ async function decidir(
 
   /* ---- maioridade antes de vender (§3.3) ---- */
 
+  // quem já se declarou menor não passa a ser maior na mensagem seguinte
+  if (conversa.declarou_menor) {
+    return { texto: fala.recusaMenor, estado: "ABANDONED", contexto: {} };
+  }
+
   if (!conversa.maioridade_validada) {
-    if (ehSim(texto) || intencao === "maioridade") {
+    // o "não" primeiro: "tenho 16 anos" casava com a intenção maioridade e
+    // era aceito como confirmação
+    if (ehNao(texto)) {
+      const idade = idadeDeclarada(texto);
+      if ((idade !== null && idade < 18) || /\bmenor\b/i.test(texto)) {
+        await marcarMenor(conversa.customer_id);
+      }
+      return { texto: fala.recusaMenor, estado: "ABANDONED", contexto: {} };
+    }
+    if (confirmouMaioridade(texto)) {
       await executar("validar_maioridade", { confirmou: true }, amb);
       const marcas = await executar("buscar_marcas", {}, amb);
       const lista = (marcas.dados as { marcas: string[] })?.marcas ?? [];
+
+      // primeira vez: pergunta o gosto junto, sem travar quem já sabe o que quer
+      const perguntar = !conversa.ja_comprou && lista.length > 0;
       // sai de INITIAL: a próxima mensagem já é escolha de produto
       return {
-        texto: fala.listarMarcas(lista, nome),
+        texto: perguntar
+          ? `${fala.listarMarcas(lista, nome)}\n\n${fala.perguntarPreferencia}`
+          : fala.listarMarcas(lista, nome),
         estado: "PRODUCT_SELECTION",
-        contexto: { maioridade_validada: true },
+        contexto: { maioridade_validada: true, ...(perguntar ? { pref_perguntada: true } : {}) },
       };
     }
-    if (ehNao(texto)) {
-      return { texto: fala.recusaMenor, estado: "ABANDONED", contexto: {} };
-    }
-    return manter(fala.perguntarMaioridade(nome));
+    // a etapa não anda antes da idade: "quero ver os pods" aqui não é catálogo
+    return { texto: fala.perguntarMaioridade(nome), estado: estadoAtual, contexto: {} };
   }
 
   /* ---- o fluxo de venda ---- */
 
+  const cfg = await lerConfiguracoesDoSistema();
+  const formas = formasAtivas(cfg);
+  const t = normalizar(texto);
+
+  /** Resumo para o sim final, com o contexto que acabou de mudar. */
+  const resumir = async (prefixo: string, novo: Partial<Contexto>): Promise<Decisao> => {
+    const r = await executar("resumir_pedido", {}, { ...amb, contexto: { ...ctx, ...novo } });
+    return {
+      texto: `${prefixo ? `${prefixo}\n\n` : ""}${fala.resumoParaConfirmar(r.dados as never)}`,
+      estado: "ORDER_REVIEW",
+      contexto: novo,
+    };
+  };
+
+  /** A forma escolhida: dinheiro pergunta o troco; PIX e cartão vão ao resumo. */
+  const escolherForma = async (
+    forma: FormaPagamento, extra: Partial<Contexto> = {}, prefixo = "",
+  ): Promise<Decisao> => {
+    const pre = prefixo ? `${prefixo}\n\n` : "";
+    const limpo = { ...extra, pagamento_sugerido: undefined };
+
+    if (!formaAceita(forma, cfg)) {
+      return { texto: pre + fala.formaIndisponivel(formas), estado: "PAYMENT",
+               contexto: { ...limpo, forma_pagamento: undefined } };
+    }
+    if (forma === "dinheiro") {
+      return { texto: pre + fala.perguntarTroco, estado: "PAYMENT",
+               contexto: { ...limpo, forma_pagamento: "dinheiro", troco_respondido: undefined } };
+    }
+
+    const r = await executar("criar_pagamento", { forma },
+      { ...amb, estado: "PAYMENT", contexto: { ...ctx, ...extra } });
+    if (!r.ok) return manter(falarErro(r.erro, "Vamos escolher os produtos primeiro?"));
+    return resumir(prefixo, { ...limpo, ...r.contexto });
+  };
+
+  /** Endereço resolvido: pergunta o pagamento, oferecendo o de costume. */
+  const irParaPagamento = async (linha: string, novo: Partial<Contexto>): Promise<Decisao> => {
+    const base = `Anotado 📍 ${linha}`;
+
+    // a forma já foi dita antes ("vou pagar no pix", ainda no carrinho)
+    if (ctx.forma_pagamento) return escolherForma(ctx.forma_pagamento, novo, base);
+
+    const habitual = (await perfil()).deduzido.forma;
+    if (habitual && formaAceita(habitual, cfg)) {
+      return { texto: `${base}\n\n${fala.sugerirFormaHabitual(habitual)}`, estado: "PAYMENT",
+               contexto: { ...novo, pagamento_sugerido: habitual } };
+    }
+    return { texto: `${base}\n\n${fala.perguntarPagamento(formas)}`, estado: "PAYMENT", contexto: novo };
+  };
+
+  const cadastrarEndereco = async (e: {
+    rua: string; numero: string; bairro: string; complemento: string | null; referencia: string | null;
+  }): Promise<Decisao> => {
+    const r = await executar("cadastrar_endereco", { ...e }, amb);
+    if (!r.ok) return manter(falarErro(r.erro, fala.naoLiEndereco));
+    const d = r.dados as { linha?: string } & Parameters<typeof enderecoEmLinha>[0];
+    return irParaPagamento(d.linha ?? enderecoEmLinha(d), r.contexto ?? {});
+  };
+
+  /* ---- PIX do pedido já criado, esperando o dinheiro ---- */
+
+  if (estadoAtual === "PAYMENT" && ctx.order_id && ctx.pagamento_status === "aguardando") {
+    if (/\b(codigo|copia|chave|qr|manda o pix|pix de novo|nao chegou)\b/.test(t)) {
+      const r = await executar("criar_pagamento", { forma: "pix" }, amb);
+      if (r.ok) {
+        const d = r.dados as { total: number; chave: string | null; copiaECola?: string | null; link?: string | null };
+        return manter(fala.pixParaPagar(d.total, d.chave, d.copiaECola, d.link));
+      }
+    }
+
+    if (PAGUEI.test(t) || /^\[(imagem|documento)/.test(t)) {
+      const st = await executar("consultar_pagamento", {}, amb);
+      if ((st.dados as { status?: string })?.status === "aprovado") {
+        return { texto: `Já caiu ✅ Seu pedido ${ctx.order_numero ?? ""} está confirmado 🖤`,
+                 estado: "ORDER_CONFIRMED", contexto: { pagamento_status: "aprovado" } };
+      }
+      const { meioAtivo } = await import("../pagamento");
+      if (meioAtivo().confirmacaoAutomatica) {
+        return manter("Assim que o banco confirmar, o pedido confirma sozinho e eu te aviso aqui 🖤");
+      }
+      // PIX estático: alguém precisa olhar o extrato
+      await executar("criar_tarefa", {
+        titulo: `Conferir PIX do pedido ${ctx.order_numero ?? ""} — cliente diz que pagou`,
+        prioridade: "urgente",
+      }, amb);
+      return manter("Recebi! Já vou conferir e te confirmo o pedido rapidinho 🖤");
+    }
+
+    if (intencao === "cancelar") {
+      return { texto: fala.chamandoHumano, estado: "HUMAN", contexto: {},
+               transferir: `cliente quer cancelar o pedido ${ctx.order_numero ?? ""}` };
+    }
+  }
+
+  /* ---- endereço: o texto do cliente É o endereço ---- */
+
+  if (estadoAtual === "ADDRESS" && !ctx.endereco_confirmado
+      && intencao !== "cancelar" && intencao !== "alterar_pedido") {
+    const lido = extrairEndereco(texto);
+    const recusou = ehNao(texto) || /\b(outro|outra|novo|nova|diferente|mudei|mudou)\b/.test(t);
+
+    if (ctx.endereco_sugerido_id && !lido) {
+      if (SIM_CURTO.test(t) && !recusou) {
+        const r = await executar("usar_endereco", { endereco_id: ctx.endereco_sugerido_id }, amb);
+        if (r.ok) return irParaPagamento((r.dados as { linha: string }).linha, r.contexto ?? {});
+      }
+      if (recusou) return manter(fala.pedirEnderecoNovo, { endereco_sugerido_id: undefined });
+    }
+
+    // só faltava o bairro
+    if (ctx.endereco_parcial && !lido) {
+      const bairro = texto.trim().replace(/^bairro\s*:?\s*/i, "");
+      if (/\p{L}{3,}/u.test(bairro) && bairro.length <= 60 && !/\d{3,}/.test(bairro)) {
+        return cadastrarEndereco({ ...ctx.endereco_parcial, bairro });
+      }
+    }
+
+    if (lido) {
+      if (!lido.bairro) {
+        return manter(fala.pedirBairro(lido.rua, lido.numero), {
+          endereco_parcial: {
+            rua: lido.rua, numero: lido.numero,
+            complemento: lido.complemento, referencia: lido.referencia,
+          },
+          endereco_sugerido_id: undefined,
+        });
+      }
+      return cadastrarEndereco(lido);
+    }
+
+    // não era endereço: produto segue o fluxo; pagamento espera o endereço
+    const forma = formaNoTexto(t);
+    if (forma) return manter(fala.enderecoAntesDoPagamento, { forma_pagamento: forma });
+    if (!["modelo", "marca", "sabor", "catalogo", "preco", "estoque", "prazo_entrega"].includes(intencao)) {
+      const ia = await tentarIa();
+      if (ia) return ia;
+      return manter(fala.naoLiEndereco);
+    }
+  }
+
+  /* ---- pagamento, antes do pedido existir ---- */
+
+  if (estadoAtual === "PAYMENT" && !ctx.order_id && ctx.endereco_confirmado) {
+    // dinheiro: a pergunta pendente é o troco
+    if (ctx.forma_pagamento === "dinheiro" && !ctx.troco_respondido) {
+      const valor = valorEmReais(t);
+      const semTroco = /\b(sem troco|nao precisa|nao preciso|certinho|trocado|exato)\b/.test(t) || ehNao(texto);
+      if (!valor && !semTroco && SIM_CURTO.test(t)) {
+        return manter("Pra quanto? Me fala o valor da nota que você vai usar.");
+      }
+      if (valor || semTroco) {
+        const r = await executar("criar_pagamento",
+          { forma: "dinheiro", ...(valor && !semTroco ? { troco_para: valor } : {}) },
+          { ...amb, estado: "PAYMENT" });
+        if (!r.ok) return manter(falarErro(r.erro, "Me fala o valor que você vai usar."));
+        const troco = (r.dados as { troco: number }).troco;
+        return resumir(fala.trocoAnotado(troco), r.contexto ?? {});
+      }
+    }
+
+    const forma = formaNoTexto(t);
+    if (forma) return escolherForma(forma);
+
+    if (ctx.pagamento_sugerido) {
+      if (SIM_CURTO.test(t)) return escolherForma(ctx.pagamento_sugerido);
+      if (ehNao(texto)) return manter(fala.perguntarPagamento(formas), { pagamento_sugerido: undefined });
+    }
+  }
+
+  if (estadoAtual === "ORDER_REVIEW" && ehNao(texto)) {
+    return manter("Sem problema! O que você quer mudar?");
+  }
+
+  /* ---- preferência declarada: anota, e indica a partir dela ---- */
+
+  const prefs = extrairPreferencias(texto, catalogo, Boolean(ctx.pref_perguntada));
+  if (!semPreferencia(prefs)) {
+    await executar("salvar_preferencias", {
+      marcas: prefs.marcas.join(","), sabores: prefs.sabores.join(","),
+      perfil: prefs.perfil.join(","), ...(prefs.puffs ? { puffs: prefs.puffs } : {}),
+    }, amb);
+
+    // quem já disse o produto segue comprando; quem só disse o gosto recebe indicação
+    // "gosto de gelado" casa com sabor do catálogo que tem "gelado" no nome:
+    // com perfil ou puffs declarados, é gosto, não escolha de produto
+    const soNomes = !prefs.perfil.length && !prefs.puffs;
+    const disseProduto = intencao === "modelo"
+      || (soNomes && (intencao === "marca" || intencao === "sabor"));
+    const escolhendo = ["INITIAL", "CATALOG_SENT", "PRODUCT_SELECTION"].includes(estadoAtual);
+
+    if (!disseProduto && escolhendo) {
+      const r = await executar("sugerir_produtos", {
+        perfil: prefs.perfil.join(","), marca: prefs.marcas[0] ?? "",
+        ...(prefs.puffs ? { puffs: prefs.puffs } : {}),
+      }, amb);
+      const modelos = (r.dados as { modelos?: Parameters<typeof fala.sugestoes>[0] })?.modelos ?? [];
+      return {
+        texto: fala.sugestoes(modelos, preferenciasEmTexto(prefs)),
+        estado: "PRODUCT_SELECTION",
+        // um modelo só: o próximo sabor dito já cai nele
+        contexto: { pref_perguntada: undefined,
+                    ...(modelos.length === 1 ? { modelo_interesse: modelos[0].produto } : {}) },
+      };
+    }
+  }
+
+  /* ---- "vai o mesmo?" respondido ---- */
+
+  if (ctx.repetir_pedido_id
+      && ["INITIAL", "CATALOG_SENT", "PRODUCT_SELECTION"].includes(estadoAtual)
+      && (SIM_CURTO.test(t) || QUER_O_MESMO.test(t)) && !ehNao(texto)) {
+    const r = await executarEm("repetir_ultimo_pedido", {}, "CART");
+    if (r.ok) {
+      const d = r.dados as {
+        adicionados: Array<{ produto: string; sabor: string; quantidade: number }>;
+        faltaram: string[];
+      };
+      return { texto: fala.repetido(d.adicionados, d.faltaram), estado: "CART",
+               contexto: { ...r.contexto, repetir_pedido_id: undefined } };
+    }
+    return manter(`${falarErro(r.erro, "Não consegui separar o mesmo pedido.")} Quer ver o que tem?`,
+                  { repetir_pedido_id: undefined });
+  }
+
   switch (intencao) {
-    case "saudacao":
+    case "saudacao": {
+      if (conversa.ja_comprou) {
+        const ultimo = (await perfil()).ultimoPedido;
+        const disponiveis = ultimo?.itens.filter((i) => i.disponivel) ?? [];
+        if (ultimo && disponiveis.length) {
+          return manter(fala.ofertaRepetir(nome, disponiveis), { repetir_pedido_id: ultimo.id });
+        }
+      }
       return manter(fala.saudacao(nome, conversa.ja_comprou));
+    }
 
     case "catalogo": {
       // "manda o catálogo" quer a lista inteira, não uma pergunta de volta.
@@ -304,7 +647,8 @@ async function decidir(
        */
       if (ctx.modelo_interesse) {
         const add = await executarEm("adicionar_carrinho",
-          { produto: ctx.modelo_interesse, sabor: texto, quantidade: 1 }, "CART");
+          { produto: ctx.modelo_interesse, sabor: saborNoTexto(texto, catalogo),
+            quantidade: quantidadeNoTexto(texto) ?? 1 }, "CART");
 
         if (add.ok) {
           const dd = add.dados as { produto: string; sabor: string; quantidade: number; preco: number };
@@ -324,6 +668,26 @@ async function decidir(
         return manter(falarErro(add.erro, "Esse sabor eu não tenho agora."));
       }
 
+      // sem modelo em vista: o sabor diz qual é, ou em quais ele existe
+      const procurado = saborNoTexto(texto, catalogo);
+      const r = await executar("modelos_com_sabor", { sabor: procurado }, amb);
+      const ms = r.dados as { sabor: string | null; modelos: Array<{ produto: string; preco: number }> };
+
+      if (ms.modelos.length === 1) {
+        const add = await executarEm("adicionar_carrinho",
+          { produto: ms.modelos[0].produto, sabor: ms.sabor!,
+            quantidade: quantidadeNoTexto(texto) ?? 1 }, "CART");
+        if (add.ok) {
+          const dd = add.dados as { produto: string; sabor: string; quantidade: number; preco: number };
+          return { texto: fala.itemAdicionado(dd.produto, dd.sabor, dd.quantidade, dd.preco),
+                   estado: "CART", contexto: add.contexto ?? {} };
+        }
+        return manter(falarErro(add.erro, fala.semEstoque(ms.sabor!)));
+      }
+      if (ms.modelos.length > 1) {
+        return manter(fala.saborEmModelos(ms.sabor!, ms.modelos), { sabor_procurado: ms.sabor! });
+      }
+
       return decidir("modelo" as Intencao, texto, amb, nome, conversa, catalogo);
     }
 
@@ -341,17 +705,19 @@ async function decidir(
 
       // o cliente já disse o sabor junto com o modelo? então já reserva
       const saborPedido = d.sabores.find((s) =>
-        texto.toLowerCase().includes(s.nome.toLowerCase()));
+        texto.toLowerCase().includes(s.nome.toLowerCase())
+        || (ctx.sabor_procurado && s.nome === ctx.sabor_procurado));
 
       if (saborPedido) {
         const add = await executarEm("adicionar_carrinho",
-          { produto: d.produto, sabor: saborPedido.nome, quantidade: 1 }, "CART");
+          { produto: d.produto, sabor: saborPedido.nome,
+            quantidade: quantidadeNoTexto(texto) ?? 1 }, "CART");
         if (add.ok) {
           const dd = add.dados as { produto: string; sabor: string; quantidade: number; preco: number };
           return {
             texto: fala.itemAdicionado(dd.produto, dd.sabor, dd.quantidade, dd.preco),
             estado: "CART",
-            contexto: add.contexto ?? {},
+            contexto: { ...add.contexto, sabor_procurado: undefined },
           };
         }
         return manter(falarErro(add.erro, fala.semEstoque(saborPedido.nome)));
@@ -376,11 +742,11 @@ async function decidir(
     }
 
     case "endereco": {
-      // o texto do cliente é o endereço em si; o atendente confere depois
-      return manter(
-        "Anotado! Só confirma pra mim: qual a forma de pagamento, PIX ou dinheiro?",
-        { endereco_confirmado: true },
-      );
+      // endereço dito ainda no carrinho: fecha o carrinho e segue para ele
+      if (ctx.cart_id && estadoAtual === "CART") {
+        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa, catalogo);
+      }
+      return manter("Vamos escolher os produtos primeiro? Depois eu anoto o endereço 🛵");
     }
 
     case "fechar_carrinho": {
@@ -396,66 +762,60 @@ async function decidir(
       const d = carrinho.dados as Parameters<typeof fala.resumoCarrinho>[0] & { vazio?: boolean };
       if (d?.vazio) return manter("Vamos escolher os produtos primeiro?");
 
-      return {
-        texto: `${fala.resumoCarrinho(d)}\n\n${fala.pedirEndereco}`,
-        estado: "ADDRESS",
-        contexto: {},
-      };
+      return pedirEnderecoAntes(fala.resumoCarrinho(d));
     }
 
-    case "pix": {
-      const r = await executarEm("criar_pagamento", { forma: "pix" }, "PAYMENT");
-      if (!r.ok) return manter(falarErro(r.erro, "Vamos escolher os produtos primeiro?"));
-      const d = r.dados as {
-        total: number; chave: string | null;
-        copiaECola?: string | null; link?: string | null;
-      };
-      return {
-        texto: fala.pixParaPagar(d.total, d.chave, d.copiaECola, d.link),
-        estado: "PAYMENT",
-        contexto: r.contexto ?? {},
-      };
+    case "pix": case "dinheiro": case "troco": case "pagamento": {
+      const forma = formaNoTexto(t);
+      if (!ctx.cart_id) return manter("Vamos escolher os produtos primeiro?");
+
+      // ainda no carrinho: guarda a forma e fecha; o endereço vem antes
+      if (!ctx.endereco_confirmado) {
+        if (estadoAtual === "CART") {
+          const d = await decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa, catalogo);
+          return { ...d, contexto: { ...d.contexto, ...(forma ? { forma_pagamento: forma } : {}) } };
+        }
+        return manter(fala.enderecoAntesDoPagamento, forma ? { forma_pagamento: forma } : {});
+      }
+
+      // trocando a forma depois do resumo
+      if (forma) return escolherForma(forma);
+      return { texto: fala.perguntarPagamento(formas), estado: "PAYMENT", contexto: {} };
     }
-
-    case "dinheiro":
-      return { texto: fala.perguntarTroco, estado: "PAYMENT",
-               contexto: { forma_pagamento: "dinheiro" } };
-
-    case "troco": {
-      const valor = Number((texto.match(/\d+([.,]\d{2})?/) ?? ["0"])[0].replace(",", "."));
-      const r = await executarEm("criar_pagamento",
-        { forma: "dinheiro", troco_para: valor }, "PAYMENT");
-      if (!r.ok) return manter(falarErro(r.erro, "Me fala o valor que você vai usar."));
-      const d = r.dados as { troco: number };
-      const resumo = await executar("resumir_pedido", {}, amb);
-      return {
-        texto: `${fala.trocoAnotado(d.troco)}\n\n${fala.resumoParaConfirmar(resumo.dados as never)}`,
-        estado: "ORDER_REVIEW",
-        contexto: r.contexto ?? {},
-      };
-    }
-
-    case "pagamento":
-      return manter(fala.perguntarPagamento);
 
     case "confirmar": {
+      // "fechou", "ok" com o carrinho aberto é fechar o carrinho
+      if (estadoAtual === "CART" && ctx.cart_id) {
+        return decidir("fechar_carrinho" as Intencao, texto, amb, nome, conversa, catalogo);
+      }
+
       if (estadoAtual !== "ORDER_REVIEW") {
-        const resumo = await executar("resumir_pedido", {}, amb);
-        const d = resumo.dados as { vazio?: boolean };
-        if (d?.vazio) return manter(fala.perguntarPagamento);
-        return { texto: fala.resumoParaConfirmar(resumo.dados as never),
-                 estado: "ORDER_REVIEW", contexto: {} };
+        if (!ctx.cart_id) return manter("Vamos escolher os produtos primeiro?");
+        if (!ctx.endereco_confirmado) return pedirEnderecoAntes("");
+        if (!ctx.forma_pagamento) {
+          return { texto: fala.perguntarPagamento(formas), estado: "PAYMENT", contexto: {} };
+        }
+        return resumir("", {});
       }
 
       const r = await executarEm("confirmar_pedido", {}, "ORDER_REVIEW");
       if (!r.ok) return manter(falarErro(r.erro, "Ainda falta algo para fechar o pedido."));
-      const d = r.dados as { numero: string };
+      const d = r.dados as {
+        numero: string; total: number; forma: string;
+        pix: { chave: string | null; copiaECola: string | null; link: string | null } | null;
+      };
+
+      // PIX: o pedido existe, o estoque está reservado, falta o dinheiro
+      if (d.forma === "pix") {
+        return { texto: fala.pedidoAguardandoPix(d.numero, d.total, d.pix),
+                 estado: "PAYMENT", contexto: r.contexto ?? {} };
+      }
       return { texto: fala.pedidoConfirmado(d.numero, nome),
                estado: "ORDER_CONFIRMED", contexto: r.contexto ?? {} };
     }
 
     case "prazo_entrega":
-      return manter("A entrega leva cerca de 45 minutos depois de confirmado 🛵");
+      return manter(fala.prazoEntrega(cfg.entrega.prazo_minutos || 45));
 
     case "estoque": {
       const r = await executar("buscar_sabores", { produto: texto }, amb);
@@ -513,6 +873,21 @@ interface ConversaLida {
   contexto: Contexto;
   maioridade_validada: boolean;
   ja_comprou: boolean;
+  /** tag gravada quando o cliente disse a idade e ela é menor de 18 */
+  declarou_menor: boolean;
+}
+
+const TAG_MENOR = "menor de idade";
+
+/** Fica no cadastro: a recusa vale para as próximas conversas também. */
+async function marcarMenor(customerId: string | null) {
+  if (!customerId) return;
+  const c = await clienteDoSistema();
+  if (!c) return;
+  const { data } = await c.from("customers").select("tags").eq("id", customerId).maybeSingle();
+  const tags = (data?.tags as string[] | null) ?? [];
+  if (tags.includes(TAG_MENOR)) return;
+  await c.from("customers").update({ tags: [...tags, TAG_MENOR] }).eq("id", customerId);
 }
 
 async function lerConversa(id: string): Promise<ConversaLida | null> {
@@ -530,16 +905,17 @@ async function lerConversa(id: string): Promise<ConversaLida | null> {
       contexto: (conversa as { contexto?: Contexto }).contexto ?? {},
       maioridade_validada: cliente?.maioridade_validada ?? false,
       ja_comprou: (cliente?.total_pedidos ?? 0) > 0,
+      declarou_menor: (cliente?.tags ?? []).includes(TAG_MENOR),
     };
   }
 
   const { data } = await c.from("conversations")
-    .select("customer_id, estado, bot_ativo, contexto, customers(nome, maioridade_validada, total_pedidos)")
+    .select("customer_id, estado, bot_ativo, contexto, customers(nome, maioridade_validada, total_pedidos, tags)")
     .eq("id", id).maybeSingle();
   if (!data) return null;
 
   const cliente = data.customers as {
-    nome?: string; maioridade_validada?: boolean; total_pedidos?: number;
+    nome?: string; maioridade_validada?: boolean; total_pedidos?: number; tags?: string[];
   } | null;
 
   return {
@@ -550,6 +926,7 @@ async function lerConversa(id: string): Promise<ConversaLida | null> {
     contexto: (data.contexto ?? {}) as Contexto,
     maioridade_validada: cliente?.maioridade_validada ?? false,
     ja_comprou: (cliente?.total_pedidos ?? 0) > 0,
+    declarou_menor: (cliente?.tags ?? []).includes(TAG_MENOR),
   };
 }
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { clienteDoSistema, type ClienteSistema } from "../supabase/sistema";
 import { STORE_ID } from "../supabase/config";
 import { canalAtivo } from "../canal";
@@ -62,6 +63,24 @@ export async function rodarFila(): Promise<ResultadoRodada> {
   }
 
   return resultado;
+}
+
+/**
+ * Roda a fila logo depois da resposta, sem esperar o cron.
+ *
+ * O cron passa uma vez por minuto: sem isto, a resposta do atendente e a do
+ * bot levavam até 60s para sair. A trava em `pegarJobsDoBanco` garante que
+ * esta rodada e a do cron, se coincidirem, não mandem a mesma mensagem duas
+ * vezes.
+ */
+export function despacharFila() {
+  after(async () => {
+    try {
+      await rodarFila();
+    } catch (e) {
+      console.error("[luxx] a rodada imediata da fila falhou; o cron tenta de novo:", e);
+    }
+  });
 }
 
 /* ----------------------------------------------------------- execução ---- */
@@ -213,16 +232,48 @@ async function liberarReservas(): Promise<ResultadoJob> {
 
 /* -------------------------------------------------------------- apoio ---- */
 
+/** Job preso em "processando" por mais que isto é de uma função que morreu. */
+const PRESO_MS = 3 * 60_000;
+
+/**
+ * Pega o lote E marca como "processando" na mesma escrita.
+ *
+ * Só ler os pendentes não bastava a partir do momento em que o painel passou
+ * a rodar a fila na hora: duas rodadas ao mesmo tempo liam os mesmos jobs e
+ * a mensagem saía duas vezes. O UPDATE condicionado a `status = pendente` é
+ * atômico por linha — quem chegar depois não recebe a linha de volta.
+ */
 async function pegarJobsDoBanco(
   c: ClienteSistema,
 ): Promise<Job[]> {
-  const { data } = await c.from("jobs")
-    .select("*")
+  const agora = new Date();
+
+  // a função serverless morre em 60s; o que ficou "processando" além disso
+  // nunca vai terminar e volta para a fila
+  await c.from("jobs")
+    .update({ status: "pendente" })
+    .eq("status", "processando")
+    .lt("executar_em", new Date(agora.getTime() - PRESO_MS).toISOString());
+
+  const { data: candidatos } = await c.from("jobs")
+    .select("id")
     .eq("status", "pendente")
-    .lte("executar_em", new Date().toISOString())
+    .lte("executar_em", agora.toISOString())
     .order("executar_em")
     .limit(LOTE);
-  return (data ?? []) as unknown as Job[];
+
+  const ids = (candidatos ?? []).map((j) => j.id as number);
+  if (ids.length === 0) return [];
+
+  // executar_em vira a hora em que foi pego, que é o que mede o "preso"
+  const { data } = await c.from("jobs")
+    .update({ status: "processando", executar_em: agora.toISOString() })
+    .in("id", ids)
+    .eq("status", "pendente")
+    .select("*");
+
+  return ((data ?? []) as unknown as Job[])
+    .sort((a, b) => a.id - b.id);
 }
 
 function pegarJobsDaDemo(): Job[] {

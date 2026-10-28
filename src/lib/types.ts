@@ -95,6 +95,40 @@ export interface Cliente {
   ultima_interacao: string | null;
   created_at: string;
   observacoes?: string | null;
+  /** o que o cliente disse que gosta (migração 0017; ausente antes dela) */
+  pref_marcas?: string[];
+  pref_sabores?: string[];
+  pref_perfil_sabor?: string[];
+  pref_puffs?: number | null;
+  /** o que as compras dizem (v_perfil_cliente) */
+  perfil?: PerfilCompras | null;
+}
+
+export interface PerfilCompras {
+  marca_mais_comprada: string | null;
+  produto_mais_comprado: string | null;
+  sabor_mais_comprado: string | null;
+  puffs_medio: number | null;
+  forma_pagamento_habitual: string | null;
+}
+
+/**
+ * Tudo o que se sabe do gosto do cliente, numa lista só — para mostrar em
+ * chips e para filtrar. Declarado e comprado juntos: para quem vende, "gosta
+ * de Ignite" vale tanto dito quanto comprado.
+ */
+export function gostosDoCliente(c: Pick<Cliente,
+  "pref_marcas" | "pref_sabores" | "pref_perfil_sabor" | "pref_puffs" | "perfil">): string[] {
+  const p = c.perfil;
+  const puffs = c.pref_puffs ?? p?.puffs_medio ?? null;
+  return [...new Set([
+    ...(c.pref_perfil_sabor ?? []),
+    ...(c.pref_marcas ?? []),
+    p?.marca_mais_comprada ?? "",
+    ...(c.pref_sabores ?? []),
+    p?.sabor_mais_comprado ?? "",
+    puffs ? `${Math.round(puffs / 1000)}k puffs` : "",
+  ].filter(Boolean))];
 }
 
 export interface ItemCatalogo {

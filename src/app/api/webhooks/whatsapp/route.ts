@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { canalDoWebhook } from "@/lib/canal";
-import { receberMensagem, registrarStatus } from "@/lib/bot/recepcao";
+import {
+  receberMensagem, registrarEnviadaPeloCelular, registrarStatus,
+} from "@/lib/bot/recepcao";
 import { processar } from "@/lib/bot/motor";
+import { despacharFila } from "@/lib/fila/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +47,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ignorado: "formato não reconhecido" });
   }
 
+  // a Z-API não manda cabeçalho nenhum: o segredo vem na URL cadastrada
   const assinatura =
-    req.headers.get("x-hub-signature-256") ?? req.headers.get("client-token");
+    req.headers.get("x-hub-signature-256")
+    ?? req.headers.get("client-token")
+    ?? new URL(req.url).searchParams.get("token");
 
   if (canal.validarAssinatura && !canal.validarAssinatura(cru, assinatura)) {
     return NextResponse.json({ erro: "assinatura inválida" }, { status: 401 });
@@ -60,6 +66,14 @@ export async function POST(req: Request) {
 
   for (const mensagem of evento.mensagens) {
     try {
+      // a loja respondeu pelo celular: entra na conversa, e o bot não
+      // responde a si mesmo
+      if (mensagem.enviadaPorMim) {
+        const gravou = await registrarEnviadaPeloCelular(mensagem, canal.nome);
+        if (gravou) resultado.recebidas++; else resultado.ignoradas++;
+        continue;
+      }
+
       // null significa recusada (número inválido) ou repetida — nos dois
       // casos não é erro, e contar como recebida esconderia o problema
       const recepcao = await receberMensagem(mensagem, canal.nome);
@@ -93,6 +107,9 @@ export async function POST(req: Request) {
       console.error("[luxx] erro ao registrar status:", e);
     }
   }
+
+  // o bot só enfileira a resposta; sem isto ela esperaria o cron do minuto
+  if (resultado.respondidas > 0) despacharFila();
 
   // sempre 200: qualquer outro código faz o provedor reenviar o lote inteiro,
   // e as mensagens que já entraram virariam duplicata

@@ -6,6 +6,8 @@ import { validarChamada } from "./ferramentas";
 import type { Contexto } from "./estados";
 import type { ItemCatalogo } from "../types";
 import { escolherOferta, type RegraAplicavel } from "./upsell";
+import { enderecoEmLinha, saborCombina, type PerfilSabor } from "./extrair";
+import type { FormaPagamento } from "./estados";
 
 /**
  * O corpo das ferramentas.
@@ -56,6 +58,172 @@ function acharProduto(catalogo: ItemCatalogo[], termo: string) {
     semAcento(c.modelo ?? "").includes(t) ||
     t.includes(semAcento(c.modelo ?? "___")));
   return candidatos;
+}
+
+/** "cartao" sozinho vira crédito: na maquininha da entrega tanto faz. */
+function normalizarForma(bruto: unknown): FormaPagamento {
+  const f = semAcento(String(bruto ?? ""));
+  if (f.startsWith("cartao_deb") || f.includes("debito")) return "cartao_debito";
+  if (f.startsWith("cartao") || f.includes("credito")) return "cartao_credito";
+  return f === "dinheiro" ? "dinheiro" : "pix";
+}
+
+const lista = (v: unknown) =>
+  String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+
+/**
+ * Item novo no carrinho é compra nova: o pedido anterior sai do contexto.
+ * Sem isto o PIX da compra seguinte saía com o valor e o número do pedido
+ * antigo, que ainda estava guardado na conversa.
+ */
+const COMPRA_NOVA: Partial<Contexto> = {
+  order_id: undefined, order_numero: undefined, pagamento_status: undefined,
+};
+
+/* --------------------------------------------------------------- PERFIL -- */
+
+export interface PerfilDoCliente {
+  declarado: { marcas: string[]; sabores: string[]; perfil: string[]; puffs: number | null };
+  deduzido: {
+    marca: string | null; produto: string | null; sabor: string | null;
+    puffs: number | null; forma: FormaPagamento | null;
+  };
+  ultimoPedido: {
+    id: string; numero: string;
+    itens: Array<{ produto: string; sabor: string; quantidade: number; disponivel: boolean }>;
+  } | null;
+  endereco: { id: string; linha: string } | null;
+  jaComprou: boolean;
+}
+
+const PERFIL_VAZIO: PerfilDoCliente = {
+  declarado: { marcas: [], sabores: [], perfil: [], puffs: null },
+  deduzido: { marca: null, produto: null, sabor: null, puffs: null, forma: null },
+  ultimoPedido: null, endereco: null, jaComprou: false,
+};
+
+/**
+ * Tudo o que se sabe de quem está do outro lado.
+ *
+ * Tolerante de propósito: sem a migração 0017 aplicada, as colunas de
+ * preferência e a view não existem — o perfil volta só com o que dá, e o bot
+ * segue vendendo em vez de quebrar a conversa inteira.
+ */
+export async function lerPerfil(customerId: string | null): Promise<PerfilDoCliente> {
+  if (!customerId) return PERFIL_VAZIO;
+  const c = await clienteDoSistema();
+  if (!c) return PERFIL_VAZIO;
+
+  const perfil: PerfilDoCliente = structuredClone(PERFIL_VAZIO);
+
+  const { data: pref } = await c.from("customers")
+    .select("pref_marcas, pref_sabores, pref_perfil_sabor, pref_puffs")
+    .eq("id", customerId).maybeSingle();
+  if (pref) {
+    perfil.declarado = {
+      marcas: (pref.pref_marcas as string[]) ?? [],
+      sabores: (pref.pref_sabores as string[]) ?? [],
+      perfil: (pref.pref_perfil_sabor as string[]) ?? [],
+      puffs: (pref.pref_puffs as number | null) ?? null,
+    };
+  }
+
+  const { data: v } = await c.from("v_perfil_cliente")
+    .select("*").eq("customer_id", customerId).maybeSingle();
+
+  let ultimoId = (v?.ultimo_pedido_id as string | null) ?? null;
+  if (v) {
+    perfil.deduzido = {
+      marca: v.marca_mais_comprada ?? null,
+      produto: v.produto_mais_comprado ?? null,
+      sabor: v.sabor_mais_comprado ?? null,
+      puffs: v.puffs_medio ?? null,
+      forma: v.forma_pagamento_habitual ?? null,
+    };
+  } else {
+    // sem a view: o último pedido sai direto da tabela
+    const { data: o } = await c.from("orders").select("id")
+      .eq("customer_id", customerId).neq("status_pedido", "cancelado")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    ultimoId = (o?.id as string | undefined) ?? null;
+  }
+
+  if (ultimoId) {
+    perfil.jaComprou = true;
+    const { data: pedido } = await c.from("orders")
+      .select("id, numero_pedido, address_id, order_items(produto_nome, sabor_nome, quantidade, product_flavor_id)")
+      .eq("id", ultimoId).maybeSingle();
+
+    if (pedido) {
+      const catalogo = await lerCatalogo();
+      const itens = ((pedido.order_items as Array<Record<string, unknown>>) ?? []).map((i) => {
+        const item = catalogo.find((x) => x.product_flavor_id === i.product_flavor_id);
+        return {
+          produto: String(i.produto_nome ?? ""), sabor: String(i.sabor_nome ?? ""),
+          quantidade: Number(i.quantidade ?? 1),
+          disponivel: Boolean(item?.vendavel && item.estoque_disponivel >= Number(i.quantidade ?? 1)),
+        };
+      });
+      perfil.ultimoPedido = { id: String(pedido.id), numero: String(pedido.numero_pedido), itens };
+    }
+  }
+
+  // o endereço do último pedido, senão o principal
+  const enderecoPreferido = (v?.ultimo_endereco_id as string | null) ?? null;
+  const { data: enderecos } = await c.from("customer_addresses")
+    .select("id, rua, numero, bairro, complemento, referencia, principal")
+    .eq("customer_id", customerId).order("principal", { ascending: false });
+  const escolhido = (enderecos ?? []).find((e) => e.id === enderecoPreferido) ?? enderecos?.[0];
+  if (escolhido) perfil.endereco = { id: escolhido.id, linha: enderecoEmLinha(escolhido) };
+
+  return perfil;
+}
+
+/**
+ * Cobra o PIX de um pedido que JÁ EXISTE.
+ *
+ * Antes a cobrança saía antes do pedido: o gateway exige o pedido, e o pedido
+ * só nascia com o PIX aprovado — cada um esperando o outro, e nada marcava o
+ * pagamento como aprovado na conversa. O cliente pagava e o pedido nunca
+ * era criado.
+ */
+async function cobrarPix(orderId: string, numero: string | undefined, total: number) {
+  const { meioAtivo } = await import("../pagamento");
+  const meio = meioAtivo();
+
+  if (meio.confirmacaoAutomatica && orderId !== "demo") {
+    const { gerarCobranca } = await import("../pix/cobranca");
+    const r = await gerarCobranca(orderId);
+    if (r.ok && (r.cobranca?.copiaECola || r.cobranca?.link)) {
+      return {
+        chave: null, copiaECola: r.cobranca.copiaECola || null,
+        link: r.cobranca.link ?? null, automatico: true,
+      };
+    }
+    // gateway fora do ar não pode travar a venda: cai no estático
+    console.error(`[luxx] a cobrança pelo gateway falhou, usando PIX estático: ${r.erro}`);
+  }
+
+  const { lerConfiguracoes } = await import("../actions-config");
+  const config = await lerConfiguracoes();
+  const chave = config.pagamentos.chave_pix;
+  if (!chave) return { chave: null, copiaECola: null, link: null, automatico: false };
+
+  const { gerarBrCode } = await import("../pix/brcode");
+  let copiaECola: string | null = null;
+  try {
+    copiaECola = gerarBrCode({
+      chave,
+      nome: config.empresa.nome,
+      cidade: config.empresa.endereco.split("-")[0].trim(),
+      valor: total,
+      // o número do pedido viaja no PIX e volta no comprovante
+      identificador: numero ?? undefined,
+    });
+  } catch {
+    copiaECola = null;   // chave malformada: cai para o texto sem código
+  }
+  return { chave, copiaECola, link: null, automatico: false };
 }
 
 /* ------------------------------------------------------------- EXECUÇÃO -- */
@@ -145,6 +313,20 @@ async function despachar(
           outrosModelos,
         },
         contexto: { modelo_interesse: produto },
+      };
+    }
+
+    /** O cliente disse só o sabor: em quais modelos ele existe agora? */
+    case "modelos_com_sabor": {
+      const catalogo = vendaveis(await lerCatalogo()).filter((x) => x.estoque_disponivel > 0);
+      const termo = semAcento(String(a.sabor));
+      const achados = catalogo.filter((x) => semAcento(x.sabor) === termo);
+      return {
+        ok: true,
+        dados: {
+          sabor: achados[0]?.sabor ?? null,
+          modelos: achados.map((x) => ({ produto: x.produto, preco: x.preco, puffs: x.puffs })),
+        },
       };
     }
 
@@ -239,6 +421,7 @@ async function despachar(
             produto_selecionado: item.produto,
             sabor_selecionado: item.sabor,
             quantidade,
+            ...COMPRA_NOVA,
           },
         };
       }
@@ -253,6 +436,7 @@ async function despachar(
           produto_selecionado: item.produto,
           sabor_selecionado: item.sabor,
           quantidade,
+          ...COMPRA_NOVA,
         },
       };
     }
@@ -331,14 +515,53 @@ async function despachar(
         return { ok: true, dados: endereco, contexto: { endereco_confirmado: true } };
       }
 
-      const { data, error } = await c.from("customer_addresses")
-        .insert({ customer_id: amb.customerId, ...endereco, principal: true })
-        .select("id").single();
-      if (error) return { ok: false, erro: error.message };
+      // o mesmo endereço digitado de novo não vira um segundo cadastro
+      const { data: existentes } = await c.from("customer_addresses")
+        .select("id, rua, numero").eq("customer_id", amb.customerId);
+      const igual = (existentes ?? []).find((e) =>
+        semAcento(e.rua ?? "") === semAcento(endereco.rua)
+        && semAcento(e.numero ?? "") === semAcento(endereco.numero));
+
+      let id = igual?.id as string | undefined;
+      if (igual) {
+        await c.from("customer_addresses").update({ ...endereco }).eq("id", igual.id);
+      } else {
+        const { data, error } = await c.from("customer_addresses")
+          .insert({ customer_id: amb.customerId, ...endereco, principal: true })
+          .select("id").single();
+        if (error) return { ok: false, erro: error.message };
+        id = data.id;
+      }
+
+      // o último usado passa a ser o principal, que é o oferecido da próxima vez
+      await c.from("customer_addresses").update({ principal: false })
+        .eq("customer_id", amb.customerId).neq("id", id!);
+      await c.from("customer_addresses").update({ principal: true }).eq("id", id!);
 
       return {
-        ok: true, dados: { ...endereco, id: data.id },
-        contexto: { endereco_id: data.id, endereco_confirmado: true },
+        ok: true, dados: { ...endereco, id, linha: enderecoEmLinha(endereco) },
+        contexto: { endereco_id: id, endereco_confirmado: true, endereco_parcial: undefined },
+      };
+    }
+
+    case "usar_endereco": {
+      if (!amb.customerId) return { ok: false, erro: "Cliente ainda não identificado." };
+      const c = await clienteDoSistema();
+      if (!c) {
+        return { ok: true, dados: { id: a.endereco_id }, contexto: { endereco_confirmado: true } };
+      }
+
+      // só um endereço DESTE cliente: o id vem do modelo, não é confiável
+      const { data } = await c.from("customer_addresses")
+        .select("id, rua, numero, bairro, complemento, referencia")
+        .eq("id", String(a.endereco_id)).eq("customer_id", amb.customerId).maybeSingle();
+      if (!data) return { ok: false, erro: "Não achei esse endereço no cadastro do cliente." };
+
+      return {
+        ok: true, dados: { id: data.id, linha: enderecoEmLinha(data) },
+        contexto: {
+          endereco_id: data.id, endereco_confirmado: true, endereco_sugerido_id: undefined,
+        },
       };
     }
 
@@ -360,95 +583,64 @@ async function despachar(
     /* ------------------------------------------------------- pagamento -- */
 
     case "criar_pagamento": {
-      const forma = String(a.forma).toLowerCase() as "pix" | "dinheiro";
+      const forma = normalizarForma(a.forma);
       const trocoPara = a.troco_para != null ? Number(a.troco_para) : null;
+      const c = await clienteDoSistema();
 
-      const carrinho = await despachar("consultar_carrinho", {}, amb);
-      const dados = carrinho.dados as { total?: number; vazio?: boolean } | undefined;
-      if (!dados || dados.vazio) return { ok: false, erro: "O carrinho está vazio." };
-
-      const total = Number(dados.total ?? 0);
-      if (forma === "dinheiro" && trocoPara != null && trocoPara < total) {
-        return { ok: false, erro: `O valor informado é menor que o total de R$ ${total.toFixed(2)}.` };
+      // com o pedido criado, o total é o dele; antes, o do carrinho
+      let total: number;
+      if (amb.contexto.order_id && c && amb.contexto.order_id !== "demo") {
+        const { data: pedido } = await c.from("orders")
+          .select("total").eq("id", amb.contexto.order_id).maybeSingle();
+        total = Number(pedido?.total ?? 0);
+      } else {
+        const carrinho = await despachar("consultar_carrinho", {}, amb);
+        const dados = carrinho.dados as { total?: number; vazio?: boolean } | undefined;
+        if (!dados || dados.vazio) return { ok: false, erro: "O carrinho está vazio." };
+        total = Number(dados.total ?? 0);
       }
 
-      // A cobrança sai pelo meio que estiver no ar. Isso precisa passar pelo
-      // mesmo `meioAtivo()` do painel: se o bot mandasse sempre o PIX
-      // estático com o gateway ligado, o cliente pagaria um código que o
-      // gateway nunca vê — e o pedido ficaria parado esperando baixa manual
-      // de um pagamento que já entrou.
+      if (forma === "dinheiro" && trocoPara != null && trocoPara < total) {
+        return {
+          ok: false,
+          erro: `O valor informado é menor que o total de R$ ${total.toFixed(2).replace(".", ",")}.`,
+        };
+      }
+
       if (forma === "pix") {
-        const { meioAtivo } = await import("../pagamento");
-        const meio = meioAtivo();
-
-        if (meio.confirmacaoAutomatica && amb.contexto.order_id) {
-          const { gerarCobranca } = await import("../pix/cobranca");
-          const r = await gerarCobranca(amb.contexto.order_id);
-
-          // o gateway devolve o copia e cola; link existe só se algum
-          // provedor futuro trabalhar assim. O que não pode é o bot inventar.
-          if (r.ok && (r.cobranca?.copiaECola || r.cobranca?.link)) {
-            return {
-              ok: true,
-              dados: {
-                forma, total,
-                chave: null,
-                copiaECola: r.cobranca.copiaECola || null,
-                link: r.cobranca.link ?? null,
-                automatico: true,
-              },
-              contexto: { forma_pagamento: "pix", pagamento_status: "aguardando" },
-            };
-          }
-          // gateway fora do ar não pode travar a venda: cai no estático
-          console.error(`[luxx] a cobrança pelo gateway falhou, usando PIX estático: ${r.erro}`);
-        }
-
-        const { lerConfiguracoes } = await import("../actions-config");
-        const config = await lerConfiguracoes();
-
-        if (!config.pagamentos.chave_pix) {
+        // o código só existe para um pedido: antes da confirmação, só anota
+        if (!amb.contexto.order_id) {
           return {
             ok: true,
-            dados: { forma, total, chave: null, copiaECola: null },
-            contexto: { forma_pagamento: "pix", pagamento_status: "aguardando" },
+            dados: { forma, total, codigo_sai_apos_confirmar: true },
+            contexto: { forma_pagamento: "pix", troco_para: undefined },
           };
         }
-
-        const { gerarBrCode } = await import("../pix/brcode");
-        let copiaECola: string | null = null;
-        try {
-          copiaECola = gerarBrCode({
-            chave: config.pagamentos.chave_pix,
-            nome: config.empresa.nome,
-            cidade: config.empresa.endereco.split("-")[0].trim(),
-            valor: total,
-            identificador: amb.contexto.order_id ?? undefined,
-          });
-        } catch {
-          copiaECola = null;   // chave malformada: cai para o texto sem código
-        }
-
+        const pix = await cobrarPix(amb.contexto.order_id, amb.contexto.order_numero, total);
         return {
           ok: true,
-          dados: {
-            forma, total,
-            chave: config.pagamentos.chave_pix,
-            copiaECola,
-            automatico: Boolean(config.pagamentos.gateway),
-          },
+          dados: { forma, total, ...pix },
           contexto: { forma_pagamento: "pix", pagamento_status: "aguardando" },
         };
       }
 
+      if (forma === "dinheiro") {
+        return {
+          ok: true,
+          dados: { forma, total, troco: trocoPara ? trocoPara - total : 0 },
+          contexto: {
+            forma_pagamento: "dinheiro",
+            troco_para: trocoPara ?? undefined,
+            troco_respondido: true,
+          },
+        };
+      }
+
+      // cartão: paga na maquininha, na entrega
       return {
         ok: true,
-        dados: { forma, total, troco: trocoPara ? trocoPara - total : 0 },
-        contexto: {
-          forma_pagamento: "dinheiro",
-          troco_para: trocoPara ?? undefined,
-          pagamento_status: "aguardando",
-        },
+        dados: { forma, total },
+        contexto: { forma_pagamento: forma, troco_para: undefined },
       };
     }
 
@@ -467,6 +659,17 @@ async function despachar(
 
     case "resumir_pedido": {
       const carrinho = await despachar("consultar_carrinho", {}, amb);
+
+      // o cliente confere ONDE vai receber, não só o quê
+      let endereco: string | null = null;
+      const c = await clienteDoSistema();
+      if (c && amb.contexto.endereco_id) {
+        const { data } = await c.from("customer_addresses")
+          .select("rua, numero, bairro, complemento, referencia")
+          .eq("id", amb.contexto.endereco_id).maybeSingle();
+        if (data) endereco = enderecoEmLinha(data);
+      }
+
       return {
         ok: true,
         dados: {
@@ -474,45 +677,80 @@ async function despachar(
           forma_pagamento: amb.contexto.forma_pagamento,
           troco_para: amb.contexto.troco_para,
           endereco_confirmado: amb.contexto.endereco_confirmado,
+          endereco,
         },
       };
     }
 
     case "confirmar_pedido": {
       const ctx = amb.contexto;
+      const c = await clienteDoSistema();
+
       if (!ctx.cart_id) return { ok: false, erro: "Não há carrinho para fechar." };
-      if (!ctx.endereco_confirmado) return { ok: false, erro: "Falta confirmar o endereço." };
+      // no banco, "confirmado" sem id era o pedido nascendo sem endereço
+      if (!ctx.endereco_confirmado || (c && !ctx.endereco_id)) {
+        return { ok: false, erro: "Falta confirmar o endereço." };
+      }
       if (!ctx.forma_pagamento) return { ok: false, erro: "Falta escolher a forma de pagamento." };
 
-      // a trava que protege o estoque: PIX só fecha com o dinheiro na conta
-      if (ctx.forma_pagamento === "pix" && ctx.pagamento_status !== "aprovado") {
-        return { ok: false, erro: "O PIX ainda não caiu." };
-      }
+      const forma = normalizarForma(ctx.forma_pagamento);
 
-      const c = await clienteDoSistema();
+      // o carrinho virou pedido: a próxima compra começa do zero
+      const limpar = {
+        cart_id: undefined, product_flavor_id: undefined, produto_selecionado: undefined,
+        sabor_selecionado: undefined, quantidade: undefined, endereco_confirmado: undefined,
+        endereco_sugerido_id: undefined, troco_respondido: undefined,
+        upsell_pendente: undefined, repetir_pedido_id: undefined,
+      };
+
       if (!c) {
+        const numero = `LX-${new Date().getFullYear()}-DEMO`;
+        const carrinho = await despachar("consultar_carrinho", {}, amb);
+        const total = Number((carrinho.dados as { total?: number })?.total ?? 0);
+        const pix = forma === "pix" ? await cobrarPix("demo", numero, total) : null;
         return {
           ok: true,
-          dados: { numero: `LX-${new Date().getFullYear()}-DEMO` },
-          contexto: { order_id: "demo" },
+          dados: { numero, total, forma, pix },
+          contexto: {
+            ...limpar, order_id: "demo", order_numero: numero,
+            pagamento_status: forma === "pix" ? "aguardando" : undefined,
+          },
         };
       }
 
+      // PIX nasce aguardando pagamento, com o estoque reservado: quem baixa o
+      // estoque é a confirmação, quando o dinheiro entrar (webhook ou baixa
+      // manual). Dinheiro confirma na própria criação.
       const { data, error } = await c.rpc("criar_pedido", {
         p_cart_id: ctx.cart_id,
         p_address_id: ctx.endereco_id ?? null,
-        p_forma_pagamento: ctx.forma_pagamento,
-        p_troco_para: ctx.troco_para ?? null,
+        p_forma_pagamento: forma,
+        p_troco_para: forma === "dinheiro" ? ctx.troco_para ?? null : null,
         p_observacoes: null,
         p_atendente_id: null,
         p_origem: "bot",
       });
       if (error) return { ok: false, erro: error.message };
 
+      // cartão é pago na entrega, como o dinheiro: o pedido segue confirmado
+      if (forma === "cartao_credito" || forma === "cartao_debito") {
+        const { error: erroConfirmacao } = await c.rpc("confirmar_pedido", { p_order_id: data.id });
+        if (erroConfirmacao) {
+          console.error(`[luxx] pedido ${data.numero_pedido} criado mas não confirmou: ${erroConfirmacao.message}`);
+        }
+      }
+
+      const pix = forma === "pix"
+        ? await cobrarPix(data.id, data.numero_pedido, Number(data.total))
+        : null;
+
       return {
         ok: true,
-        dados: { numero: data.numero_pedido, total: data.total },
-        contexto: { order_id: data.id },
+        dados: { numero: data.numero_pedido, total: Number(data.total), forma, pix },
+        contexto: {
+          ...limpar, order_id: data.id, order_numero: data.numero_pedido,
+          pagamento_status: forma === "pix" ? "aguardando" : undefined,
+        },
       };
     }
 
@@ -538,6 +776,101 @@ async function despachar(
     }
 
     /* ----------------------------------------------------------- apoio -- */
+
+    /* --------------------------------------------------------- perfil -- */
+
+    case "perfil_cliente":
+      return { ok: true, dados: await lerPerfil(amb.customerId) };
+
+    case "salvar_preferencias": {
+      if (!amb.customerId) return { ok: false, erro: "Cliente ainda não identificado." };
+      const c = await clienteDoSistema();
+      if (!c) return { ok: true, dados: { salvo: true } };
+
+      const { data: atual, error: erroLer } = await c.from("customers")
+        .select("pref_marcas, pref_sabores, pref_perfil_sabor, pref_puffs")
+        .eq("id", amb.customerId).maybeSingle();
+      // sem a migração 0017 as colunas não existem: não é erro do cliente
+      if (erroLer) return { ok: true, dados: { salvo: false } };
+
+      const somar = (antes: unknown, novos: string[]) =>
+        [...new Set([...((antes as string[]) ?? []), ...novos])].slice(0, 10);
+      const perfisValidos: PerfilSabor[] = ["gelado", "menta", "doce", "fruta", "tabaco"];
+
+      const campos = {
+        pref_marcas: somar(atual?.pref_marcas, lista(a.marcas)),
+        pref_sabores: somar(atual?.pref_sabores, lista(a.sabores)),
+        pref_perfil_sabor: somar(atual?.pref_perfil_sabor,
+          lista(a.perfil).map(semAcento).filter((p) => perfisValidos.includes(p as PerfilSabor))),
+        pref_puffs: a.puffs != null ? Number(a.puffs) : (atual?.pref_puffs ?? null),
+        pref_atualizada_em: new Date().toISOString(),
+      };
+      const { error } = await c.from("customers").update(campos).eq("id", amb.customerId);
+      if (error) return { ok: false, erro: error.message };
+      return { ok: true, dados: { salvo: true, ...campos } };
+    }
+
+    case "sugerir_produtos": {
+      const catalogo = vendaveis(await lerCatalogo()).filter((x) => x.estoque_disponivel > 0);
+      const perfis = lista(a.perfil).map(semAcento) as PerfilSabor[];
+      const marca = a.marca ? semAcento(String(a.marca)) : "";
+      const puffs = a.puffs != null ? Number(a.puffs) : null;
+
+      const filtrar = (usarPerfil: boolean, usarMarca: boolean) => catalogo.filter((x) =>
+        (!usarMarca || !marca || semAcento(x.marca ?? "").includes(marca))
+        // 20% de folga: quem pede "10k" aceita um de 9 mil
+        && (puffs == null || (x.puffs ?? 0) >= puffs * 0.8)
+        && (!usarPerfil || !perfis.length || saborCombina(x.sabor, perfis)));
+
+      // afrouxa do menos para o mais importante antes de dizer que não tem
+      const achados = [filtrar(true, true), filtrar(true, false), filtrar(false, true)]
+        .find((r) => r.length > 0) ?? [];
+
+      const porModelo = new Map<string, {
+        produto: string; marca: string | null; preco: number; puffs: number | null; sabores: string[];
+      }>();
+      achados.forEach((x) => {
+        const m = porModelo.get(x.produto)
+          ?? { produto: x.produto, marca: x.marca, preco: x.preco, puffs: x.puffs, sabores: [] };
+        if (m.sabores.length < 5) m.sabores.push(x.sabor);
+        porModelo.set(x.produto, m);
+      });
+
+      const modelos = [...porModelo.values()]
+        .sort((p, q) => q.sabores.length - p.sabores.length).slice(0, 4);
+      return { ok: true, dados: { modelos } };
+    }
+
+    case "repetir_ultimo_pedido": {
+      const perfil = await lerPerfil(amb.customerId);
+      const ultimo = perfil.ultimoPedido;
+      if (!ultimo?.itens.length) return { ok: false, erro: "Não achei um pedido anterior para repetir." };
+
+      const adicionados: Array<{ produto: string; sabor: string; quantidade: number; preco: number }> = [];
+      const faltaram: string[] = [];
+      let contexto: Partial<Contexto> = {};
+
+      for (const item of ultimo.itens) {
+        const r = await despachar("adicionar_carrinho",
+          { produto: item.produto, sabor: item.sabor, quantidade: item.quantidade },
+          { ...amb, contexto: { ...amb.contexto, ...contexto } });
+        if (r.ok) {
+          adicionados.push(r.dados as (typeof adicionados)[number]);
+          contexto = { ...contexto, ...r.contexto };
+        } else {
+          faltaram.push(`${item.produto} ${item.sabor}`);
+        }
+      }
+
+      if (!adicionados.length) {
+        return { ok: false, erro: `O que você levou da última vez acabou agora: ${faltaram.join(", ")}.` };
+      }
+      return {
+        ok: true,
+        dados: { adicionados, faltaram },
+        contexto: { ...contexto, repetir_pedido_id: undefined },
+      };
+    }
 
     case "criar_tarefa": {
       const c = await clienteDoSistema();

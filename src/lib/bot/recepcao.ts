@@ -14,6 +14,16 @@ import type { AtualizacaoStatus, MensagemEntrada } from "../canal/tipos";
  * garante que nenhum contato se perde se o processamento falhar.
  */
 
+/**
+ * O enum do banco chama de `botao` o que o canal chama de `botoes`: gravado
+ * como veio, o insert falhava e toda resposta de botão ou lista se perdia.
+ */
+function tipoNoBanco(tipo: MensagemEntrada["tipo"]) {
+  if (tipo === "botoes") return "botao";
+  if (tipo === "desconhecido") return "texto";
+  return tipo;
+}
+
 export interface Recepcao {
   customerId: string;
   conversationId: string;
@@ -120,7 +130,7 @@ async function receberNoBanco(
       store_id: STORE_ID,
       sender_type: "cliente",
       external_message_id: mensagem.idExterno || null,
-      tipo: mensagem.tipo === "desconhecido" ? "texto" : mensagem.tipo,
+      tipo: tipoNoBanco(mensagem.tipo),
       conteudo: mensagem.texto ?? null,
       arquivo_url: mensagem.arquivo ?? null,
       status: "lida",
@@ -146,6 +156,121 @@ async function receberNoBanco(
     botAtivo,
     primeiraDoCliente,
   };
+}
+
+/**
+ * O que a loja escreveu direto no celular.
+ *
+ * Antes isto era descartado: quem respondia pelo aparelho via a conversa no
+ * painel com buraco, só com o lado do cliente. Agora entra como mensagem de
+ * atendente — e pausa o bot, porque uma pessoa está conversando e o bot
+ * responderia por cima dela na próxima mensagem do cliente.
+ *
+ * O eco do que saiu pelo painel normalmente vem marcado como `fromApi` e nem
+ * chega aqui; quando não vem, a mesma mensagem já gravada nos últimos minutos
+ * sem id externo é reconhecida e só ganha o id, em vez de duplicar.
+ */
+export async function registrarEnviadaPeloCelular(
+  mensagem: MensagemEntrada,
+  canal: string,
+): Promise<boolean> {
+  const telefone = validarTelefone(mensagem.de);
+  if (!telefone) return false;
+
+  const c = await clienteDoSistema();
+  if (!c) return false;
+
+  if (mensagem.idExterno) {
+    const { data: jaExiste } = await c.from("messages")
+      .select("id").eq("external_message_id", mensagem.idExterno).maybeSingle();
+    if (jaExiste) return false;
+  }
+
+  const canalTipo = canal.includes("instagram") ? "instagram" : "whatsapp";
+  const quando = mensagem.recebidaEm.toISOString();
+  const texto = mensagem.texto ?? `[${mensagem.tipo}]`;
+
+  const { data: conversa } = await c.from("conversations")
+    .select("id, bot_ativo")
+    .eq("store_id", STORE_ID).eq("canal", canalTipo)
+    .eq("identificador_externo", telefone.e164)
+    .maybeSingle();
+
+  let conversationId = conversa?.id as string | undefined;
+
+  if (conversationId) {
+    const recente = new Date(mensagem.recebidaEm.getTime() - 5 * 60_000).toISOString();
+    const { data: eco } = await c.from("messages")
+      .select("id")
+      .eq("conversation_id", conversationId)
+      .in("sender_type", ["atendente", "bot"])
+      .is("external_message_id", null)
+      .eq("conteudo", texto)
+      .gte("created_at", recente)
+      .limit(1).maybeSingle();
+
+    if (eco) {
+      await c.from("messages")
+        .update({ external_message_id: mensagem.idExterno || null })
+        .eq("id", eco.id);
+      return false;
+    }
+  } else {
+    // a loja puxou assunto com alguém que nunca escreveu
+    const { data: existente } = await c.from("customers")
+      .select("id").eq("store_id", STORE_ID).eq("telefone", telefone.e164).maybeSingle();
+
+    let customerId = existente?.id as string | undefined;
+    if (!customerId) {
+      const { data: novo, error } = await c.from("customers").insert({
+        store_id: STORE_ID, nome: mensagem.nome ?? "", telefone: telefone.e164,
+        canal_origem: canalTipo, origem: "Contato iniciado pela loja",
+        primeira_interacao: quando,
+      }).select("id").single();
+      if (error) throw new Error(`Falha ao criar cliente: ${error.message}`);
+      customerId = novo.id;
+    }
+
+    const { data: nova, error } = await c.from("conversations").insert({
+      store_id: STORE_ID, customer_id: customerId, canal: canalTipo,
+      identificador_externo: telefone.e164, estado: "HUMAN", status: "aberta",
+      bot_ativo: false, nao_lidas: 0,
+    }).select("id").single();
+    if (error) throw new Error(`Falha ao criar conversa: ${error.message}`);
+    conversationId = nova.id;
+  }
+
+  const { error: erroMsg } = await c.from("messages").insert({
+    conversation_id: conversationId,
+    store_id: STORE_ID,
+    sender_type: "atendente",
+    external_message_id: mensagem.idExterno || null,
+    tipo: tipoNoBanco(mensagem.tipo),
+    conteudo: mensagem.texto ?? null,
+    arquivo_url: mensagem.arquivo ?? null,
+    status: "enviada",
+    enviada_em: quando,
+  });
+  if (erroMsg) throw new Error(`Falha ao gravar mensagem: ${erroMsg.message}`);
+
+  await c.from("conversations").update({
+    ultima_mensagem: texto,
+    ultima_mensagem_em: quando,
+    ultima_interacao_sistema: quando,
+    ...(conversa?.bot_ativo ? { bot_ativo: false, estado: "HUMAN" } : {}),
+  }).eq("id", conversationId);
+
+  if (conversa?.bot_ativo) {
+    await c.from("messages").insert({
+      conversation_id: conversationId, store_id: STORE_ID,
+      sender_type: "sistema", tipo: "sistema",
+      conteudo: "Respondido pelo celular. Bot pausado nesta conversa.",
+    });
+  }
+
+  // quem respondeu já cuidou: o "conseguiu ver o catálogo?" perde o sentido
+  await cancelarJobs(conversationId!, "followup_catalogo");
+  return true;
 }
 
 /** Mesmo fluxo na base de demonstração, para exercitar o bot sem WhatsApp. */

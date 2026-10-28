@@ -31,6 +31,7 @@ export function ImportarWhatsapp() {
     const partes = [
       r.conversas_novas ? `${r.conversas_novas} conversa(s)` : null,
       r.clientes_novos ? `${r.clientes_novos} cliente(s) novo(s)` : null,
+      r.leads_abertos ? `${r.leads_abertos} no kanban` : null,
       r.ja_existiam ? `${r.ja_existiam} já existia(m)` : null,
     ].filter(Boolean);
 
@@ -51,7 +52,8 @@ export function ImportarWhatsapp() {
 
       <p className="text-[11px] leading-relaxed text-ink-500">
         Traz os contatos e as conversas que já existem no número conectado,
-        com o contador de não lidas. <strong className="text-ink-300">O
+        com o contador de não lidas, e abre no kanban as que tiveram conversa
+        nos últimos 30 dias. <strong className="text-ink-300">O
         histórico das mensagens não vem</strong> — ele fica no aparelho, e o
         conteúdo passa a ser gravado da conexão em diante. O bot entra
         desligado nas conversas importadas, porque não viu o começo delas.

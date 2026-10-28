@@ -1,7 +1,7 @@
 import "server-only";
 import { clienteDoSistema, type ClienteSistema } from "../supabase/sistema";
 import { STORE_ID } from "../supabase/config";
-import { enfileirar } from "../fila/worker";
+import { avisarPagamentoAprovado } from "../bot/pos-pagamento";
 import { demo } from "../demo";
 import { decidirPagamento } from "./conferencia-core";
 import type { EventoPagamento } from "./tipos";
@@ -162,18 +162,9 @@ export async function registrarPagamento(
     }
   }
 
-  // avisar o cliente não segura a resposta ao gateway
-  if (pedido.conversation_id) {
-    await enfileirar(
-      "avisar_status_pedido",
-      {
-        texto: `Pagamento confirmado ✅ Seu pedido ${pedido.numero_pedido} já entrou na fila 🖤`,
-        order_id: pedido.id,
-        natureza: "transacional",
-      },
-      { conversationId: pedido.conversation_id },
-    );
-  }
+  // a conversa fica sabendo e o cliente recebe o aviso; enfileirado, não
+  // segura a resposta ao gateway
+  await avisarPagamentoAprovado(pedido.id);
 
   await marcarProcessado(c, gateway, evento.id);
   return { processado: true, pedido: pedido.numero_pedido };

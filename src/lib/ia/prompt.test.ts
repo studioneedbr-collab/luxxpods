@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { montarContexto, montarPrompt, type DadosDaLoja } from "./prompt";
+import { linhasDoPerfil, montarContexto, montarPrompt, type DadosDaLoja } from "./prompt";
 
 const loja: DadosDaLoja = {
   nomeDaLoja: "Luxx Pods",
@@ -78,6 +78,7 @@ describe("prompt da loja", () => {
       "adicionar_carrinho", "buscar_upsell", "buscar_enderecos",
       "cadastrar_endereco", "criar_pagamento", "resumir_pedido",
       "confirmar_pedido", "transferir_atendimento",
+      "usar_endereco", "salvar_preferencias", "sugerir_produtos", "repetir_ultimo_pedido",
     ]) {
       expect(p, ferramenta).toContain(ferramenta);
     }
@@ -122,5 +123,39 @@ describe("contexto da conversa", () => {
       jaComprou: false, maioridadeValidada: true,
     });
     expect(c).toContain("sem nome");
+  });
+});
+
+describe("perfil do cliente no contexto", () => {
+  const vazio = {
+    declarado: { marcas: [], sabores: [], perfil: [], puffs: null },
+    deduzido: { marca: null, produto: null, sabor: null, puffs: null, forma: null },
+    ultimoPedido: null, endereco: null,
+  };
+
+  it("sem nada conhecido, não gasta linha", () => {
+    expect(linhasDoPerfil(vazio)).toBe("");
+  });
+
+  it("traz gosto, compra, pagamento, último pedido e o id do endereço", () => {
+    const texto = linhasDoPerfil({
+      declarado: { marcas: ["Ignite"], sabores: [], perfil: ["gelado"], puffs: 10000 },
+      deduzido: { marca: "Ignite", produto: "Ignite V300", sabor: "Watermelon Ice", puffs: 30000, forma: "pix" },
+      ultimoPedido: { numero: "LX-1", itens: [
+        { produto: "Ignite V300", sabor: "Watermelon Ice", quantidade: 2, disponivel: false }] },
+      endereco: { id: "end-1", linha: "Rua A, 10 — Centro" },
+    });
+    expect(texto).toContain("gelado");
+    expect(texto).toContain("Ignite V300 Watermelon Ice");
+    expect(texto).toContain("PIX");
+    expect(texto).toContain("sem estoque agora");
+    expect(texto).toContain("end-1");
+  });
+
+  it("vai para o contexto da mensagem", () => {
+    expect(montarContexto({
+      estado: "CART", nomeDoCliente: "Lucas", jaComprou: true,
+      maioridadeValidada: true, perfil: "PERFIL DO CLIENTE: x",
+    })).toContain("PERFIL DO CLIENTE");
   });
 });

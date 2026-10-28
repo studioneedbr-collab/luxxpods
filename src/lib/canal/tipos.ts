@@ -38,6 +38,11 @@ export interface MensagemEntrada {
   /** resposta de botão: qual foi apertado */
   botaoId?: string;
   recebidaEm: Date;
+  /**
+   * Escrita pela loja direto no celular, não pelo painel. `de` continua sendo
+   * o telefone do cliente — é a conversa onde a mensagem entra.
+   */
+  enviadaPorMim?: boolean;
 }
 
 export interface AtualizacaoStatus {

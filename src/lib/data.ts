@@ -174,7 +174,8 @@ export async function getConversas(): Promise<Conversa[]> {
     .select("id,customer_id,canal,estado,status,bot_ativo,nao_lidas,ultima_mensagem,ultima_mensagem_em,responsavel_id,created_at,lead_id,customers(*)")
     .eq("store_id", STORE_ID)
     .order("ultima_mensagem_em", { ascending: false, nullsFirst: false })
-    .limit(150);
+    // a importação traz o WhatsApp inteiro; com 150 o resto sumia da lista
+    .limit(1000);
   if (error || !data) aoFalhar("as conversas", error);
   return data.map((r: Record<string, unknown>) => ({
     ...(semJoins(r, "customers") as unknown as Conversa),
@@ -253,7 +254,21 @@ export async function getClientes(limite = 200): Promise<Cliente[]> {
     .from("customers").select("*").eq("store_id", STORE_ID).is("deleted_at", null)
     .order("ultima_interacao", { ascending: false, nullsFirst: false }).limit(limite);
   if (error || !data) aoFalhar("os clientes", error);
-  return data as unknown as Cliente[];
+
+  // o perfil das compras vem da view da 0017; sem ela, a lista sai sem
+  // perfil em vez de quebrar a tela inteira
+  const ids = data.map((x: { id: string }) => x.id);
+  const { data: perfis } = ids.length
+    ? await c.from("v_perfil_cliente")
+        .select("customer_id, marca_mais_comprada, produto_mais_comprado, sabor_mais_comprado, puffs_medio, forma_pagamento_habitual")
+        .in("customer_id", ids)
+    : { data: [] };
+  const porCliente = new Map((perfis ?? []).map((p: Record<string, unknown>) => [p.customer_id, p]));
+
+  return data.map((x: Record<string, unknown>) => ({
+    ...x,
+    perfil: (porCliente.get(x.id) as unknown as Cliente["perfil"]) ?? null,
+  })) as unknown as Cliente[];
 }
 
 // ------------------------------------------------------------------- TAREFAS

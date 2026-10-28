@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import { excluirCliente, salvarCliente } from "@/lib/actions-cadastro";
 import { Paginacao, usePaginacao } from "@/components/ui/paginacao";
 import { brl, cn, iniciais, num, telefone, tempoRelativo } from "@/lib/utils";
-import type { Cliente } from "@/lib/types";
+import { gostosDoCliente, type Cliente } from "@/lib/types";
 import { BotaoExportar } from "@/components/ui/botao-exportar";
 import { dataExport } from "@/lib/exportar";
 import { useListaServidor } from "@/lib/usar-lista-servidor";
@@ -28,6 +28,12 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState("recentes");
   const [segmento, setSegmento] = useState("todos");
+  const [gosto, setGosto] = useState("");
+  const [pagamento, setPagamento] = useState("");
+
+  // as opções saem da própria base: só aparece o que algum cliente tem
+  const opcoesGosto = useMemo(() => [...new Set(clientes.flatMap((c) => gostosDoCliente(c)))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR")), [clientes]);
 
   const filtrados = useMemo(() => {
     const t = busca.trim().toLowerCase();
@@ -35,6 +41,8 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
       if (segmento === "recorrentes" && c.total_pedidos <= 1) return false;
       if (segmento === "novos" && c.total_pedidos > 0) return false;
       if (segmento === "vip" && !(c.tags ?? []).includes("vip")) return false;
+      if (gosto && !gostosDoCliente(c).includes(gosto)) return false;
+      if (pagamento && !(c.perfil?.forma_pagamento_habitual ?? "").startsWith(pagamento)) return false;
       if (!t) return true;
       return [c.nome, c.telefone, c.instagram_username]
         .some((v) => (v ?? "").toLowerCase().includes(t));
@@ -47,7 +55,7 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
       return +new Date(b.ultima_interacao ?? 0) - +new Date(a.ultima_interacao ?? 0);
     });
     return lista;
-  }, [clientes, busca, ordem, segmento]);
+  }, [clientes, busca, ordem, segmento, gosto, pagamento]);
 
   const { visiveis, props: paginacao } = usePaginacao(filtrados, 25);
 
@@ -121,6 +129,18 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
           <option value="novos">Sem compra</option>
           <option value="vip">VIP</option>
         </Select>
+        {opcoesGosto.length > 0 && (
+          <Select value={gosto} onChange={(e) => setGosto(e.target.value)} aria-label="Filtrar por gosto">
+            <option value="">Qualquer gosto</option>
+            {opcoesGosto.map((g) => <option key={g} value={g}>{g}</option>)}
+          </Select>
+        )}
+        <Select value={pagamento} onChange={(e) => setPagamento(e.target.value)} aria-label="Filtrar por pagamento">
+          <option value="">Qualquer pagamento</option>
+          <option value="pix">Costuma pagar no PIX</option>
+          <option value="dinheiro">Costuma pagar em dinheiro</option>
+          <option value="cartao">Costuma pagar no cartão</option>
+        </Select>
         <Select value={ordem} onChange={(e) => setOrdem(e.target.value)}>
           <option value="recentes">Mais recentes</option>
           <option value="valor">Maior valor</option>
@@ -146,6 +166,10 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
             { cabecalho: "Origem", valor: (c) => c.origem },
             { cabecalho: "Maioridade validada", valor: (c) => c.maioridade_validada },
             { cabecalho: "Tags", valor: (c) => (c.tags ?? []).join(", ") },
+            { cabecalho: "Gosta de", valor: (c) => gostosDoCliente(c).join(", ") },
+            { cabecalho: "Mais comprado", valor: (c) =>
+              [c.perfil?.produto_mais_comprado, c.perfil?.sabor_mais_comprado].filter(Boolean).join(" ") },
+            { cabecalho: "Pagamento habitual", valor: (c) => c.perfil?.forma_pagamento_habitual },
             { cabecalho: "Pedidos", valor: (c) => c.total_pedidos },
             { cabecalho: "Total comprado", valor: (c) => c.total_comprado },
             { cabecalho: "Ticket médio", valor: (c) => c.ticket_medio },
@@ -176,6 +200,7 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
                 <Th className="text-right">Total comprado</Th>
                 <Th className="text-right">Ticket médio</Th>
                 <Th>Última interação</Th>
+                <Th>Gosta de</Th>
                 <Th>Tags</Th>
                 <Th className="text-right">Ações</Th>
               </tr>
@@ -216,6 +241,17 @@ export function ListaClientes({ clientes: doServidor }: { clientes: Cliente[] })
                   <Td className="text-right tabular-nums text-ink-300">{brl(c.ticket_medio)}</Td>
                   <Td className="whitespace-nowrap text-[11px] text-ink-400">
                     {tempoRelativo(c.ultima_interacao)}
+                  </Td>
+                  <Td>
+                    <div className="flex max-w-[220px] flex-wrap gap-1">
+                      {gostosDoCliente(c).slice(0, 4).map((g) => (
+                        <button key={g} type="button" onClick={() => setGosto(g)}
+                          title={`Ver quem gosta de ${g}`}>
+                          <Badge tom="neutro">{g}</Badge>
+                        </button>
+                      ))}
+                      {gostosDoCliente(c).length === 0 && <span className="text-[11px] text-ink-600">—</span>}
+                    </div>
                   </Td>
                   <Td>
                     <div className="flex flex-wrap gap-1">
