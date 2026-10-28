@@ -193,7 +193,7 @@ async function cobrarPix(orderId: string, numero: string | undefined, total: num
 
   if (meio.confirmacaoAutomatica && orderId !== "demo") {
     const { gerarCobranca } = await import("../pix/cobranca");
-    const r = await gerarCobranca(orderId);
+    const r = await gerarCobranca(orderId, "sistema");
     if (r.ok && (r.cobranca?.copiaECola || r.cobranca?.link)) {
       return {
         chave: null, copiaECola: r.cobranca.copiaECola || null,
@@ -204,8 +204,13 @@ async function cobrarPix(orderId: string, numero: string | undefined, total: num
     console.error(`[luxx] a cobrança pelo gateway falhou, usando PIX estático: ${r.erro}`);
   }
 
-  const { lerConfiguracoes } = await import("../actions-config");
-  const config = await lerConfiguracoes();
+  // a versão do sistema: o bot não tem sessão, e a de sessão devolvia a
+  // configuração padrão — sem chave PIX
+  // (sem banco, a demonstração guarda a configuração em memória, que só a
+  // leitura do painel enxerga)
+  const config = (await clienteDoSistema())
+    ? await (await import("../configuracoes-sistema")).lerConfiguracoesDoSistema()
+    : await (await import("../actions-config")).lerConfiguracoes();
   const chave = config.pagamentos.chave_pix;
   if (!chave) return { chave: null, copiaECola: null, link: null, automatico: false };
 

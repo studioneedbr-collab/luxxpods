@@ -128,6 +128,10 @@ async function enviarMensagem(job: Job): Promise<ResultadoJob> {
   const envio = await canal.enviar({ para: destino, tipo: "texto", texto: conteudo });
 
   if (!envio.ok) {
+    // falha sem volta: a conversa mostra "falhou" em vez do relógio eterno
+    if (!envio.tentarDeNovo) {
+      await marcarMensagemComErro(String(job.payload.message_id ?? ""), envio.erro);
+    }
     return { ok: false, erro: envio.erro, tentarDeNovo: envio.tentarDeNovo };
   }
 
@@ -393,6 +397,16 @@ async function marcarMensagemEnviada(messageId: string, idExterno?: string) {
   } else {
     const msg = demo().mensagens.find((m) => m.id === messageId);
     if (msg) msg.status = "enviada";
+  }
+}
+
+async function marcarMensagemComErro(messageId: string, erro?: string) {
+  if (!messageId) return;
+  const c = await clienteDoSistema();
+  if (c) {
+    await c.from("messages")
+      .update({ status: "erro", erro: erro ?? "não foi entregue" })
+      .eq("id", messageId);
   }
 }
 
