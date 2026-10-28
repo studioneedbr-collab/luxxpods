@@ -92,14 +92,40 @@ export function Inbox({
   useEffect(() => {
     const supabase = getSupabaseBrowser();
     if (!supabase) return;
-    const canal = supabase
-      .channel("inbox-lista")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
+    // Antes cada mudança em QUALQUER conversa recarregava a lista inteira
+    // (até 1000, com o cliente junto) — umas 4 vezes por mensagem recebida.
+    // Agora a linha que mudou entra direto; só conversa nova, que precisa do
+    // cliente, busca a lista, e no máximo uma vez a cada 2 segundos.
+    let espera: ReturnType<typeof setTimeout> | null = null;
+    const recarregar = () => {
+      if (espera) return;
+      espera = setTimeout(() => {
+        espera = null;
         fetch("/api/conversas").then((r) => r.json()).then((d) => setConversas(d.conversas ?? []))
           .catch(() => {});
-      })
+      }, 2_000);
+    };
+
+    const canal = supabase
+      .channel("inbox-lista")
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" },
+        (payload: { eventType: string; new: Partial<Conversa> & { id?: string } }) => {
+          const nova = payload.new;
+          if (payload.eventType !== "UPDATE" || !nova?.id) { recarregar(); return; }
+
+          setConversas((lista) => {
+            if (!lista.some((c) => c.id === nova.id)) { recarregar(); return lista; }
+            return lista
+              .map((c) => (c.id === nova.id ? { ...c, ...nova, cliente: c.cliente } : c))
+              .sort((a, b) =>
+                +new Date(b.ultima_mensagem_em ?? 0) - +new Date(a.ultima_mensagem_em ?? 0));
+          });
+        })
       .subscribe();
-    return () => { supabase.removeChannel(canal); };
+    return () => {
+      if (espera) clearTimeout(espera);
+      supabase.removeChannel(canal);
+    };
   }, []);
 
   useEffect(() => {
@@ -562,7 +588,8 @@ function legendaDeMidia(m: Mensagem) {
  * "[áudio de voz 12s]" e tinha de abrir o celular para ouvir.
  */
 function Midia({ mensagem: m }: { mensagem: Mensagem }) {
-  if (!m.arquivo_url) return null;
+  // o endereço vem do webhook: só https, nada de javascript: nem data:
+  if (!m.arquivo_url || !/^https:\/\//i.test(m.arquivo_url)) return null;
 
   switch (m.tipo) {
     case "imagem":
@@ -633,8 +660,8 @@ function Ficha({ conversa }: { conversa: Conversa }) {
       <div className="space-y-2 border-t border-[var(--linha)] pt-3 text-[11px]">
         <Linha rotulo="Canal" valor={CANAL[conversa.canal].rotulo} />
         <Linha rotulo="Origem" valor={c.origem ?? "—"} />
-        <Linha rotulo="Primeiro contato" valor={new Date(c.created_at).toLocaleDateString("pt-BR")} />
-        <Linha rotulo="Última compra" valor={c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString("pt-BR") : "nunca"} />
+        <Linha rotulo="Primeiro contato" valor={new Date(c.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} />
+        <Linha rotulo="Última compra" valor={c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "nunca"} />
         <Linha rotulo="Etapa do funil" valor={ESTADO_CONVERSA[conversa.estado].rotulo} />
       </div>
 

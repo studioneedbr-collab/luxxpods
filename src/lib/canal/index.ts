@@ -27,15 +27,23 @@ export function canalAtivo(): Canal {
   return (cache = new CanalSimulado());
 }
 
-/** Descobre de qual provedor veio o webhook pelo formato do corpo. */
+/**
+ * Descobre de qual provedor veio o webhook pelo formato do corpo — e só
+ * aceita o provedor que está NO AR.
+ *
+ * Escolher só pelo corpo deixava um atalho: com a Z-API protegida por
+ * segredo, um corpo com `entry: []` caía no tratador da Meta, que sem
+ * segredo próprio aceitava tudo.
+ */
 export function canalDoWebhook(corpo: unknown): Canal | null {
   const c = corpo as Record<string, unknown>;
 
-  if (c?.object === "whatsapp_business_account" || Array.isArray(c?.entry)) {
-    return new CanalMeta();
-  }
-  if (c?.instanceId || c?.messageId || c?.phone) {
-    return new CanalZApi();
-  }
-  return null;
+  const pelo = c?.object === "whatsapp_business_account" || Array.isArray(c?.entry)
+    ? new CanalMeta()
+    : c?.instanceId || c?.messageId || c?.phone ? new CanalZApi() : null;
+  if (!pelo) return null;
+
+  // fora de produção, sem canal configurado, o webhook continua testável
+  if (process.env.NODE_ENV !== "production") return pelo;
+  return canalAtivo().nome === pelo.nome ? pelo : null;
 }

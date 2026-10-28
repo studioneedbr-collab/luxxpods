@@ -263,7 +263,7 @@ export function TelaNotas({
                   return (
                     <Tr key={n.id}>
                       <Td className="whitespace-nowrap tabular-nums text-ink-400">
-                        {new Date(`${n.data}T12:00:00`).toLocaleDateString("pt-BR")}
+                        {new Date(`${n.data}T12:00:00`).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}
                       </Td>
                       <Td>
                         <p className="font-medium text-ink-100">{n.fornecedor_nome ?? "—"}</p>

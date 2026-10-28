@@ -140,7 +140,7 @@ export function TelaCupons({ cupons: iniciais }: { cupons: Cupom[] }) {
                     </Td>
                     <Td className="whitespace-nowrap text-[11px] tabular-nums text-ink-400">
                       {c.inicio || c.fim
-                        ? `${c.inicio ? new Date(c.inicio).toLocaleDateString("pt-BR") : "—"} a ${c.fim ? new Date(c.fim).toLocaleDateString("pt-BR") : "—"}`
+                        ? `${c.inicio ? new Date(c.inicio).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—"} a ${c.fim ? new Date(c.fim).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—"}`
                         : "sem prazo"}
                     </Td>
                     <Td className="text-center">

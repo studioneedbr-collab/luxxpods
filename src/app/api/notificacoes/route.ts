@@ -1,3 +1,4 @@
+import { hojeSP } from "@/lib/data-hora";
 import { NextResponse } from "next/server";
 import { getCatalogo, getConversas, getPedidos, getTarefas } from "@/lib/data";
 import { getLancamentos, getTrocas } from "@/lib/data-mvp2";
@@ -26,7 +27,7 @@ export async function GET() {
 
   const avisos: Notificacao[] = [];
   const agora = Date.now();
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeSP();
 
   /* ---------------- atendimento ---------------- */
   const naoRespondidas = conversas.filter((c) => c.nao_lidas > 0);

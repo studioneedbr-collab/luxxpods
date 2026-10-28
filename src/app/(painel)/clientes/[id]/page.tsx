@@ -86,11 +86,11 @@ export default async function FichaCliente({
               {[
                 ["Canal de origem", cliente.canal_origem ? CANAL[cliente.canal_origem].rotulo : "—"],
                 ["Origem", cliente.origem ?? "—"],
-                ["Cadastrado em", new Date(cliente.created_at).toLocaleDateString("pt-BR")],
+                ["Cadastrado em", new Date(cliente.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })],
                 ["Primeira compra", cliente.ultima_compra
-                  ? new Date(cliente.created_at).toLocaleDateString("pt-BR") : "nunca comprou"],
+                  ? new Date(cliente.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "nunca comprou"],
                 ["Última compra", cliente.ultima_compra
-                  ? `${new Date(cliente.ultima_compra).toLocaleDateString("pt-BR")} (${tempoRelativo(cliente.ultima_compra)})`
+                  ? `${new Date(cliente.ultima_compra).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} (${tempoRelativo(cliente.ultima_compra)})`
                   : "nunca"],
                 ["Última interação", tempoRelativo(cliente.ultima_interacao)],
               ].map(([rotulo, valor]) => (

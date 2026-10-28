@@ -46,7 +46,9 @@ function validar(nome: string, email: string, senha?: string): string | null {
  * A pergunta vai ao banco com a sessão da pessoa, não com a chave de serviço:
  * é o próprio Postgres respondendo quem ela é, e não o navegador dizendo.
  */
-async function podeGerenciar(): Promise<{ ok: true; meuId: string } | { ok: false; erro: string }> {
+async function podeGerenciar(): Promise<
+  { ok: true; meuId: string; souAdmin: boolean } | { ok: false; erro: string }
+> {
   if (!supabaseConfigurado) {
     return { ok: false, erro: "Sistema sem banco configurado." };
   }
@@ -62,7 +64,28 @@ async function podeGerenciar(): Promise<{ ok: true; meuId: string } | { ok: fals
     return { ok: false, erro: "Seu perfil não pode gerenciar usuários." };
   }
 
-  return { ok: true, meuId: sessao.user.id };
+  const { data: perfil } = await c.rpc("meu_perfil");
+  return { ok: true, meuId: sessao.user.id, souAdmin: perfil === "admin" };
+}
+
+/**
+ * Permissão de gerenciar usuário pode ser concedida a quem não é admin. Sem
+ * esta trava, esse "gerente de usuários" trocava a senha do administrador e
+ * entrava como ele, ou criava um admin novo.
+ */
+async function protegeAdmin(
+  quem: { souAdmin: boolean }, alvoId: string | null, papelNovo?: string,
+): Promise<string | null> {
+  if (quem.souAdmin) return null;
+  if (papelNovo === "admin") return "Só um administrador cria outro administrador.";
+  if (!alvoId) return null;
+
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
+  const { data } = await admin.from("profiles")
+    .select("roles(slug)").eq("id", alvoId).maybeSingle();
+  const slug = (data?.roles as { slug?: string } | null)?.slug;
+  return slug === "admin" ? "Só um administrador mexe na conta de outro administrador." : null;
 }
 
 /** A loja e a empresa onde o usuário novo entra. */
@@ -93,6 +116,8 @@ export interface NovoUsuario {
 export async function criarUsuario(dados: NovoUsuario): Promise<Resultado> {
   const quem = await podeGerenciar();
   if (!quem.ok) return { ok: false, erro: quem.erro };
+  const bloqueio = await protegeAdmin(quem, null, dados.role_slug);
+  if (bloqueio) return { ok: false, erro: bloqueio };
 
   const invalido = validar(dados.nome, dados.email, dados.senha);
   if (invalido) return { ok: false, erro: invalido };
@@ -146,6 +171,8 @@ export async function criarUsuario(dados: NovoUsuario): Promise<Resultado> {
 export async function redefinirSenha(id: string, senha: string): Promise<Resultado> {
   const quem = await podeGerenciar();
   if (!quem.ok) return { ok: false, erro: quem.erro };
+  const bloqueio = await protegeAdmin(quem, id);
+  if (bloqueio) return { ok: false, erro: bloqueio };
   if (senha.length < MIN_SENHA) {
     return { ok: false, erro: `A senha precisa de pelo menos ${MIN_SENHA} caracteres.` };
   }
@@ -171,6 +198,8 @@ export async function alternarStatusUsuario(
 ): Promise<Resultado> {
   const quem = await podeGerenciar();
   if (!quem.ok) return { ok: false, erro: quem.erro };
+  const bloqueio = await protegeAdmin(quem, id);
+  if (bloqueio) return { ok: false, erro: bloqueio };
   if (id === quem.meuId && !ativo) {
     return { ok: false, erro: "Você não pode desativar a sua própria conta." };
   }
@@ -198,6 +227,8 @@ export async function alternarStatusUsuario(
 export async function excluirUsuario(id: string): Promise<Resultado> {
   const quem = await podeGerenciar();
   if (!quem.ok) return { ok: false, erro: quem.erro };
+  const bloqueio = await protegeAdmin(quem, id);
+  if (bloqueio) return { ok: false, erro: bloqueio };
   if (id === quem.meuId) {
     return { ok: false, erro: "Você não pode excluir a sua própria conta." };
   }

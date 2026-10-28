@@ -55,4 +55,4 @@ export const dataExport = (v?: string | null) =>
   }) : "";
 
 export const dataCurtaExport = (v?: string | null) =>
-  v ? new Date(v.length === 10 ? `${v}T12:00:00` : v).toLocaleDateString("pt-BR") : "";
+  v ? new Date(v.length === 10 ? `${v}T12:00:00` : v).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "";

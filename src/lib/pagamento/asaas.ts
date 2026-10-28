@@ -1,3 +1,4 @@
+import { segredoConfere } from "../seguranca/segredo";
 import type {
   Cobranca, DadosCobranca, EventoPagamento, MeioPagamento,
 } from "./tipos";
@@ -245,13 +246,12 @@ export class MeioAsaas implements MeioPagamento {
 
   /**
    * O Asaas manda o token que você cadastrou no painel dele, no header
-   * `asaas-access-token`. Sem token cadastrado não dá para validar — e aí a
-   * proteção que sobra é a conferência de valor contra o pedido.
+   * `asaas-access-token`. Sem token cadastrado, em produção, nada passa: a
+   * conferência de valor sozinha não bastava, porque número e total do
+   * pedido o próprio cliente conhece.
    */
   validarAssinatura(_corpo: string, cabecalhos: Headers): boolean {
-    const esperado = process.env.ASAAS_WEBHOOK_TOKEN;
-    if (!esperado) return true;
-    return cabecalhos.get("asaas-access-token") === esperado;
+    return segredoConfere(process.env.ASAAS_WEBHOOK_TOKEN, cabecalhos.get("asaas-access-token"));
   }
 
   /** Pergunta ao Asaas se a cobrança daquele pedido já foi paga. */

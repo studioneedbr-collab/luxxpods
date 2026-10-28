@@ -156,37 +156,43 @@ As duas estão escritas e revisadas; falta rodar.
 - **`0016`** — a troca passa a mexer no estoque, com a peça de reposição
   baixando e a defeituosa não voltando à prateleira.
 
-### Mexe em dinheiro ou estoque
+### Corrigido na auditoria de 28/10/2026 (migração `0018`)
 
-- **Nota de entrada pode gerar conta a pagar duplicada.** Pagar o fornecedor,
-  reabrir a nota e concluir de novo cria uma segunda conta: a reabertura só
-  cancela conta não paga, mas limpa o vínculo sem condição.
-- **"Dar baixa" no financeiro não fecha o pedido.** `baixarLancamento` só
-  mexe em `accounts_receivable`; o painel do financeiro calcula recebido a
-  partir de `orders.status_pagamento`. As duas telas mostram números
-  diferentes para o mesmo dinheiro.
-- **Baixa em lançamento cancelado ressuscita a receita.** O botão "Recebi"
-  aparece em lançamento que o cancelamento de pedido já marcou como cancelado,
-  e a ação não confere o status.
+- Webhooks do WhatsApp e do Asaas recusam tudo em produção quando falta o
+  segredo, e só aceitam o provedor que está no ar. Antes, sem
+  `ZAPI_WEBHOOK_SECRET`, qualquer pessoa forjava mensagem de cliente.
+- As funções críticas do banco (estoque, pedido, dinheiro) só rodam pela
+  chave de serviço; o painel chama por `src/lib/rpc-autorizada.ts`, que
+  confere o perfil antes. Ninguém mais se promove a admin editando o perfil.
+- Baixa em lançamento cancelado é recusada, e a baixa da conta a receber
+  atualiza o pedido. Lançamento pago ou de pedido não pode ser excluído;
+  pedido com dinheiro recebido ou estornado não pode ser apagado.
+- Reabrir e concluir nota de entrada não duplica mais a conta a pagar, e a
+  conclusão não engole mais o erro do financeiro.
+- "Marcar entregue" confere que o pedido mudou antes de registrar o
+  recebimento; PIX manual só confirma pedido que espera pagamento.
+- Troca grava o sabor de reposição; pedido do painel não herda mais o
+  carrinho do bot; a conversa mostra as 400 mensagens mais recentes.
+- Horário: o "hoje" do painel, das entregas, do financeiro e do banco é o de
+  Brasília.
+- Velocidade: o webhook responde antes do bot terminar; políticas de acesso
+  avaliadas uma vez por consulta; `v_perfil_cliente` sem varrer a loja
+  inteira; índices de fila e lead; a caixa de entrada não recarrega a lista
+  a cada mensagem; jobs e eventos antigos são apagados de hora em hora.
+
+### Ainda em aberto
+
 - **Saldo de conta bancária ignora venda e nota.** Nenhum lançamento
-  automático preenche `bank_account_id`, e a baixa não pergunta em qual conta
-  o dinheiro entrou. O saldo consolidado só reflete lançamento feito à mão.
-- **Excluir pedido cancelado apaga a conta a receber paga** e deixa o estorno
-  órfão em contas a pagar.
+  automático preenche `bank_account_id`.
 - **Categoria escolhida pelo banco é arbitrária** — o estorno cai na primeira
-  despesa em ordem alfabética ("Aluguel"), e a receita da venda pode cair numa
-  categoria inativa.
-
-### Diz que fez e não fez
-
-Todas pela mesma causa: `UPDATE`/`DELETE` barrado por controle de acesso não
-é erro no Postgres — ele filtra as linhas e devolve sucesso com zero linhas.
-São **47 escritas** sem conferência de quantas linhas mudaram. Só morde com
-usuário que não é administrador, e hoje os dois são.
-
-O agravante que custa: em "Marcar entregue" o update silenciosamente vazio é
-seguido de `receber_na_entrega`, que ignora o controle de acesso — o dinheiro
-é marcado como recebido num pedido que o sistema não considera entregue.
+  despesa em ordem alfabética.
+- **Escritas sem conferência de linhas.** As de dinheiro e pedido foram
+  corrigidas; restam as de cadastro (produto, cliente, tarefa), que só mordem
+  com perfil sem permissão.
+- **Mídia do WhatsApp fica no servidor da Z-API**: se o link expirar, a imagem
+  ou o áudio somem da conversa. Falta copiar para um bucket privado.
+- **Excluir usuário apaga o perfil** e zera o autor nos históricos; o certo é
+  desativar.
 
 ### Promessa falsa na interface
 
@@ -214,12 +220,6 @@ seguido de `receber_na_entrega`, que ignora o controle de acesso — o dinheiro
 - **Reabrir troca.** `reabrir_troca` existe no banco e a tela não oferece.
 - **SKU e estoque mínimo por sabor** não têm campo em lugar nenhum: os 80
   SKUs estão com `sku` nulo e `estoque_minimo` no padrão 3.
-
-### Horário
-
-Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
-"entregues hoje" usa o relógio do servidor, fazendo toda entrega depois das
-21h de Brasília contar como amanhã e desaparecer do painel.
 
 ### Canais e integrações
 

@@ -1,3 +1,4 @@
+import { segredoConfere } from "../seguranca/segredo";
 import type {
   AtualizacaoStatus, Canal, EventoCanal, MensagemEntrada, MensagemSaida,
   ResultadoEnvio,
@@ -349,8 +350,6 @@ export class CanalZApi implements Canal {
    * URL cadastrada (`?token=`), e a rota repassa o que veio ali.
    */
   validarAssinatura(_corpo: string, assinatura: string | null): boolean {
-    const esperado = process.env.ZAPI_WEBHOOK_SECRET;
-    if (!esperado) return true;
-    return assinatura === esperado;
+    return segredoConfere(process.env.ZAPI_WEBHOOK_SECRET, assinatura);
   }
 }

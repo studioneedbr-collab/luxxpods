@@ -3,6 +3,7 @@ import { clienteDoSistema } from "../supabase/sistema";
 import { STORE_ID } from "../supabase/config";
 import { demo } from "../demo";
 import { validarChamada } from "./ferramentas";
+import { memoCurta } from "../memo-curta";
 import type { Contexto } from "./estados";
 import type { ItemCatalogo } from "../types";
 import { escolherOferta, type RegraAplicavel } from "./upsell";
@@ -38,14 +39,21 @@ const semAcento = (v: string) =>
 
 /* ------------------------------------------------------------- CATÁLOGO -- */
 
-async function lerCatalogo(): Promise<ItemCatalogo[]> {
+const catalogoDoBanco = memoCurta(2_000, async (): Promise<ItemCatalogo[]> => {
   const c = await clienteDoSistema();
-  if (!c) return demo().catalogo;
-
+  if (!c) return [];
   const { data, error } = await c.from("v_catalogo")
     .select("*").eq("store_id", STORE_ID);
   if (error) throw new Error(`catálogo indisponível: ${error.message}`);
   return (data ?? []) as unknown as ItemCatalogo[];
+});
+
+/** O catálogo do momento, reaproveitado por 2s (ver memo-curta.ts). */
+export async function lerCatalogo(): Promise<ItemCatalogo[]> {
+  // a demonstração é memória: sem cópia em cache, para os testes verem
+  // a mudança na hora
+  if (!(await clienteDoSistema())) return demo().catalogo;
+  return catalogoDoBanco();
 }
 
 /** Só o que dá para vender agora — o resto o bot nem menciona. */
@@ -116,9 +124,16 @@ export async function lerPerfil(customerId: string | null): Promise<PerfilDoClie
 
   const perfil: PerfilDoCliente = structuredClone(PERFIL_VAZIO);
 
-  const { data: pref } = await c.from("customers")
-    .select("pref_marcas, pref_sabores, pref_perfil_sabor, pref_puffs")
-    .eq("id", customerId).maybeSingle();
+  // as três leituras não dependem uma da outra: em paralelo
+  const [{ data: pref }, { data: v }, { data: enderecos }] = await Promise.all([
+    c.from("customers")
+      .select("pref_marcas, pref_sabores, pref_perfil_sabor, pref_puffs")
+      .eq("id", customerId).maybeSingle(),
+    c.from("v_perfil_cliente").select("*").eq("customer_id", customerId).maybeSingle(),
+    c.from("customer_addresses")
+      .select("id, rua, numero, bairro, complemento, referencia, principal")
+      .eq("customer_id", customerId).order("principal", { ascending: false }),
+  ]);
   if (pref) {
     perfil.declarado = {
       marcas: (pref.pref_marcas as string[]) ?? [],
@@ -128,8 +143,6 @@ export async function lerPerfil(customerId: string | null): Promise<PerfilDoClie
     };
   }
 
-  const { data: v } = await c.from("v_perfil_cliente")
-    .select("*").eq("customer_id", customerId).maybeSingle();
 
   let ultimoId = (v?.ultimo_pedido_id as string | null) ?? null;
   if (v) {
@@ -170,9 +183,6 @@ export async function lerPerfil(customerId: string | null): Promise<PerfilDoClie
 
   // o endereço do último pedido, senão o principal
   const enderecoPreferido = (v?.ultimo_endereco_id as string | null) ?? null;
-  const { data: enderecos } = await c.from("customer_addresses")
-    .select("id, rua, numero, bairro, complemento, referencia, principal")
-    .eq("customer_id", customerId).order("principal", { ascending: false });
   const escolhido = (enderecos ?? []).find((e) => e.id === enderecoPreferido) ?? enderecos?.[0];
   if (escolhido) perfil.endereco = { id: escolhido.id, linha: enderecoEmLinha(escolhido) };
 

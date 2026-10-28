@@ -189,9 +189,12 @@ export async function getMensagens(conversationId: string): Promise<Mensagem[]> 
   const { data, error } = await c
     .from("messages")
     .select("id,conversation_id,sender_type,tipo,conteudo,arquivo_url,status,created_at")
-    .eq("conversation_id", conversationId).order("created_at").limit(400);
+    // as 400 MAIS RECENTES: em ordem crescente com limite, conversa longa
+    // mostrava as antigas e escondia justamente a que acabou de chegar
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false }).limit(400);
   if (error) aoFalhar("as mensagens da conversa", error);
-  return (data ?? []) as unknown as Mensagem[];
+  return ((data ?? []) as unknown as Mensagem[]).reverse();
 }
 
 // --------------------------------------------------------------------- LEADS
@@ -349,17 +352,16 @@ export async function getCliente(id: string): Promise<{
     };
   }
 
-  const { data: cliente } = await c
-    .from("customers").select("*").eq("id", id).maybeSingle();
-  if (!cliente) return null;
-
-  const [enderecos, pedidos, conversas] = await Promise.all([
+  // as quatro só dependem do id: em paralelo, não uma depois da outra
+  const [{ data: cliente }, enderecos, pedidos, conversas] = await Promise.all([
+    c.from("customers").select("*").eq("id", id).maybeSingle(),
     c.from("customer_addresses").select("*").eq("customer_id", id),
     c.from("orders").select("*, order_items(*)").eq("customer_id", id)
       .order("created_at", { ascending: false }).limit(100),
     c.from("conversations").select("*").eq("customer_id", id)
       .order("ultima_mensagem_em", { ascending: false, nullsFirst: false }),
   ]);
+  if (!cliente) return null;
 
   return {
     cliente: cliente as unknown as Cliente,
@@ -370,6 +372,24 @@ export async function getCliente(id: string): Promise<{
     }),
     conversas: (conversas.data ?? []) as unknown as Conversa[],
   };
+}
+
+/**
+ * Os itens de vários pedidos numa consulta só. O relatório de vendas abria
+ * até 120 pedidos um a um — 120 idas ao banco para montar uma tabela.
+ */
+export async function getItensDosPedidos(ids: string[]): Promise<PedidoItem[]> {
+  if (ids.length === 0) return [];
+  const c = await sb();
+  if (!c) return ids.flatMap((id) => demo().itens[id] ?? []);
+  // em lotes: os ids vão na URL, e 300 uuids passam do tamanho que ela aguenta
+  const lotes: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
+  const respostas = await Promise.all(lotes.map((lote) =>
+    c.from("order_items").select("*").in("order_id", lote)));
+  const erro = respostas.find((r) => r.error)?.error;
+  if (erro) aoFalhar("os itens dos pedidos", erro);
+  return respostas.flatMap((r) => (r.data ?? []) as unknown as PedidoItem[]);
 }
 
 /** Movimentações de um produto+sabor específico. */

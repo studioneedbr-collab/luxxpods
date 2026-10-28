@@ -6,6 +6,7 @@ import { Realtime } from "@/components/realtime";
 import { STATUS_PEDIDO } from "@/lib/labels";
 import { brl, hora, num, telefone } from "@/lib/utils";
 import { getPedidos } from "@/lib/data";
+import { ehHojeSP } from "@/lib/data-hora";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,9 @@ export default async function EntregasPage() {
   const emRota = pedidos.filter((p) => p.status_pedido === "saiu_para_entrega");
   const confirmados = pedidos.filter((p) => p.status_pedido === "confirmado");
 
-  const hojeStr = new Date().toDateString();
+  // "hoje" de Brasília: em UTC, entrega depois das 21h contava como amanhã
   const entreguesHoje = pedidos.filter(
-    (p) => p.status_pedido === "entregue" && new Date(p.entregue_em ?? p.created_at).toDateString() === hojeStr,
+    (p) => p.status_pedido === "entregue" && ehHojeSP(p.entregue_em ?? p.created_at),
   );
 
   const aReceber = [...emRota, ...separando, ...confirmados]

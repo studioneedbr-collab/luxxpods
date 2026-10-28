@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { canalDoWebhook } from "@/lib/canal";
 import {
   receberMensagem, registrarEnviadaPeloCelular, registrarStatus,
@@ -7,6 +7,8 @@ import { processar } from "@/lib/bot/motor";
 import { despacharFila } from "@/lib/fila/worker";
 
 export const dynamic = "force-dynamic";
+// o bot (e a IA) roda depois da resposta, dentro deste mesmo limite
+export const maxDuration = 60;
 
 /**
  * Entrada de mensagens do WhatsApp.
@@ -61,8 +63,11 @@ export async function POST(req: Request) {
   if (!evento) return NextResponse.json({ ignorado: "sem conteúdo útil" });
 
   const resultado = {
-    recebidas: 0, ignoradas: 0, respondidas: 0, status: 0, erros: [] as string[],
+    recebidas: 0, ignoradas: 0, status: 0, erros: [] as string[],
   };
+  // em ordem: duas mensagens seguidas do cliente não podem ser lidas fora
+  // da ordem em que ele mandou
+  const paraOBot: Array<() => Promise<void>> = [];
 
   for (const mensagem of evento.mensagens) {
     try {
@@ -81,16 +86,22 @@ export async function POST(req: Request) {
 
       resultado.recebidas++;
 
-      // o bot responde depois da mensagem já estar gravada: se o motor
-      // quebrar, o contato continua no painel para alguém responder à mão
+      // o bot responde depois da mensagem já estar gravada — e depois da
+      // resposta ao provedor. Antes o webhook esperava o bot e a IA (até ~75s
+      // no pior caso): a Z-API desistia e reenviava o mesmo evento.
       if (recepcao.botAtivo && mensagem.texto) {
-        try {
-          const r = await processar(recepcao.conversationId, mensagem.texto);
-          if (r.respondeu) resultado.respondidas++;
-        } catch (e) {
-          console.error("[luxx] o motor de conversa falhou:", e);
-          resultado.erros.push("bot não respondeu — a mensagem está no painel");
-        }
+        const conversa = recepcao.conversationId;
+        const texto = mensagem.texto;
+        paraOBot.push(async () => {
+          try {
+            const r = await processar(conversa, texto);
+            if (r.respondeu) despacharFila();
+          } catch (e) {
+            // se o motor quebrar, o contato continua no painel para alguém
+            // responder à mão
+            console.error("[luxx] o motor de conversa falhou:", e);
+          }
+        });
       }
     } catch (e) {
       // uma mensagem com problema não pode derrubar as outras do mesmo lote
@@ -108,8 +119,11 @@ export async function POST(req: Request) {
     }
   }
 
-  // o bot só enfileira a resposta; sem isto ela esperaria o cron do minuto
-  if (resultado.respondidas > 0) despacharFila();
+  if (paraOBot.length) {
+    after(async () => {
+      for (const tarefa of paraOBot) await tarefa();
+    });
+  }
 
   // sempre 200: qualquer outro código faz o provedor reenviar o lote inteiro,
   // e as mensagens que já entraram virariam duplicata

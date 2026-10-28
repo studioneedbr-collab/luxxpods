@@ -6,7 +6,7 @@ import { demo, demoEnviarMensagem } from "../demo";
 import { classificar, confirmouMaioridade, ehNao, idadeDeclarada, type Intencao } from "./intencoes";
 import { aceitouOferta } from "./upsell";
 import { deveChamarHumano, proximoEstado, type Contexto, type FormaPagamento } from "./estados";
-import { executar, lerPerfil, type Ambiente, type PerfilDoCliente } from "./executor";
+import { executar, lerCatalogo, lerPerfil, type Ambiente, type PerfilDoCliente } from "./executor";
 import {
   enderecoEmLinha, extrairEndereco, extrairPreferencias, preferenciasEmTexto,
   quantidadeNoTexto, semPreferencia,
@@ -989,12 +989,8 @@ async function responder(conversationId: string, texto: string) {
 
 /** Marcas, modelos e sabores reais — para a classificação não chutar. */
 async function termosDoCatalogo() {
-  const c = await clienteDoSistema();
-  const itens = c
-    ? ((await c.from("v_catalogo").select("marca, produto, modelo, sabor")
-        .eq("store_id", STORE_ID)).data ?? [])
-    : demo().catalogo;
-
+  // a mesma leitura que as ferramentas usam, reaproveitada
+  const itens = await lerCatalogo();
   return {
     marcas: [...new Set(itens.map((i) => String(i.marca ?? "")).filter(Boolean))],
     modelos: [...new Set(itens.map((i) => String(i.produto ?? "")).filter(Boolean))],
@@ -1003,24 +999,17 @@ async function termosDoCatalogo() {
 }
 
 async function dentroDoHorario(): Promise<boolean> {
-  const c = await clienteDoSistema();
-  if (!c) return true;
-
-  const { data } = await c.from("settings")
-    .select("valor").eq("store_id", STORE_ID).eq("chave", "atendimento").maybeSingle();
-  const cfg = data?.valor as { horario_inicio?: string; horario_fim?: string } | undefined;
-  if (!cfg?.horario_inicio || !cfg?.horario_fim) return true;
+  if (!(await clienteDoSistema())) return true;
+  const { horario_inicio, horario_fim } = (await lerConfiguracoesDoSistema()).atendimento;
+  if (!horario_inicio || !horario_fim) return true;
 
   const agora = new Date().toLocaleTimeString("pt-BR", {
     hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo",
   });
-  return agora >= cfg.horario_inicio && agora <= cfg.horario_fim;
+  return agora >= horario_inicio && agora <= horario_fim;
 }
 
 async function horarioDeAbertura(): Promise<string> {
-  const c = await clienteDoSistema();
-  if (!c) return "10h";
-  const { data } = await c.from("settings")
-    .select("valor").eq("store_id", STORE_ID).eq("chave", "atendimento").maybeSingle();
-  return (data?.valor as { horario_inicio?: string } | undefined)?.horario_inicio ?? "10h";
+  if (!(await clienteDoSistema())) return "10h";
+  return (await lerConfiguracoesDoSistema()).atendimento.horario_inicio || "10h";
 }

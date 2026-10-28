@@ -39,7 +39,8 @@ export async function receberMensagem(
 ): Promise<Recepcao | null> {
   const telefone = validarTelefone(mensagem.de);
   if (!telefone) {
-    console.warn(`[luxx] mensagem de número inválido, ignorada: ${mensagem.de}`);
+    // telefone é dado pessoal: no log só o fim
+    console.warn(`[luxx] mensagem de número inválido, ignorada: …${String(mensagem.de).slice(-4)}`);
     return null;
   }
 

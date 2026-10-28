@@ -410,6 +410,28 @@ async function marcarMensagemComErro(messageId: string, erro?: string) {
   }
 }
 
+/**
+ * O que já foi resolvido há tempo sai do banco.
+ *
+ * O cron enfileira a limpeza de reservas a cada minuto (~1440 linhas por
+ * dia) e nada apagava job nem evento de webhook: a tabela crescia para
+ * sempre e a busca da fila ficava mais lenta. Mensagem, pedido e dinheiro
+ * NÃO entram aqui — isso é histórico da loja.
+ */
+export async function limparHistorico(): Promise<{ jobs: number; eventos: number }> {
+  const c = await clienteDoSistema();
+  if (!c) return { jobs: 0, eventos: 0 };
+
+  const dias = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
+  const { data: jobs } = await c.from("jobs").delete()
+    .in("status", ["concluido", "cancelado"]).lt("created_at", dias(30)).select("id");
+  const { data: eventos } = await c.from("webhook_events").delete()
+    .eq("processado", true).lt("created_at", dias(90)).select("id");
+
+  return { jobs: jobs?.length ?? 0, eventos: eventos?.length ?? 0 };
+}
+
 /** Enfileira um job novo. */
 export async function enfileirar(
   tipo: TipoJob,

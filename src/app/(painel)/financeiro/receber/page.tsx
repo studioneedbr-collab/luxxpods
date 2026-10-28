@@ -1,3 +1,4 @@
+import { hojeSP } from "@/lib/data-hora";
 import { TelaLancamentos } from "@/components/financeiro/lancamentos";
 import { getCategoriasFinanceiras, getContasBancarias, getLancamentos } from "@/lib/data-mvp2";
 
@@ -5,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** Data de referência do servidor, fora do render. */
 async function hojeDoServidor() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeSP();
 }
 
 export default async function ReceberPage() {

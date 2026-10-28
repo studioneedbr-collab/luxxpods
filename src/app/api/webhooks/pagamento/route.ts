@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { meioDoWebhook } from "@/lib/pagamento";
+import { meioAtivo, meioDoWebhook } from "@/lib/pagamento";
 import { registrarPagamento } from "@/lib/pagamento/recepcao";
 import { despacharFila } from "@/lib/fila/worker";
 
@@ -26,6 +26,11 @@ export async function POST(req: Request) {
   if (!meio) {
     // 200 de propósito: formato desconhecido não melhora com reenvio
     return NextResponse.json({ success: true, ignorado: "provedor não reconhecido" });
+  }
+
+  // corpo com cara de Asaas com o Asaas desligado não é pagamento nosso
+  if (meioAtivo().nome !== meio.nome) {
+    return NextResponse.json({ success: false, erro: "não autorizado" }, { status: 401 });
   }
 
   if (meio.validarAssinatura && !meio.validarAssinatura(cru, req.headers)) {
