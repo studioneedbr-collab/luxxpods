@@ -93,6 +93,41 @@ describe.skipIf(!AO_VIVO)("FluxoAPI ao vivo", () => {
   }, 60_000);
 
   /**
+   * O segredo do webhook, conferido com o valor REAL do painel.
+   *
+   * Não toca no banco e não chega a postar nada: monta um corpo igual ao que
+   * a FluxoAPI manda, assina com o segredo do ambiente e passa pelo mesmo
+   * `validarAssinatura` que a rota usa. É o que prova que a variável está
+   * certa — um `whsec_` colado com espaço sobrando recusaria todo evento, e
+   * isso só apareceria com o cliente reclamando que ninguém respondeu.
+   */
+  it("valida um webhook assinado com o segredo de verdade", async () => {
+    const segredo = process.env.FLUXOAPI_WEBHOOK_SECRET;
+    expect(segredo, "FLUXOAPI_WEBHOOK_SECRET não está no ambiente").toBeTruthy();
+
+    const { createHmac } = await import("node:crypto");
+    const corpo = JSON.stringify({
+      id: "evt_teste", type: "message.received",
+      instance_id: process.env.FLUXOAPI_INSTANCE_ID,
+      data: { message_id: "msg_teste", from: "5533999990000", type: "text", text: "oi" },
+    });
+    const ts = String(Math.floor(Date.now() / 1000));
+    const assinatura = `v1=${createHmac("sha256", segredo!).update(`${ts}\n${corpo}`).digest("hex")}`;
+
+    const certo = new Headers({ "x-fluxo-signature": assinatura, "x-fluxo-timestamp": ts });
+    expect(canal.validarAssinatura(corpo, certo), "o segredo do ambiente não confere")
+      .toBe(true);
+
+    // e recusa o que não foi assinado com ele
+    const errado = new Headers({
+      "x-fluxo-signature": `v1=${"0".repeat(64)}`, "x-fluxo-timestamp": ts,
+    });
+    expect(canal.validarAssinatura(corpo, errado)).toBe(false);
+
+    process.stderr.write("\n  segredo do webhook: confere\n");
+  });
+
+  /**
    * Nonce repetido dá 409. Duas chamadas seguidas provam que o nonce é novo
    * a cada pedido — um nonce fixo passaria na primeira e quebraria em
    * produção no segundo envio.
