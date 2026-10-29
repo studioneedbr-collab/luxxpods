@@ -6,7 +6,7 @@ import { MessageCircle, AtSign, GripVertical, Search } from "lucide-react";
 import { moverLead } from "@/lib/actions";
 import { Panel, Badge, Vazio, Seletor } from "@/components/ui";
 import { brl, cn, iniciais, tempoRelativo } from "@/lib/utils";
-import type { EtapaFunil, Lead } from "@/lib/types";
+import { gostosDoCliente, type EtapaFunil, type Lead } from "@/lib/types";
 import { useToast } from "@/components/ui/toast";
 import { useListaServidor } from "@/lib/usar-lista-servidor";
 
@@ -27,9 +27,11 @@ export function KanbanBoard({
   const filtrados = useMemo(() => {
     const t = busca.trim().toLowerCase();
     if (!t) return abertos;
+    // o gosto entra na busca: "gelado" ou "ignite" acha quem curte
     return abertos.filter((l) =>
       (l.cliente?.nome ?? "").toLowerCase().includes(t) ||
-      (l.cliente?.telefone ?? "").includes(t));
+      (l.cliente?.telefone ?? "").includes(t) ||
+      (l.cliente ? gostosDoCliente(l.cliente) : []).some((g) => g.toLowerCase().includes(t)));
   }, [abertos, busca]);
 
   const fechadosHoje = leads.filter(
@@ -73,7 +75,7 @@ export function KanbanBoard({
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar lead por nome ou telefone…"
+            placeholder="Buscar lead por nome, telefone ou gosto (gelado, Ignite…)"
             className="h-9 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
           />
         </div>
@@ -154,6 +156,14 @@ export function KanbanBoard({
                       </div>
                       <GripVertical className="size-3 shrink-0 text-ink-600 opacity-0 transition group-hover:opacity-100" />
                     </div>
+
+                    {lead.cliente && gostosDoCliente(lead.cliente).length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {gostosDoCliente(lead.cliente).slice(0, 3).map((g) => (
+                          <Badge key={g} tom="neutro">{g}</Badge>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <span className="flex items-center gap-1 text-[10px] text-ink-500">

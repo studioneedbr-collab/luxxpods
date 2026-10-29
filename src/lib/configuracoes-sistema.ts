@@ -1,4 +1,5 @@
 import "server-only";
+import { memoCurta } from "./memo-curta";
 import { clienteDoSistema } from "./supabase/sistema";
 import { STORE_ID } from "./supabase/config";
 import { PADRAO, type ChaveConfig, type Configuracoes } from "./configuracoes";
@@ -15,7 +16,13 @@ import { PADRAO, type ChaveConfig, type Configuracoes } from "./configuracoes";
  *
  * Mesmo erro que já apareceu no webhook, na fila e no cron.
  */
-export async function lerConfiguracoesDoSistema(): Promise<Configuracoes> {
+/**
+ * Reaproveitada por 5s: o bot lia as mesmas configurações de 3 a 5 vezes por
+ * mensagem (horário, follow-up, IA, pagamento, fila).
+ */
+export const lerConfiguracoesDoSistema = memoCurta(5_000, lerDoBanco);
+
+async function lerDoBanco(): Promise<Configuracoes> {
   const c = await clienteDoSistema();
   if (!c) return PADRAO;
 

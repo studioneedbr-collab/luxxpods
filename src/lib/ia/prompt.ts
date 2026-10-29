@@ -87,22 +87,25 @@ export function montarPrompt(d: DadosDaLoja): string {
     + "fechar.\n"
     + "3. Antes de pedir o endereço, chame buscar_upsell uma vez. Se voltar "
     + "oferta, apresente; a resposta dele vai em responder_upsell.\n"
-    + "4. Endereço: chame buscar_enderecos primeiro. Se ele já comprou, "
-    + "ofereça o último em vez de perguntar tudo de novo — \"entrego no "
-    + "mesmo endereço da última vez?\". Endereço novo precisa de bairro, "
-    + "rua e número; complemento e ponto de referência ajudam. Grave com "
-    + "cadastrar_endereco.\n"
-    + "5. Pagamento: pergunte como ele prefere. No PIX, criar_pagamento "
-    + "devolve o copia e cola — avise que o pedido confirma quando o "
-    + "pagamento for identificado. No dinheiro, pergunte se precisa de "
-    + "troco e para quanto, e passe isso em troco_para.\n"
+    + "4. Endereço: se o PERFIL abaixo trouxer endereço salvo, pergunte se é "
+    + "o mesmo — \"entrego na Rua X, 120?\" — e, no sim, chame usar_endereco "
+    + "com o id dele. Sem perfil, confira com buscar_enderecos. Endereço "
+    + "novo precisa de rua, número e bairro; "
+    + "complemento e ponto de referência ajudam. Grave com cadastrar_endereco.\n"
+    + "5. Pagamento: se o perfil disser como ele costuma pagar, ofereça essa "
+    + "primeiro (\"vai no PIX de novo?\"); senão pergunte entre as formas "
+    + "aceitas. Registre com criar_pagamento. No dinheiro, pergunte se precisa "
+    + "de troco e para quanto, e passe em troco_para. No PIX NÃO existe código "
+    + "ainda: ele sai depois da confirmação.\n"
     + "6. Resumo: chame resumir_pedido e mostre o que ele devolveu — "
     + "produtos, sabores, quantidades, valor dos produtos, entrega, total, "
     + "forma de pagamento e endereço. Termine perguntando se está tudo "
     + "certo para confirmar.\n"
     + "7. Só quando o cliente responder que sim é que você chama "
     + "confirmar_pedido. Antes disso a ferramenta vai te recusar, e está "
-    + "certo que recuse.",
+    + "certo que recuse. No PIX ela cria o pedido aguardando pagamento e "
+    + "devolve o copia e cola: mande o código exatamente como veio e avise "
+    + "que o pedido confirma sozinho quando o pagamento cair.",
   );
 
   /* ---------------------------------------------- 4.8 alternativas ----- */
@@ -116,7 +119,12 @@ export function montarPrompt(d: DadosDaLoja): string {
     + "Quando ele pedir algo que não existe, não pare no \"não tenho\": "
     + "mostre o que existe mais perto daquilo.\n"
     + "Quando estiver indeciso, pergunte o que ele costuma gostar — doce, "
-    + "gelado, fruta, menta — e sugira a partir do que a consulta trouxe.\n"
+    + "gelado, fruta, menta, quantos puffs — e use sugerir_produtos.\n"
+    + "Quando ele disser do que gosta (sabor, marca, puffs), anote com "
+    + "salvar_preferencias: na próxima conversa você já sabe.\n"
+    + "Para quem já comprou, o PERFIL diz o que ele leva. Ofereça o mesmo "
+    + "(\"vai o Ignite V300 Watermelon de novo?\") e, no sim, chame "
+    + "repetir_ultimo_pedido.\n"
     + "Leia a conversa acima antes de perguntar: não repita pergunta que "
     + "ele já respondeu.",
   );
@@ -173,6 +181,54 @@ export interface EstadoDaConversa {
   nomeDoCliente: string | null;
   jaComprou: boolean;
   maioridadeValidada: boolean;
+  /** já em texto, de `linhasDoPerfil` */
+  perfil?: string;
+}
+
+/** O formato do perfil lido no banco (ver `lerPerfil` no executor). */
+export interface PerfilParaPrompt {
+  declarado: { marcas: string[]; sabores: string[]; perfil: string[]; puffs: number | null };
+  deduzido: {
+    marca: string | null; produto: string | null; sabor: string | null;
+    puffs: number | null; forma: string | null;
+  };
+  ultimoPedido: {
+    numero: string; itens: Array<{ produto: string; sabor: string; quantidade: number; disponivel: boolean }>;
+  } | null;
+  endereco: { id: string; linha: string } | null;
+}
+
+const FORMA: Record<string, string> = {
+  pix: "PIX", dinheiro: "dinheiro", cartao_credito: "cartão", cartao_debito: "cartão",
+};
+
+/**
+ * O perfil em frases curtas, para o fim do contexto. Vazio quando não há
+ * nada — "sem preferência conhecida" ocupa token e não ajuda.
+ */
+export function linhasDoPerfil(p: PerfilParaPrompt): string {
+  const linhas: string[] = [];
+  const d = p.declarado;
+  const gosta = [...d.perfil, ...d.sabores, ...d.marcas,
+    d.puffs ? `uns ${Math.round(d.puffs / 1000)}k puffs` : ""].filter(Boolean);
+  if (gosta.length) linhas.push(`Disse que gosta de: ${gosta.join(", ")}.`);
+
+  const c = p.deduzido;
+  if (c.produto) {
+    linhas.push(`O que mais compra: ${[c.produto, c.sabor].filter(Boolean).join(" ")}`
+      + `${c.puffs ? ` (uns ${Math.round(c.puffs / 1000)}k puffs)` : ""}.`);
+  }
+  if (c.forma) linhas.push(`Costuma pagar com ${FORMA[c.forma] ?? c.forma}.`);
+
+  if (p.ultimoPedido?.itens.length) {
+    const itens = p.ultimoPedido.itens.map((i) =>
+      `${i.quantidade}x ${i.produto} ${i.sabor}${i.disponivel ? "" : " (sem estoque agora)"}`);
+    linhas.push(`Último pedido (${p.ultimoPedido.numero}): ${itens.join(", ")}.`);
+  }
+  if (p.endereco) {
+    linhas.push(`Endereço salvo: ${p.endereco.linha} — para usar, usar_endereco com endereco_id ${p.endereco.id}.`);
+  }
+  return linhas.length ? `PERFIL DO CLIENTE: ${linhas.join(" ")}` : "";
 }
 
 /**
@@ -193,6 +249,8 @@ export function montarContexto(e: EstadoDaConversa): string {
       + "perguntar tudo de novo.",
     );
   }
+
+  if (e.perfil) linhas.push(e.perfil);
 
   if (!e.maioridadeValidada) {
     linhas.push(

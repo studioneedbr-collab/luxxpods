@@ -174,7 +174,8 @@ export async function getConversas(): Promise<Conversa[]> {
     .select("id,customer_id,canal,estado,status,bot_ativo,nao_lidas,ultima_mensagem,ultima_mensagem_em,responsavel_id,created_at,lead_id,customers(*)")
     .eq("store_id", STORE_ID)
     .order("ultima_mensagem_em", { ascending: false, nullsFirst: false })
-    .limit(150);
+    // a importação traz o WhatsApp inteiro; com 150 o resto sumia da lista
+    .limit(1000);
   if (error || !data) aoFalhar("as conversas", error);
   return data.map((r: Record<string, unknown>) => ({
     ...(semJoins(r, "customers") as unknown as Conversa),
@@ -188,9 +189,12 @@ export async function getMensagens(conversationId: string): Promise<Mensagem[]> 
   const { data, error } = await c
     .from("messages")
     .select("id,conversation_id,sender_type,tipo,conteudo,arquivo_url,status,created_at")
-    .eq("conversation_id", conversationId).order("created_at").limit(400);
+    // as 400 MAIS RECENTES: em ordem crescente com limite, conversa longa
+    // mostrava as antigas e escondia justamente a que acabou de chegar
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false }).limit(400);
   if (error) aoFalhar("as mensagens da conversa", error);
-  return (data ?? []) as unknown as Mensagem[];
+  return ((data ?? []) as unknown as Mensagem[]).reverse();
 }
 
 // --------------------------------------------------------------------- LEADS
@@ -253,7 +257,21 @@ export async function getClientes(limite = 200): Promise<Cliente[]> {
     .from("customers").select("*").eq("store_id", STORE_ID).is("deleted_at", null)
     .order("ultima_interacao", { ascending: false, nullsFirst: false }).limit(limite);
   if (error || !data) aoFalhar("os clientes", error);
-  return data as unknown as Cliente[];
+
+  // o perfil das compras vem da view da 0017; sem ela, a lista sai sem
+  // perfil em vez de quebrar a tela inteira
+  const ids = data.map((x: { id: string }) => x.id);
+  const { data: perfis } = ids.length
+    ? await c.from("v_perfil_cliente")
+        .select("customer_id, marca_mais_comprada, produto_mais_comprado, sabor_mais_comprado, puffs_medio, forma_pagamento_habitual")
+        .in("customer_id", ids)
+    : { data: [] };
+  const porCliente = new Map((perfis ?? []).map((p: Record<string, unknown>) => [p.customer_id, p]));
+
+  return data.map((x: Record<string, unknown>) => ({
+    ...x,
+    perfil: (porCliente.get(x.id) as unknown as Cliente["perfil"]) ?? null,
+  })) as unknown as Cliente[];
 }
 
 // ------------------------------------------------------------------- TAREFAS
@@ -334,17 +352,16 @@ export async function getCliente(id: string): Promise<{
     };
   }
 
-  const { data: cliente } = await c
-    .from("customers").select("*").eq("id", id).maybeSingle();
-  if (!cliente) return null;
-
-  const [enderecos, pedidos, conversas] = await Promise.all([
+  // as quatro só dependem do id: em paralelo, não uma depois da outra
+  const [{ data: cliente }, enderecos, pedidos, conversas] = await Promise.all([
+    c.from("customers").select("*").eq("id", id).maybeSingle(),
     c.from("customer_addresses").select("*").eq("customer_id", id),
     c.from("orders").select("*, order_items(*)").eq("customer_id", id)
       .order("created_at", { ascending: false }).limit(100),
     c.from("conversations").select("*").eq("customer_id", id)
       .order("ultima_mensagem_em", { ascending: false, nullsFirst: false }),
   ]);
+  if (!cliente) return null;
 
   return {
     cliente: cliente as unknown as Cliente,
@@ -355,6 +372,24 @@ export async function getCliente(id: string): Promise<{
     }),
     conversas: (conversas.data ?? []) as unknown as Conversa[],
   };
+}
+
+/**
+ * Os itens de vários pedidos numa consulta só. O relatório de vendas abria
+ * até 120 pedidos um a um — 120 idas ao banco para montar uma tabela.
+ */
+export async function getItensDosPedidos(ids: string[]): Promise<PedidoItem[]> {
+  if (ids.length === 0) return [];
+  const c = await sb();
+  if (!c) return ids.flatMap((id) => demo().itens[id] ?? []);
+  // em lotes: os ids vão na URL, e 300 uuids passam do tamanho que ela aguenta
+  const lotes: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
+  const respostas = await Promise.all(lotes.map((lote) =>
+    c.from("order_items").select("*").in("order_id", lote)));
+  const erro = respostas.find((r) => r.error)?.error;
+  if (erro) aoFalhar("os itens dos pedidos", erro);
+  return respostas.flatMap((r) => (r.data ?? []) as unknown as PedidoItem[]);
 }
 
 /** Movimentações de um produto+sabor específico. */

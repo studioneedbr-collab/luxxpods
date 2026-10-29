@@ -28,6 +28,41 @@ export function saudacao(nome: string, jaComprou: boolean): string {
   return "Fala! Aqui é da Luxx Pods 🖤 Como posso te ajudar?";
 }
 
+/** O último pedido, oferecido de volta — quem compra sempre o mesmo não quer escolher de novo. */
+export function ofertaRepetir(
+  nome: string,
+  itens: Array<{ produto: string; sabor: string; quantidade: number }>,
+): string {
+  const lista = itens.map((i) => `${i.quantidade}x ${i.produto} ${i.sabor}`).join(", ");
+  return `${nome ? `Opa ${nome}` : "Opa"}, que bom te ver de novo 🖤 Da última vez você levou ${lista}. Vai o mesmo?`;
+}
+
+export function repetido(
+  adicionados: Array<{ produto: string; sabor: string; quantidade: number }>,
+  faltaram: string[],
+): string {
+  const linhas = adicionados.map((i) => `${i.quantidade}x ${i.produto} ${i.sabor}`).join("\n");
+  const aviso = faltaram.length ? `\n\nSó não tenho agora: ${faltaram.join(", ")}.` : "";
+  return `Fechado, separei:\n${linhas}${aviso}\n\nQuer mais alguma coisa ou já fechamos?`;
+}
+
+export const perguntarPreferencia =
+  "Se tiver preferência — sabor (gelado, doce, fruta, menta), marca ou quantos puffs — me fala que eu já te indico 😉";
+
+export function sugestoes(
+  modelos: Array<{ produto: string; preco: number; puffs: number | null; sabores: string[] }>,
+  anotado: string,
+): string {
+  if (modelos.length === 0) {
+    return `Anotei que você curte ${anotado} 🖤 Agora não tenho nada bem nessa linha — quer que eu te mostre o que tem?`;
+  }
+  const linhas = modelos.map((m) => {
+    const puffs = m.puffs ? ` · ${(m.puffs / 1000).toFixed(0)}k puffs` : "";
+    return `• ${m.produto} — ${dinheiro(m.preco)}${puffs}\n  ${m.sabores.join(", ")}`;
+  });
+  return `Anotei que você curte ${anotado} 🖤 Tenho:\n${linhas.join("\n")}\n\nQual te chama?`;
+}
+
 export function perguntarMaioridade(nome: string): string {
   return comNome(nome, "antes de seguir: você é maior de 18 anos?");
 }
@@ -92,6 +127,12 @@ export function listarSabores(dados: {
   return texto;
 }
 
+/** O mesmo sabor em vários modelos: o cliente escolhe pelo preço e pelos puffs. */
+export function saborEmModelos(sabor: string, modelos: Array<{ produto: string; preco: number }>): string {
+  const linhas = modelos.map((m) => `• ${m.produto} — ${dinheiro(m.preco)}`);
+  return `${sabor} eu tenho em:\n${linhas.join("\n")}\n\nQual você prefere?`;
+}
+
 export const semEstoque = (sabor: string) =>
   `${sabor} acabou 😕 Quer escolher outro sabor?`;
 
@@ -126,12 +167,47 @@ export const pedirEndereco =
   "Show! Me passa o endereço da entrega: rua, número, bairro e um ponto de referência 🛵";
 
 export function confirmarEnderecoAnterior(endereco: string, nome: string): string {
-  return comNome(nome, `podemos entregar no mesmo endereço da última vez?\n\n${endereco}`);
+  return comNome(nome,
+    `entrego no mesmo endereço da última vez?\n\n📍 ${endereco}\n\nÉ só responder sim, ou me mandar o endereço novo.`);
 }
+
+export const pedirEnderecoNovo =
+  "Beleza! Me passa o endereço novo: rua, número, bairro e um ponto de referência 🛵";
+
+export function pedirBairro(rua: string, numero: string): string {
+  return `${rua}, ${numero} — e qual o bairro?`;
+}
+
+export const naoLiEndereco =
+  "Não consegui pegar o endereço certinho. Me manda assim: rua, número e bairro (ex.: Rua das Flores, 120, Centro) 🛵";
+
+export const enderecoAntesDoPagamento =
+  "Antes do pagamento, me passa o endereço da entrega: rua, número e bairro 🛵";
 
 /* ------------------------------------------------------------- PAGAMENTO -- */
 
-export const perguntarPagamento = "Como prefere pagar: PIX ou dinheiro na entrega?";
+const ROTULO_FORMA: Record<string, string> = {
+  pix: "PIX", dinheiro: "dinheiro na entrega",
+  cartao_credito: "cartão na entrega", cartao_debito: "cartão na entrega",
+};
+export const rotuloForma = (f?: string) => ROTULO_FORMA[f ?? ""] ?? "PIX";
+
+/** As formas vêm das configurações: cartão só aparece se a loja aceitar. */
+export function perguntarPagamento(formas: string[]): string {
+  const nomes = formas.map(rotuloForma);
+  const lista = nomes.length > 1
+    ? `${nomes.slice(0, -1).join(", ")} ou ${nomes.at(-1)}`
+    : nomes[0] ?? "PIX";
+  return `Como prefere pagar: ${lista}?`;
+}
+
+export function sugerirFormaHabitual(forma: string): string {
+  return `Vai ser no ${rotuloForma(forma)} de novo?`;
+}
+
+export function formaIndisponivel(formas: string[]): string {
+  return `Essa forma eu não consigo aceitar agora. ${perguntarPagamento(formas)}`;
+}
 
 export const perguntarTroco = "Vai precisar de troco? Me fala o valor que você vai usar.";
 
@@ -187,21 +263,36 @@ export function trocoAnotado(troco: number): string {
 export function resumoParaConfirmar(dados: {
   itens: Array<{ produto?: string; sabor?: string; quantidade?: number; subtotal?: number }>;
   subtotal: number; entrega: number; total: number;
-  forma_pagamento?: string; troco_para?: number;
+  forma_pagamento?: string; troco_para?: number; endereco?: string | null;
 }): string {
-  const pagamento = dados.forma_pagamento === "pix" ? "PIX" : "Dinheiro na entrega";
+  const pagamento = rotuloForma(dados.forma_pagamento);
   const troco = dados.troco_para
     ? `\nTroco para ${dinheiro(dados.troco_para)}` : "";
+  // o código do PIX é do pedido: só existe depois do sim
+  const pix = dados.forma_pagamento === "pix"
+    ? "\n(o código do PIX sai assim que você confirmar)" : "";
 
   return [
     "*RESUMO DO PEDIDO*",
     "",
     resumoCarrinho(dados),
-    `Pagamento: ${pagamento}${troco}`,
+    `Pagamento: ${pagamento.charAt(0).toUpperCase()}${pagamento.slice(1)}${troco}${pix}`,
+    ...(dados.endereco ? [`Entrega: ${dados.endereco}`] : []),
     "",
     "Está tudo certo para confirmar?",
   ].join("\n");
 }
+
+/** Pedido registrado, falta o dinheiro: o PIX vai junto, do pedido certo. */
+export function pedidoAguardandoPix(
+  numero: string, total: number,
+  pix: { chave: string | null; copiaECola: string | null; link: string | null } | null,
+): string {
+  return `Pedido ${numero} registrado ✅\n\n${pixParaPagar(total, pix?.chave ?? null, pix?.copiaECola, pix?.link)}`;
+}
+
+export const prazoEntrega = (minutos: number) =>
+  `A entrega leva cerca de ${minutos} minutos depois de confirmado 🛵`;
 
 export function pedidoConfirmado(numero: string, nome: string): string {
   return comNome(nome, `pedido confirmado ✅\n\nNúmero: ${numero}\n\nJá vou preparar e te aviso quando sair para entrega 🛵`);

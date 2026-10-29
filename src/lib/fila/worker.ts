@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { clienteDoSistema, type ClienteSistema } from "../supabase/sistema";
 import { STORE_ID } from "../supabase/config";
 import { canalAtivo } from "../canal";
@@ -64,6 +65,24 @@ export async function rodarFila(): Promise<ResultadoRodada> {
   return resultado;
 }
 
+/**
+ * Roda a fila logo depois da resposta, sem esperar o cron.
+ *
+ * O cron passa uma vez por minuto: sem isto, a resposta do atendente e a do
+ * bot levavam até 60s para sair. A trava em `pegarJobsDoBanco` garante que
+ * esta rodada e a do cron, se coincidirem, não mandem a mesma mensagem duas
+ * vezes.
+ */
+export function despacharFila() {
+  after(async () => {
+    try {
+      await rodarFila();
+    } catch (e) {
+      console.error("[luxx] a rodada imediata da fila falhou; o cron tenta de novo:", e);
+    }
+  });
+}
+
 /* ----------------------------------------------------------- execução ---- */
 
 async function executar(job: Job): Promise<ResultadoJob> {
@@ -109,6 +128,10 @@ async function enviarMensagem(job: Job): Promise<ResultadoJob> {
   const envio = await canal.enviar({ para: destino, tipo: "texto", texto: conteudo });
 
   if (!envio.ok) {
+    // falha sem volta: a conversa mostra "falhou" em vez do relógio eterno
+    if (!envio.tentarDeNovo) {
+      await marcarMensagemComErro(String(job.payload.message_id ?? ""), envio.erro);
+    }
     return { ok: false, erro: envio.erro, tentarDeNovo: envio.tentarDeNovo };
   }
 
@@ -213,16 +236,48 @@ async function liberarReservas(): Promise<ResultadoJob> {
 
 /* -------------------------------------------------------------- apoio ---- */
 
+/** Job preso em "processando" por mais que isto é de uma função que morreu. */
+const PRESO_MS = 3 * 60_000;
+
+/**
+ * Pega o lote E marca como "processando" na mesma escrita.
+ *
+ * Só ler os pendentes não bastava a partir do momento em que o painel passou
+ * a rodar a fila na hora: duas rodadas ao mesmo tempo liam os mesmos jobs e
+ * a mensagem saía duas vezes. O UPDATE condicionado a `status = pendente` é
+ * atômico por linha — quem chegar depois não recebe a linha de volta.
+ */
 async function pegarJobsDoBanco(
   c: ClienteSistema,
 ): Promise<Job[]> {
-  const { data } = await c.from("jobs")
-    .select("*")
+  const agora = new Date();
+
+  // a função serverless morre em 60s; o que ficou "processando" além disso
+  // nunca vai terminar e volta para a fila
+  await c.from("jobs")
+    .update({ status: "pendente" })
+    .eq("status", "processando")
+    .lt("executar_em", new Date(agora.getTime() - PRESO_MS).toISOString());
+
+  const { data: candidatos } = await c.from("jobs")
+    .select("id")
     .eq("status", "pendente")
-    .lte("executar_em", new Date().toISOString())
+    .lte("executar_em", agora.toISOString())
     .order("executar_em")
     .limit(LOTE);
-  return (data ?? []) as unknown as Job[];
+
+  const ids = (candidatos ?? []).map((j) => j.id as number);
+  if (ids.length === 0) return [];
+
+  // executar_em vira a hora em que foi pego, que é o que mede o "preso"
+  const { data } = await c.from("jobs")
+    .update({ status: "processando", executar_em: agora.toISOString() })
+    .in("id", ids)
+    .eq("status", "pendente")
+    .select("*");
+
+  return ((data ?? []) as unknown as Job[])
+    .sort((a, b) => a.id - b.id);
 }
 
 function pegarJobsDaDemo(): Job[] {
@@ -343,6 +398,38 @@ async function marcarMensagemEnviada(messageId: string, idExterno?: string) {
     const msg = demo().mensagens.find((m) => m.id === messageId);
     if (msg) msg.status = "enviada";
   }
+}
+
+async function marcarMensagemComErro(messageId: string, erro?: string) {
+  if (!messageId) return;
+  const c = await clienteDoSistema();
+  if (c) {
+    await c.from("messages")
+      .update({ status: "erro", erro: erro ?? "não foi entregue" })
+      .eq("id", messageId);
+  }
+}
+
+/**
+ * O que já foi resolvido há tempo sai do banco.
+ *
+ * O cron enfileira a limpeza de reservas a cada minuto (~1440 linhas por
+ * dia) e nada apagava job nem evento de webhook: a tabela crescia para
+ * sempre e a busca da fila ficava mais lenta. Mensagem, pedido e dinheiro
+ * NÃO entram aqui — isso é histórico da loja.
+ */
+export async function limparHistorico(): Promise<{ jobs: number; eventos: number }> {
+  const c = await clienteDoSistema();
+  if (!c) return { jobs: 0, eventos: 0 };
+
+  const dias = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
+  const { data: jobs } = await c.from("jobs").delete()
+    .in("status", ["concluido", "cancelado"]).lt("created_at", dias(30)).select("id");
+  const { data: eventos } = await c.from("webhook_events").delete()
+    .eq("processado", true).lt("created_at", dias(90)).select("id");
+
+  return { jobs: jobs?.length ?? 0, eventos: eventos?.length ?? 0 };
 }
 
 /** Enfileira um job novo. */

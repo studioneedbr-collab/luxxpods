@@ -34,23 +34,38 @@ export function canalAtivo(): Canal {
   return (cache = new CanalSimulado());
 }
 
-/** Descobre de qual provedor veio o webhook pelo formato do corpo. */
+/**
+ * Descobre de qual provedor veio o webhook pelo formato do corpo — e só
+ * aceita o provedor que está NO AR.
+ *
+ * Escolher só pelo corpo deixava um atalho: com a Z-API protegida por
+ * segredo, um corpo com `entry: []` caía no tratador da Meta, que sem
+ * segredo próprio aceitava tudo.
+ */
 export function canalDoWebhook(corpo: unknown): Canal | null {
   const c = corpo as Record<string, unknown>;
 
   /**
-   * A FluxoAPI é a primeira a ser conferida porque o formato dela é o mais
-   * específico: `type` com ponto e `instance_id` juntos. Deixar para depois
-   * da Z-API faria o `instanceId` dela puxar o evento errado.
+   * Quem o formato do corpo diz que é.
+   *
+   * A FluxoAPI vem primeiro porque o formato dela é o mais específico —
+   * `type` com ponto e `instance_id` juntos. Conferida depois da Z-API, o
+   * `instanceId` dela puxaria o evento errado.
    */
-  if (typeof c?.type === "string" && c.type.includes(".") && "instance_id" in (c ?? {})) {
-    return new CanalFluxoApi();
-  }
-  if (c?.object === "whatsapp_business_account" || Array.isArray(c?.entry)) {
-    return new CanalMeta();
-  }
-  if (c?.instanceId || c?.messageId || c?.phone) {
-    return new CanalZApi();
-  }
-  return null;
+  const pelo = (() => {
+    if (typeof c?.type === "string" && c.type.includes(".") && c?.instance_id) {
+      return new CanalFluxoApi();
+    }
+    if (c?.object === "whatsapp_business_account" || Array.isArray(c?.entry)) {
+      return new CanalMeta();
+    }
+    if (c?.instanceId || c?.messageId || c?.phone) return new CanalZApi();
+    return null;
+  })();
+
+  if (!pelo) return null;
+
+  // fora de produção, sem canal configurado, o webhook continua testável
+  if (process.env.NODE_ENV !== "production") return pelo;
+  return canalAtivo().nome === pelo.nome ? pelo : null;
 }

@@ -236,7 +236,7 @@ export function TelaLancamentos({
                     l.status === "atrasado" ? "font-medium text-bad-400" : "text-ink-400",
                   )}>
                     {l.vencimento
-                      ? new Date(`${l.vencimento}T12:00:00`).toLocaleDateString("pt-BR")
+                      ? new Date(`${l.vencimento}T12:00:00`).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
                       : "—"}
                   </Td>
                   <Td className="text-[11px] text-ink-500">{l.conta_nome ?? "—"}</Td>

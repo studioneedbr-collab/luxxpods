@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { meioDoWebhook } from "@/lib/pagamento";
+import { meioAtivo, meioDoWebhook } from "@/lib/pagamento";
 import { registrarPagamento } from "@/lib/pagamento/recepcao";
+import { despacharFila } from "@/lib/fila/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, ignorado: "provedor não reconhecido" });
   }
 
+  // corpo com cara de Asaas com o Asaas desligado não é pagamento nosso
+  if (meioAtivo().nome !== meio.nome) {
+    return NextResponse.json({ success: false, erro: "não autorizado" }, { status: 401 });
+  }
+
   if (meio.validarAssinatura && !meio.validarAssinatura(cru, req.headers)) {
     return NextResponse.json({ success: false, erro: "não autorizado" }, { status: 401 });
   }
@@ -36,6 +42,8 @@ export async function POST(req: Request) {
 
   try {
     const r = await registrarPagamento(evento, meio.nome);
+    // o "pagamento confirmado" ao cliente sai agora, não no próximo cron
+    if (r.processado) despacharFila();
     return NextResponse.json({ success: true, ...r });
   } catch (e) {
     console.error("[luxx] falha ao registrar pagamento:", e);

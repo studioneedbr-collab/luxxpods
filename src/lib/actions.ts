@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { rpcAutorizada } from "./rpc-autorizada";
 import { getSupabaseServer } from "./supabase/server";
 import { STORE_ID, supabaseConfigurado } from "./supabase/config";
 import {
@@ -9,7 +10,7 @@ import {
   demoSalvarProduto, demoFecharLeadDoPedido, demoReabrirLeadDoPedido,
   demoStatusPedido, demoCriarPedido, demoConversaDoPedido, demo,
 } from "./demo";
-import { enfileirar } from "./fila/worker";
+import { despacharFila, enfileirar } from "./fila/worker";
 import { agendarFollowup } from "./bot/recepcao";
 import type { PedidoStatus } from "./types";
 import { traduzirErroBanco } from "./erros-banco";
@@ -40,11 +41,18 @@ async function avisarClienteDoStatus(pedidoId: string, status: PedidoStatus) {
     { texto, order_id: pedidoId, natureza: "transacional" },
     { conversationId },
   );
+  despacharFila();
 }
 
 async function cli() {
   return supabaseConfigurado ? await getSupabaseServer() : null;
 }
+
+/**
+ * O código do cupom é comparado sem diferenciar maiúscula, mas `%` e `_`
+ * digitados pelo cliente viravam curinga: "%" achava qualquer cupom ativo.
+ */
+const semCuringa = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** Toda ação devolve o mesmo formato, para a tela saber o que mostrar. */
 type Resultado = { ok: boolean; erro?: string };
@@ -93,12 +101,20 @@ export async function enviarMensagem(conversationId: string, conteudo: string): 
       ultima_interacao_sistema: new Date().toISOString(),
     }).eq("id", conversationId);
 
-    await enfileirar(
+    const fila = await enfileirar(
       "enviar_mensagem",
       { conteudo: texto, message_id: gravada.id, natureza: "transacional" },
       { conversationId },
     );
+    if (!fila.ok) {
+      await c.from("messages").update({ status: "erro", erro: fila.erro ?? "não entrou na fila" })
+        .eq("id", gravada.id);
+      return { ok: false, erro: "A mensagem foi gravada mas não entrou na fila de envio." };
+    }
   }
+
+  // sai agora, não no próximo minuto do cron
+  despacharFila();
 
   revalidatePath("/chats");
   return { ok: true };
@@ -161,13 +177,20 @@ export async function moverLead(leadId: string, stageId: string): Promise<Result
   } else {
     const { data: etapa } = await c
       .from("pipeline_stages").select("tipo").eq("id", stageId).maybeSingle();
-    const status = etapa?.tipo === "ganho" ? "ganho" : etapa?.tipo === "perdido" ? "perdido" : "aberto";
-    await c.from("leads").update({
+    if (!etapa) return { ok: false, erro: "Etapa não encontrada." };
+    const status = etapa.tipo === "ganho" ? "ganho" : etapa.tipo === "perdido" ? "perdido" : "aberto";
+
+    // UPDATE barrado pelo controle de acesso devolve sucesso com zero linhas:
+    // sem conferir, o card voltava para a etapa antiga no próximo carregamento
+    // depois de a tela ter dito que moveu
+    const { data: movido, error } = await c.from("leads").update({
       stage_id: stageId,
       status,
       data_ganho: status === "ganho" ? new Date().toISOString() : null,
       data_perda: status === "perdido" ? new Date().toISOString() : null,
-    }).eq("id", leadId);
+    }).eq("id", leadId).select("id");
+    if (error) return { ok: false, erro: traduzirErroBanco(error) };
+    if (!movido?.length) return { ok: false, erro: "Seu perfil não pode mover este lead." };
   }
   revalidatePath("/kanban");
   return { ok: true };
@@ -229,7 +252,7 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
   }
 
   if (status === "confirmado") {
-    const { error } = await c.rpc("confirmar_pedido", {
+    const { error } = await rpcAutorizada(c, "confirmar_pedido", {
       p_order_id: pedidoId, p_usuario_id: usuarioId,
     });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
@@ -240,9 +263,16 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     if (status === "saiu_para_entrega") campos.despachado_em = agora;
     if (status === "entregue") campos.entregue_em = agora;
 
-    const { error } = await c.from("orders")
-      .update({ status_pedido: status, ...campos }).eq("id", pedidoId);
+    // só anda se ainda está onde estava: zero linhas é RLS ou outra pessoa
+    // mexendo junto — antes seguia, e "entregue" marcava o dinheiro recebido
+    // num pedido que o banco não considerava entregue
+    const { data: mudou, error } = await c.from("orders")
+      .update({ status_pedido: status, ...campos })
+      .eq("id", pedidoId).eq("status_pedido", atual).select("id");
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
+    if (!mudou?.length) {
+      return { ok: false, erro: "O pedido não mudou: seu perfil não pode, ou ele já foi alterado." };
+    }
 
     await avisarClienteDoStatus(pedidoId, status);
 
@@ -254,7 +284,7 @@ export async function alterarStatusPedido(pedidoId: string, status: PedidoStatus
     // depender de quem chama lembrar da lista.
     if (status === "entregue" && pedido.forma_pagamento !== "pix"
         && pedido.status_pagamento !== "aprovado") {
-      const { error: erroPagamento } = await c.rpc("receber_na_entrega", {
+      const { error: erroPagamento } = await rpcAutorizada(c, "receber_na_entrega", {
         p_order_id: pedidoId, p_usuario_id: usuarioId,
       });
       if (erroPagamento) {
@@ -282,7 +312,7 @@ export async function cancelarPedido(pedidoId: string, motivo: string): Promise<
     // perfil a chave estrangeira estoura e o cancelamento inteiro aborta,
     // levando a devolução do estoque com ele.
     const { id: perfilId } = await perfilAtual(c);
-    const { error } = await c.rpc("cancelar_pedido", {
+    const { error } = await rpcAutorizada(c, "cancelar_pedido", {
       p_order_id: pedidoId, p_motivo: motivo, p_usuario_id: perfilId,
     });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
@@ -355,7 +385,7 @@ export async function ajustarEstoque(
     ? Number(item.custo ?? 0) || null
     : null;
 
-  const { error } = await c.rpc("mover_estoque", {
+  const { error } = await rpcAutorizada(c, "mover_estoque", {
     p_product_flavor_id: pfId,
     p_tipo: delta > 0 ? "entrada" : "ajuste_negativo",
     p_quantidade: Math.abs(delta),
@@ -545,7 +575,7 @@ export async function criarPedido(
   }
 
   // 3) carrinho
-  const { data: cart, error: erroCarrinho } = await c.rpc("abrir_carrinho", {
+  const { data: cart, error: erroCarrinho } = await rpcAutorizada(c, "abrir_carrinho", {
     p_conversation_id: dados.conversation_id,
     p_customer_id: customerId,
     p_store_id: STORE_ID,
@@ -554,9 +584,19 @@ export async function criarPedido(
     return { ok: false, erro: traduzirErroBanco(erroCarrinho, "não consegui abrir o carrinho") };
   }
 
+  // o carrinho aberto da conversa pode ser o do bot, com reservas dele: o
+  // pedido do painel saía com os dois conjuntos de itens e cobrava em dobro
+  const { data: herdados } = await c.from("cart_items")
+    .select("product_flavor_id").eq("cart_id", cart.id);
+  for (const h of herdados ?? []) {
+    await rpcAutorizada(c, "remover_do_carrinho", {
+      p_cart_id: cart.id, p_product_flavor_id: h.product_flavor_id, p_quantidade: null,
+    });
+  }
+
   // 4) itens, um a um: a reserva de cada um pode falhar por falta de estoque
   for (const item of dados.itens) {
-    const { error } = await c.rpc("adicionar_ao_carrinho", {
+    const { error } = await rpcAutorizada(c, "adicionar_ao_carrinho", {
       p_cart_id: cart.id,
       p_product_flavor_id: item.product_flavor_id,
       p_quantidade: item.quantidade,
@@ -571,7 +611,7 @@ export async function criarPedido(
     const { data: cupom } = await c.from("coupons")
       .select("id, codigo, tipo_desconto, valor, valor_minimo, status, inicio, fim, limite_total, usos")
       .eq("store_id", STORE_ID)
-      .ilike("codigo", dados.cupom_codigo.trim())
+      .ilike("codigo", semCuringa(dados.cupom_codigo.trim()))
       .maybeSingle();
 
     const { data: carrinho } = await c.from("carts")
@@ -586,7 +626,7 @@ export async function criarPedido(
   }
 
   // 6) o carrinho vira pedido
-  const { data: pedido, error: erroPedido } = await c.rpc("criar_pedido", {
+  const { data: pedido, error: erroPedido } = await rpcAutorizada(c, "criar_pedido", {
     p_cart_id: cart.id,
     p_address_id: addressId,
     p_forma_pagamento: dados.forma_pagamento,
@@ -674,16 +714,27 @@ export async function confirmarPagamentoPix(pedidoId: string): Promise<Resultado
   // de estourar a chave estrangeira com uma mensagem que não ajuda ninguém
   const { id: usuarioId } = await perfilAtual(c);
 
-  const { error } = await c.from("orders")
-    .update({ status_pagamento: "aprovado" }).eq("id", pedidoId);
+  // só pedido que espera pagamento: PIX que chegou atrasado num pedido já
+  // cancelado marcava "pago" num cancelado, sem receita nem estorno
+  const { data: mudou, error } = await c.from("orders")
+    .update({ status_pagamento: "aprovado" })
+    .eq("id", pedidoId).in("status_pedido", ["aguardando_pagamento", "pendente"])
+    .select("id");
   if (error) return { ok: false, erro: traduzirErroBanco(error) };
+  if (!mudou?.length) {
+    return {
+      ok: false,
+      erro: "Este pedido não está aguardando pagamento (cancelado ou já confirmado). "
+        + "Se o dinheiro entrou, trate o estorno no financeiro.",
+    };
+  }
 
   await c.from("payments")
     .update({ status: "aprovado", pago_em: new Date().toISOString() })
     .eq("order_id", pedidoId).eq("status", "aguardando");
 
   // com o pagamento aprovado, a confirmação passa na trava e baixa o estoque
-  const { error: erroConfirmacao } = await c.rpc("confirmar_pedido", {
+  const { error: erroConfirmacao } = await rpcAutorizada(c, "confirmar_pedido", {
     p_order_id: pedidoId, p_usuario_id: usuarioId,
   });
   if (erroConfirmacao) {
@@ -692,6 +743,11 @@ export async function confirmarPagamentoPix(pedidoId: string): Promise<Resultado
       erro: `Pagamento marcado, mas o pedido não confirmou: ${erroConfirmacao.message}`,
     };
   }
+
+  // sem isto o bot continuava dizendo ao cliente que o PIX não tinha caído
+  const { avisarPagamentoAprovado } = await import("./bot/pos-pagamento");
+  await avisarPagamentoAprovado(pedidoId);
+  despacharFila();
 
   revalidatePath("/pedidos");
   revalidatePath("/entregas");
@@ -723,7 +779,7 @@ export async function conferirCupom(
   const { data: cupom } = await c.from("coupons")
     .select("id, codigo, tipo_desconto, valor, valor_minimo, status, inicio, fim, limite_total, usos")
     .eq("store_id", STORE_ID)
-    .ilike("codigo", codigo.trim())
+    .ilike("codigo", semCuringa(codigo.trim()))
     .maybeSingle();
 
   const r = avaliarCupom(cupom as never, subtotal);
@@ -773,6 +829,21 @@ export async function excluirPedido(pedidoId: string): Promise<Resultado> {
       erro: `Cancele o pedido ${pedido.numero_pedido} primeiro. É o cancelamento que `
         + `devolve o estoque e resolve o financeiro; apagar direto deixaria a peça `
         + `fora da prateleira sem explicação.`,
+    };
+  }
+
+  // dinheiro que já passou pelo pedido é histórico: apagar sumia com a
+  // receita paga e deixava o estorno órfão em contas a pagar
+  const [{ data: recebido }, { data: pago }] = await Promise.all([
+    c.from("accounts_receivable").select("id").eq("order_id", pedidoId).eq("status", "pago").limit(1),
+    c.from("payments").select("id").eq("order_id", pedidoId)
+      .in("status", ["aprovado", "estornado"]).limit(1),
+  ]);
+  if (recebido?.length || pago?.length) {
+    return {
+      ok: false,
+      erro: `O pedido ${pedido.numero_pedido} teve dinheiro recebido ou estornado — `
+        + `ele fica no histórico, cancelado. Só pedido sem movimento financeiro pode ser apagado.`,
     };
   }
 

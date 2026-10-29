@@ -50,6 +50,14 @@ export const FERRAMENTAS: Ferramenta[] = [
     escreve: false,
   },
   {
+    nome: "modelos_com_sabor",
+    descricao: "Em quais modelos um sabor está disponível agora, com preço e puffs.",
+    parametros: [
+      { nome: "sabor", tipo: "string", descricao: "Nome do sabor", obrigatorio: true },
+    ],
+    escreve: false,
+  },
+  {
     nome: "consultar_estoque",
     descricao: "Quantas unidades de um produto + sabor estão disponíveis.",
     parametros: [
@@ -119,8 +127,19 @@ export const FERRAMENTAS: Ferramenta[] = [
     escreve: false,
   },
   {
+    nome: "usar_endereco",
+    descricao:
+      "Usa para este pedido um endereço que o cliente JÁ TEM cadastrado (id vindo " +
+      "de buscar_enderecos). Chame depois que ele disser que é o mesmo endereço.",
+    parametros: [
+      { nome: "endereco_id", tipo: "string", descricao: "id devolvido por buscar_enderecos", obrigatorio: true },
+    ],
+    escreve: true,
+    estados: ["ADDRESS"],
+  },
+  {
     nome: "cadastrar_endereco",
-    descricao: "Grava um endereço novo de entrega.",
+    descricao: "Grava um endereço novo de entrega e usa neste pedido.",
     parametros: [
       { nome: "bairro", tipo: "string", descricao: "Bairro", obrigatorio: true },
       { nome: "rua", tipo: "string", descricao: "Rua", obrigatorio: true },
@@ -140,10 +159,12 @@ export const FERRAMENTAS: Ferramenta[] = [
   {
     nome: "criar_pagamento",
     descricao:
-      "Gera a cobrança PIX (QR Code e copia e cola) ou registra pagamento em " +
-      "dinheiro com o troco. Não confirma o pedido — só cria a cobrança.",
+      "Registra a forma de pagamento escolhida (e o troco, no dinheiro). No PIX, " +
+      "o copia e cola só sai DEPOIS que o cliente confirmar o resumo: é o " +
+      "confirmar_pedido que cria o pedido e devolve o código daquele pedido. " +
+      "Com o pedido já criado, chamar de novo reenvia o código.",
     parametros: [
-      { nome: "forma", tipo: "string", descricao: "pix ou dinheiro", obrigatorio: true },
+      { nome: "forma", tipo: "string", descricao: "pix, dinheiro ou cartao", obrigatorio: true },
       { nome: "troco_para", tipo: "number", descricao: "Valor com que o cliente vai pagar", obrigatorio: false },
     ],
     escreve: true,
@@ -164,9 +185,11 @@ export const FERRAMENTAS: Ferramenta[] = [
   {
     nome: "confirmar_pedido",
     descricao:
-      "Cria o pedido de verdade: baixa o estoque, gera o financeiro e manda " +
-      "imprimir. Só pode ser chamada depois do cliente confirmar o resumo e, " +
-      "no PIX, com o pagamento aprovado.",
+      "Cria o pedido de verdade depois do cliente confirmar o resumo. Dinheiro " +
+      "e cartão confirmam na hora (baixa o estoque, gera o financeiro, manda " +
+      "imprimir). PIX cria o pedido aguardando pagamento, com o estoque " +
+      "reservado, e devolve o copia e cola: o pedido confirma sozinho quando " +
+      "o pagamento cair.",
     parametros: [],
     escreve: true,
     estados: ["ORDER_REVIEW"],
@@ -194,6 +217,49 @@ export const FERRAMENTAS: Ferramenta[] = [
     ],
     escreve: true,
     estados: ["CART", "ADDRESS"],
+  },
+  {
+    nome: "perfil_cliente",
+    descricao:
+      "O que se sabe do cliente: preferências que ele declarou, o que mais " +
+      "compra, quantos puffs costuma levar, como costuma pagar, o último " +
+      "pedido e o endereço salvo. Consulte antes de sugerir para quem já comprou.",
+    parametros: [],
+    escreve: false,
+  },
+  {
+    nome: "salvar_preferencias",
+    descricao:
+      "Anota no cadastro o que o cliente disse que gosta. Só o que ele disse — " +
+      "não deduza. Os campos são somados ao que já existe.",
+    parametros: [
+      { nome: "marcas", tipo: "string", descricao: "marcas separadas por vírgula", obrigatorio: false },
+      { nome: "sabores", tipo: "string", descricao: "sabores separados por vírgula", obrigatorio: false },
+      { nome: "perfil", tipo: "string", descricao: "gelado, menta, doce, fruta ou tabaco, separados por vírgula", obrigatorio: false },
+      { nome: "puffs", tipo: "number", descricao: "quantos puffs procura, aproximado", obrigatorio: false },
+    ],
+    escreve: true,
+  },
+  {
+    nome: "sugerir_produtos",
+    descricao:
+      "Modelos e sabores DISPONÍVEIS que combinam com uma preferência (perfil " +
+      "de sabor, marca, puffs). Use para indicar algo ao indeciso.",
+    parametros: [
+      { nome: "perfil", tipo: "string", descricao: "gelado, menta, doce, fruta ou tabaco, separados por vírgula", obrigatorio: false },
+      { nome: "marca", tipo: "string", descricao: "marca preferida", obrigatorio: false },
+      { nome: "puffs", tipo: "number", descricao: "puffs mínimos", obrigatorio: false },
+    ],
+    escreve: false,
+  },
+  {
+    nome: "repetir_ultimo_pedido",
+    descricao:
+      "Põe no carrinho os mesmos itens do último pedido do cliente, com o que " +
+      "ainda tiver estoque. Use quando ele disser que quer o mesmo da última vez.",
+    parametros: [],
+    escreve: true,
+    estados: ["INITIAL", "CATALOG_SENT", "PRODUCT_SELECTION", "CART"],
   },
   {
     nome: "criar_tarefa",
@@ -225,6 +291,9 @@ export const FERRAMENTAS: Ferramenta[] = [
 ];
 
 export const POR_NOME = new Map(FERRAMENTAS.map((f) => [f.nome, f]));
+
+/** "cartao" sozinho vira crédito: a maquininha da entrega aceita os dois. */
+export const FORMAS_DO_BOT = ["pix", "dinheiro", "cartao", "cartao_credito", "cartao_debito"];
 
 export interface Validacao {
   valida: boolean;
@@ -272,8 +341,8 @@ export function validarChamada(
 
   if (nome === "criar_pagamento") {
     const forma = String(argumentos.forma ?? "").toLowerCase();
-    if (!["pix", "dinheiro"].includes(forma)) {
-      return { valida: false, erro: 'Forma de pagamento tem que ser "pix" ou "dinheiro"' };
+    if (!FORMAS_DO_BOT.includes(forma)) {
+      return { valida: false, erro: 'Forma de pagamento tem que ser "pix", "dinheiro" ou "cartao"' };
     }
   }
 

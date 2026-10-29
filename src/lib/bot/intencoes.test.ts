@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classificar, ehNao, ehSim, idadeDeclarada } from "./intencoes";
+import { classificar, confirmouMaioridade, ehNao, ehSim, idadeDeclarada } from "./intencoes";
 
 const CATALOGO = {
   marcas: ["Ignite", "Elfbar", "Lost Mary"],
@@ -113,5 +113,27 @@ describe("idade declarada", () => {
     expect(ehSim("tenho 18 anos")).toBe(true);
     expect(ehNao("tenho 16 anos")).toBe(true);
     expect(ehNao("tenho 21 anos")).toBe(false);
+  });
+});
+
+describe("resposta à pergunta de maioridade", () => {
+  it("menor declarando a idade não passa — era aceito como maioridade", () => {
+    expect(confirmouMaioridade("tenho 16 anos")).toBe(false);
+    expect(confirmouMaioridade("tenho 17")).toBe(false);
+    expect(confirmouMaioridade("16 anos")).toBe(false);
+    expect(confirmouMaioridade("sou menor")).toBe(false);
+  });
+
+  it("o que não responde a pergunta não vale como sim", () => {
+    expect(confirmouMaioridade("quero ver os pods")).toBe(false);
+    expect(confirmouMaioridade("opa, manda o catalogo")).toBe(false);
+    expect(confirmouMaioridade("quanto custa o ignite?")).toBe(false);
+  });
+
+  it("afirmação explícita e idade adulta passam", () => {
+    for (const t of ["sim", "Sim!", "sou sim", "sou maior de 18", "maior de idade",
+      "tenho 25 anos", "22", "claro", "com certeza"]) {
+      expect(confirmouMaioridade(t), t).toBe(true);
+    }
   });
 });

@@ -167,10 +167,11 @@ export class CanalMeta implements Canal {
   }
 
   /** HMAC-SHA256 do corpo cru, como a Meta assina. */
-  validarAssinatura(corpo: string, cabecalhos: Headers): boolean {
-    if (!this.segredo) return true;           // sem segredo configurado, não bloqueia
+  validarAssinatura(corpo: string, req: Request): boolean {
+    // sem segredo, em produção, nada passa (ver seguranca/segredo.ts)
+    if (!this.segredo) return process.env.NODE_ENV !== "production";
 
-    const assinatura = cabecalhos.get("x-hub-signature-256");
+    const assinatura = req.headers.get("x-hub-signature-256");
     if (!assinatura?.startsWith("sha256=")) return false;
 
     const esperado = createHmac("sha256", this.segredo).update(corpo).digest("hex");

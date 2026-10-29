@@ -38,6 +38,11 @@ export interface MensagemEntrada {
   /** resposta de botão: qual foi apertado */
   botaoId?: string;
   recebidaEm: Date;
+  /**
+   * Escrita pela loja direto no celular, não pelo painel. `de` continua sendo
+   * o telefone do cliente — é a conversa onde a mensagem entra.
+   */
+  enviadaPorMim?: boolean;
 }
 
 export interface AtualizacaoStatus {
@@ -47,28 +52,11 @@ export interface AtualizacaoStatus {
   em: Date;
 }
 
-/**
- * O dono respondeu pelo aplicativo do celular.
- *
- * Só existe em provedor que compartilha o número com o app — hoje a
- * FluxoAPI. Não é mensagem de cliente: entra na conversa como fala da loja,
- * e desliga o bot ali. Sem isso o bot responderia por cima de uma pessoa que
- * já está atendendo, e o cliente leria duas respostas diferentes.
- */
-export interface RespostaDoDono {
-  idExterno: string;
-  /** telefone do cliente que recebeu, só dígitos */
-  para: string;
-  texto: string;
-  em: Date;
-}
-
 export interface EventoCanal {
   /** id único do evento, para não processar duas vezes */
   id: string;
   mensagens: MensagemEntrada[];
   statusAtualizados: AtualizacaoStatus[];
-  respostasDoDono?: RespostaDoDono[];
 }
 
 export interface Canal {
@@ -81,9 +69,11 @@ export interface Canal {
   /**
    * Confere que o webhook veio mesmo do provedor.
    *
-   * Recebe os CABEÇALHOS, não só a assinatura: a FluxoAPI assina
-   * `timestamp\ncorpo`, então conferir sem o timestamp é impossível. Com só
-   * a string da assinatura, esse provedor não caberia no contrato.
+   * Recebe o PEDIDO inteiro, não a assinatura já escolhida, porque cada um
+   * confere coisa diferente: a Meta é HMAC do corpo num cabeçalho, a Z-API é
+   * um segredo na query da URL, e a FluxoAPI assina `timestamp\ncorpo` —
+   * essa precisa de DOIS cabeçalhos. Passando a string pronta, o terceiro
+   * caso não cabia.
    */
-  validarAssinatura?(corpoCru: string, cabecalhos: Headers): boolean;
+  validarAssinatura?(corpoCru: string, req: Request): boolean;
 }

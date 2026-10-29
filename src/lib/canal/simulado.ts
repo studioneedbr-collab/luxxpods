@@ -1,4 +1,5 @@
 import { demoEnviarMensagem } from "../demo";
+import { supabaseConfigurado } from "../supabase/config";
 import type { Canal, EventoCanal, MensagemSaida, ResultadoEnvio } from "./tipos";
 
 /**
@@ -16,6 +17,15 @@ export class CanalSimulado implements Canal {
   }
 
   async enviar(m: MensagemSaida): Promise<ResultadoEnvio> {
+    // com banco de verdade não há "demonstração": fingir que entregou fazia
+    // a conversa mostrar como enviada uma mensagem que nunca saiu
+    if (supabaseConfigurado) {
+      return {
+        ok: false,
+        erro: "Nenhum WhatsApp conectado: configure a Z-API (ou a Meta) na Vercel.",
+        tentarDeNovo: false,
+      };
+    }
     // um número claramente inválido falha, para dar para testar o caminho do erro
     if (!m.para || m.para.length < 10) {
       return { ok: false, erro: "Número inválido", tentarDeNovo: false };

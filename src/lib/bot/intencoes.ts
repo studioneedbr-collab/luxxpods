@@ -127,6 +127,29 @@ export function ehSim(texto: string): boolean {
   return /\b(sou maior|maior de \d{2}|maior de idade|de maior|ja sou)\b/.test(t);
 }
 
+/**
+ * Resposta à pergunta "você é maior de 18?" — mais estrita que `ehSim`.
+ *
+ * `ehSim` aceita "quero", "opa", "manda": servem para confirmar pedido, mas
+ * para a idade "quero ver os pods" não responde nada, e era aceito como
+ * maioridade. E o motor também aceitava a intenção `maioridade`, que casa
+ * com "tenho 16 anos" — um menor passava declarando a própria idade.
+ *
+ * Idade declarada manda sobre tudo; sem ela, só vale afirmação explícita.
+ */
+export function confirmouMaioridade(texto: string): boolean {
+  const t = normalizar(texto);
+  if (!t || /\bmenor\b/.test(t)) return false;
+
+  const idade = idadeDeclarada(t);
+  if (idade !== null) return idade >= 18;
+
+  if (/^(sim|s|ss|sou sim|sou|claro|com certeza|aham|uhum|positivo|afirmativo|isso|exato|certeza)\b/.test(t)) {
+    return true;
+  }
+  return /\b(sou maior|maior de \d{2}|maior de idade|de maior|ja sou)\b/.test(t);
+}
+
 export function ehNao(texto: string): boolean {
   const t = normalizar(texto);
 

@@ -27,7 +27,7 @@ const INTEGRACOES = [
       "ou Meta: Phone Number ID, WABA ID, Access Token, Verify Token",
       "ou Z-API: ZAPI_INSTANCE_ID, ZAPI_TOKEN, ZAPI_CLIENT_TOKEN",
     ],
-    endpoint: "POST /api/webhooks/whatsapp",
+    endpoint: "POST /api/webhooks/whatsapp?token=ZAPI_WEBHOOK_SECRET",
   },
   {
     nome: "Instagram Direct (Meta)", icone: AtSign, cor: "#E1306C",
@@ -54,11 +54,15 @@ const INTEGRACOES = [
     nome: "DeepSeek (IA do bot)", icone: Sparkles, cor: "#a78bfa",
     chave: "ia" as const,
     descricao:
-      "Entra só na mensagem que a classificação por palavra-chave não " +
-      "entendeu — comparação entre produtos, recomendação, dúvida sobre a " +
-      "loja. Recebe apenas ferramentas de CONSULTA: não mexe no estoque, " +
-      "não fecha pedido e não cria cobrança. Preço afirmado sem consulta é " +
-      "barrado antes de virar mensagem. O treinamento fica em Configurações.",
+      "Entra onde a classificação por palavra-chave não resolveu: intenção " +
+      "não reconhecida, ou produto que a busca não achou. Conduz a venda " +
+      "pelas MESMAS funções validadas do sistema (§24 do escopo) — e são " +
+      "elas que protegem o estoque: adicionar ao carrinho falha sem unidade, " +
+      "a cobrança tira o total do carrinho, e fechar o pedido exige o sim do " +
+      "cliente lido pelo sistema, não pelo modelo. Validar maioridade ela " +
+      "não faz. Antes de virar mensagem, um conferidor barra preço que não " +
+      "saiu de consulta e promessa de reserva que não aconteceu. " +
+      "O treinamento fica em Configurações.",
     campos: ["DEEPSEEK_API_KEY", "DEEPSEEK_MODELO (deepseek-flash)"],
     endpoint: "POST api.deepseek.com/chat/completions",
   },

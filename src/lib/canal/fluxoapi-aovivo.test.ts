@@ -114,15 +114,19 @@ describe.skipIf(!AO_VIVO)("FluxoAPI ao vivo", () => {
     const ts = String(Math.floor(Date.now() / 1000));
     const assinatura = `v1=${createHmac("sha256", segredo!).update(`${ts}\n${corpo}`).digest("hex")}`;
 
-    const certo = new Headers({ "x-fluxo-signature": assinatura, "x-fluxo-timestamp": ts });
-    expect(canal.validarAssinatura(corpo, certo), "o segredo do ambiente não confere")
-      .toBe(true);
+    /** O mesmo Request que a rota recebe, para passar pelo mesmo caminho. */
+    const pedido = (sig: string) =>
+      new Request("https://www.luxxpods.com/api/webhooks/whatsapp", {
+        method: "POST",
+        headers: { "x-fluxo-signature": sig, "x-fluxo-timestamp": ts },
+        body: corpo,
+      });
+
+    expect(canal.validarAssinatura(corpo, pedido(assinatura)),
+      "o segredo do ambiente não confere").toBe(true);
 
     // e recusa o que não foi assinado com ele
-    const errado = new Headers({
-      "x-fluxo-signature": `v1=${"0".repeat(64)}`, "x-fluxo-timestamp": ts,
-    });
-    expect(canal.validarAssinatura(corpo, errado)).toBe(false);
+    expect(canal.validarAssinatura(corpo, pedido(`v1=${"0".repeat(64)}`))).toBe(false);
 
     process.stderr.write("\n  segredo do webhook: confere\n");
   });

@@ -127,11 +127,11 @@ describe("o dono respondendo pelo aplicativo", () => {
       text: "Oi! Já vou te atender por aqui.", sent_from_phone: true,
     }));
 
-    expect(e?.mensagens).toHaveLength(0);
-    expect(e?.respostasDoDono).toHaveLength(1);
-    expect(e?.respostasDoDono?.[0]).toMatchObject({
-      idExterno: "msg_9", para: "5519996155951",
-      texto: "Oi! Já vou te atender por aqui.",
+    // `de` é o telefone do CLIENTE: é a conversa onde a mensagem cai
+    expect(e?.mensagens).toHaveLength(1);
+    expect(e?.mensagens[0]).toMatchObject({
+      idExterno: "msg_9", de: "5519996155951",
+      texto: "Oi! Já vou te atender por aqui.", enviadaPorMim: true,
     });
   });
 
@@ -140,7 +140,8 @@ describe("o dono respondendo pelo aplicativo", () => {
       message_id: "msg_10", to: "5519996155951", type: "image", text: "",
       media: { download_path: "/v1/messages/msg_10/media" },
     }));
-    expect(e?.respostasDoDono?.[0]?.texto).toBe("[imagem]");
+    expect(e?.mensagens[0]?.texto).toBe("[imagem]");
+    expect(e?.mensagens[0]?.enviadaPorMim).toBe(true);
   });
 });
 

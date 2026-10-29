@@ -15,6 +15,8 @@ export interface Contexto {
   maioridade_validada?: boolean;
   marca_interesse?: string;
   modelo_interesse?: string;
+  /** sabor pedido antes do modelo ("peach mango" → "tenho no V600 e no X") */
+  sabor_procurado?: string;
   product_flavor_id?: string;
   produto_selecionado?: string;
   sabor_selecionado?: string;
@@ -22,8 +24,21 @@ export interface Contexto {
   cart_id?: string;
   endereco_id?: string;
   endereco_confirmado?: boolean;
-  forma_pagamento?: "pix" | "dinheiro";
+  /** endereço salvo que o bot ofereceu ("entrego no mesmo?"), esperando o sim */
+  endereco_sugerido_id?: string;
+  /** endereço lido sem bairro: o bot pergunta só o que falta */
+  endereco_parcial?: { rua: string; numero: string; complemento: string | null; referencia: string | null };
+  forma_pagamento?: FormaPagamento;
+  /** forma que o cliente costuma usar, oferecida ("vai no PIX de novo?") */
+  pagamento_sugerido?: FormaPagamento;
   troco_para?: number;
+  /** dinheiro: o cliente já respondeu sobre troco (mesmo que sem troco) */
+  troco_respondido?: boolean;
+  order_numero?: string;
+  /** último pedido oferecido para repetir, esperando o sim */
+  repetir_pedido_id?: string;
+  /** o bot já perguntou a preferência nesta conversa */
+  pref_perguntada?: boolean;
   payment_id?: string;
   pagamento_status?: "aguardando" | "aprovado";
   order_id?: string;
@@ -36,6 +51,8 @@ export interface Contexto {
   /** o que já foi oferecido nesta conversa: cada regra só uma vez */
   upsell_oferecidos?: string[];
 }
+
+export type FormaPagamento = "pix" | "dinheiro" | "cartao_credito" | "cartao_debito";
 
 export interface Transicao {
   de: ConversaEstado;
@@ -83,10 +100,15 @@ export const TRANSICOES: Transicao[] = [
   { de: "ORDER_REVIEW", para: "ORDER_CONFIRMED", motivo: "cliente confirmou",
     // PIX só passa com pagamento aprovado — a regra que protege o estoque
     exige: (c) =>
-      c.forma_pagamento === "dinheiro" ||
+      (Boolean(c.forma_pagamento) && c.forma_pagamento !== "pix") ||
       (c.forma_pagamento === "pix" && c.pagamento_status === "aprovado") },
+  // PIX: o pedido nasce aguardando pagamento (ORDER_REVIEW → PAYMENT, abaixo)
+  // e a conversa só vai a confirmado quando o dinheiro cai
+  { de: "PAYMENT", para: "ORDER_CONFIRMED", motivo: "o PIX caiu",
+    exige: (c) => c.pagamento_status === "aprovado" && Boolean(c.order_id) },
   { de: "ORDER_REVIEW", para: "CART", motivo: "pediu para alterar" },
-  { de: "ORDER_REVIEW", para: "PAYMENT", motivo: "trocou a forma de pagamento" },
+  { de: "ORDER_REVIEW", para: "PAYMENT",
+    motivo: "trocou a forma de pagamento, ou pedido PIX criado aguardando o dinheiro" },
 
   { de: "ORDER_CONFIRMED", para: "COMPLETED", motivo: "pedido entregue",
     exige: (c) => Boolean(c.order_id) },

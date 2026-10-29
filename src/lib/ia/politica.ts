@@ -15,8 +15,9 @@ import { FERRAMENTAS, POR_NOME, type Ferramenta } from "../bot/ferramentas";
  *   que recusa, não o bom senso do modelo.
  * - `criar_pagamento` tira o total do CARRINHO; o modelo escolhe a forma, não
  *   o valor, e troco menor que o total é recusado.
- * - `confirmar_pedido` exige carrinho, endereço e forma de pagamento, e no
- *   PIX exige o dinheiro já aprovado.
+ * - `confirmar_pedido` exige carrinho, endereço e forma de pagamento. No
+ *   PIX o pedido nasce aguardando pagamento: o estoque fica reservado e só
+ *   baixa quando o dinheiro entra, pela confirmação do banco.
  * - A reserva expira sozinha, então errar o carrinho não prende estoque.
  *
  * Sobra UMA coisa que função nenhuma consegue conferir: se o cliente

@@ -25,7 +25,9 @@ export function FormularioLogin({ voltarPara }: { voltarPara?: string }) {
     if (r.ok) {
       // só aceita destino interno: "//outro.site" seria redirecionamento aberto
       const destino =
-        voltarPara?.startsWith("/") && !voltarPara.startsWith("//") ? voltarPara : "/";
+        // "/\\evil.com" o navegador lê como "//evil.com": barra invertida não passa
+        voltarPara?.startsWith("/") && !voltarPara.startsWith("//") && !voltarPara.includes("\\")
+          ? voltarPara : "/";
       router.push(destino);
       router.refresh();
     } else {

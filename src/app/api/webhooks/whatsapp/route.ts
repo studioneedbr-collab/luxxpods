@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { canalDoWebhook } from "@/lib/canal";
 import {
-  receberMensagem, registrarRespostaDoDono, registrarStatus,
+  receberMensagem, registrarEnviadaPeloCelular, registrarStatus,
 } from "@/lib/bot/recepcao";
 import { processar } from "@/lib/bot/motor";
+import { despacharFila } from "@/lib/fila/worker";
 
 export const dynamic = "force-dynamic";
+// o bot (e a IA) roda depois da resposta, dentro deste mesmo limite
+export const maxDuration = 60;
 
 /**
  * Entrada de mensagens do WhatsApp.
@@ -47,15 +50,16 @@ export async function POST(req: Request) {
   }
 
   /**
-   * Os cabeçalhos inteiros, não a assinatura pronta.
+   * O pedido inteiro, não a assinatura já escolhida.
    *
-   * Cada provedor assina coisa diferente: a Meta manda o HMAC do corpo em
-   * `x-hub-signature-256`, a Z-API compara um token fixo em `client-token`,
+   * Cada provedor confere coisa diferente: a Meta é HMAC do corpo em
+   * `x-hub-signature-256`, a Z-API é um segredo na QUERY da URL cadastrada,
    * e a FluxoAPI assina `timestamp\ncorpo` — essa última não dá para
-   * conferir sem o `x-fluxo-timestamp`. Escolher o cabeçalho aqui fora
-   * obrigava a rota a conhecer o esquema de cada um.
+   * conferir sem ler também o `x-fluxo-timestamp`. Escolher o valor aqui
+   * fora obrigava a rota a conhecer o esquema de cada um, e não cabia o
+   * caso que precisa de dois cabeçalhos.
    */
-  if (canal.validarAssinatura && !canal.validarAssinatura(cru, req.headers)) {
+  if (canal.validarAssinatura && !canal.validarAssinatura(cru, req)) {
     return NextResponse.json({ erro: "assinatura inválida" }, { status: 401 });
   }
 
@@ -63,30 +67,23 @@ export async function POST(req: Request) {
   if (!evento) return NextResponse.json({ ignorado: "sem conteúdo útil" });
 
   const resultado = {
-    recebidas: 0, ignoradas: 0, respondidas: 0, status: 0,
-    doDono: 0, erros: [] as string[],
+    recebidas: 0, ignoradas: 0, status: 0, erros: [] as string[],
   };
+  // em ordem: duas mensagens seguidas do cliente não podem ser lidas fora
+  // da ordem em que ele mandou
+  const paraOBot: Array<() => Promise<void>> = [];
 
-  /**
-   * A resposta do dono pelo celular vem ANTES de tudo.
-   *
-   * Ela desliga o bot na conversa, e o lote pode trazer junto uma mensagem
-   * nova do cliente. Processando na outra ordem, o bot ainda estaria ligado
-   * e responderia por cima da pessoa que acabou de digitar no celular.
-   */
-  for (const r of evento.respostasDoDono ?? []) {
-    try {
-      const g = await registrarRespostaDoDono(r);
-      if (g.gravada) resultado.doDono++;
-      else resultado.ignoradas++;
-    } catch (e) {
-      console.error("[luxx] erro ao gravar resposta do dono:", e);
-      resultado.erros.push("resposta do celular não entrou no histórico");
-    }
-  }
 
   for (const mensagem of evento.mensagens) {
     try {
+      // a loja respondeu pelo celular: entra na conversa, e o bot não
+      // responde a si mesmo
+      if (mensagem.enviadaPorMim) {
+        const gravou = await registrarEnviadaPeloCelular(mensagem, canal.nome);
+        if (gravou) resultado.recebidas++; else resultado.ignoradas++;
+        continue;
+      }
+
       // null significa recusada (número inválido) ou repetida — nos dois
       // casos não é erro, e contar como recebida esconderia o problema
       const recepcao = await receberMensagem(mensagem, canal.nome);
@@ -94,16 +91,22 @@ export async function POST(req: Request) {
 
       resultado.recebidas++;
 
-      // o bot responde depois da mensagem já estar gravada: se o motor
-      // quebrar, o contato continua no painel para alguém responder à mão
+      // o bot responde depois da mensagem já estar gravada — e depois da
+      // resposta ao provedor. Antes o webhook esperava o bot e a IA (até ~75s
+      // no pior caso): a Z-API desistia e reenviava o mesmo evento.
       if (recepcao.botAtivo && mensagem.texto) {
-        try {
-          const r = await processar(recepcao.conversationId, mensagem.texto);
-          if (r.respondeu) resultado.respondidas++;
-        } catch (e) {
-          console.error("[luxx] o motor de conversa falhou:", e);
-          resultado.erros.push("bot não respondeu — a mensagem está no painel");
-        }
+        const conversa = recepcao.conversationId;
+        const texto = mensagem.texto;
+        paraOBot.push(async () => {
+          try {
+            const r = await processar(conversa, texto);
+            if (r.respondeu) despacharFila();
+          } catch (e) {
+            // se o motor quebrar, o contato continua no painel para alguém
+            // responder à mão
+            console.error("[luxx] o motor de conversa falhou:", e);
+          }
+        });
       }
     } catch (e) {
       // uma mensagem com problema não pode derrubar as outras do mesmo lote
@@ -119,6 +122,12 @@ export async function POST(req: Request) {
     } catch (e) {
       console.error("[luxx] erro ao registrar status:", e);
     }
+  }
+
+  if (paraOBot.length) {
+    after(async () => {
+      for (const tarefa of paraOBot) await tarefa();
+    });
   }
 
   // sempre 200: qualquer outro código faz o provedor reenviar o lote inteiro,

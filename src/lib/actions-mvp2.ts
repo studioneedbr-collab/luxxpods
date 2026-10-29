@@ -1,6 +1,9 @@
 "use server";
 
+import { hojeSP } from "./data-hora";
+
 import { revalidatePath } from "next/cache";
+import { rpcAutorizada } from "./rpc-autorizada";
 import { getSupabaseServer } from "./supabase/server";
 import { STORE_ID, supabaseConfigurado } from "./supabase/config";
 import { demo2 } from "./demo-mvp2";
@@ -145,6 +148,9 @@ export async function criarTroca(dados: {
       order_id: dados.order_id,
       order_item_id: dados.order_item_id ?? null,
       product_flavor_id: dados.product_flavor_id ?? null,
+      // o sabor que sai para o cliente; sem isto o estoque baixava sempre do
+      // sabor defeituoso, não do que foi entregue no lugar
+      product_flavor_saida_id: dados.product_flavor_saida_id ?? null,
       quantidade: dados.quantidade,
       motivo: dados.motivo,
       descricao: dados.descricao ?? null,
@@ -182,7 +188,7 @@ export async function alterarStatusTroca(
   const { id: perfilId } = await perfilAtual(c);
 
   if (status === "finalizada") {
-    const { error } = await c.rpc("finalizar_troca", {
+    const { error } = await rpcAutorizada(c, "finalizar_troca", {
       p_troca_id: id, p_usuario_id: perfilId,
     });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
@@ -199,7 +205,7 @@ export async function alterarStatusTroca(
 
   // chegou aqui, então o destino não é 'finalizada' (tratada acima)
   if (atual?.estoque_aplicado) {
-    const { error } = await c.rpc("reabrir_troca", {
+    const { error } = await rpcAutorizada(c, "reabrir_troca", {
       p_troca_id: id,
       p_motivo: "Troca saiu de finalizada pelo painel",
       p_usuario_id: perfilId,
@@ -382,7 +388,7 @@ export async function concluirNota(id: string): Promise<Resultado> {
       });
     }
   } else {
-    const { error } = await c.rpc("concluir_nota_entrada", { p_nota_id: id });
+    const { error } = await rpcAutorizada(c, "concluir_nota_entrada", { p_nota_id: id });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }
 
@@ -415,7 +421,7 @@ export async function reabrirNota(id: string, motivo?: string): Promise<Resultad
       demoSalvarNota({ id, situacao: "conferencia", estoque_aplicado: false });
     }
   } else {
-    const { error } = await c.rpc("reabrir_nota_entrada", {
+    const { error } = await rpcAutorizada(c, "reabrir_nota_entrada", {
       p_nota_id: id, p_motivo: motivo ?? null,
     });
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
@@ -459,11 +465,34 @@ export async function baixarLancamento(
   if (!c) { demoBaixarLancamento(id, pago); }
   else {
     const tabela = tipo === "receber" ? "accounts_receivable" : "accounts_payable";
-    const { error } = await c.from(tabela).update({
+
+    const { data: atual } = await c.from(tabela)
+      .select(tipo === "receber" ? "status, order_id" : "status").eq("id", id).maybeSingle();
+    if (!atual) return { ok: false, erro: "Lançamento não encontrado." };
+    const linha = atual as unknown as { status: string; order_id?: string | null };
+
+    // lançamento cancelado (ex.: pedido cancelado) não volta a contar como
+    // receita por um clique em "Recebi"
+    if (linha.status === "cancelado") {
+      return { ok: false, erro: "Lançamento cancelado não pode receber baixa." };
+    }
+
+    // a data é a de Brasília: depois das 21h a baixa saía com o dia seguinte
+    const { data: mudou, error } = await c.from(tabela).update({
       status: pago ? "pago" : "pendente",
-      pagamento: pago ? new Date().toISOString().slice(0, 10) : null,
-    }).eq("id", id);
+      pagamento: pago ? hojeSP() : null,
+    }).eq("id", id).select("id");
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
+    if (!mudou?.length) return { ok: false, erro: "Seu perfil não pode dar baixa neste lançamento." };
+
+    // a conta a receber de um pedido é o mesmo dinheiro do pedido: antes a
+    // baixa aqui não fechava o pedido, e as duas telas mostravam números
+    // diferentes
+    if (linha.order_id) {
+      await c.from("orders")
+        .update({ status_pagamento: pago ? "aprovado" : "aguardando" })
+        .eq("id", linha.order_id).neq("status_pedido", "cancelado");
+    }
   }
   revalidatePath("/financeiro");
   revalidatePath("/financeiro/pagar");
@@ -478,8 +507,23 @@ export async function excluirLancamento(
   if (!c) demoExcluirLancamento(id);
   else {
     const tabela = tipo === "receber" ? "accounts_receivable" : "accounts_payable";
-    const { error } = await c.from(tabela).delete().eq("id", id);
+
+    // dinheiro que entrou ou saiu, e o lançamento automático de um pedido,
+    // são histórico: apagar sumia com a receita, e a do pedido nunca voltava
+    // (o banco cria uma por pedido, uma vez só)
+    const { data: atual } = await c.from(tabela)
+      .select(tipo === "receber" ? "status, order_id" : "status").eq("id", id).maybeSingle();
+    const linha = atual as unknown as { status: string; order_id?: string | null } | null;
+    if (linha?.status === "pago") {
+      return { ok: false, erro: "Lançamento já pago não pode ser excluído. Desfaça a baixa ou cancele." };
+    }
+    if (linha?.order_id) {
+      return { ok: false, erro: "Este lançamento é do pedido: ele muda quando o pedido muda." };
+    }
+
+    const { data: apagou, error } = await c.from(tabela).delete().eq("id", id).select("id");
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
+    if (!apagou?.length) return { ok: false, erro: "Seu perfil não pode excluir lançamentos." };
   }
   revalidatePath("/financeiro/pagar");
   revalidatePath("/financeiro/receber");
@@ -580,14 +624,33 @@ export async function salvarUsuario(dados: Partial<Usuario> & { id?: string }): 
   const c = await cli();
   if (!c) { demoSalvarUsuario(dados); }
   else {
-    const { id, role_slug, ...resto } = dados;
-    const campos = omitir(resto, ["role_nome", "created_at", "ultimo_login"]);
-    const payload: Record<string, unknown> = { ...campos };
-    if (role_slug) {
-      const { data: role } = await c.from("roles").select("id").eq("slug", role_slug).maybeSingle();
-      if (role) payload.role_id = role.id;
-    }
+    const { id, role_slug } = dados;
     if (!id) return { ok: false, erro: "Novos usuários são criados pelo convite do Supabase Auth." };
+
+    // antes o que viesse do navegador ia inteiro para o update: dava para
+    // mandar o próprio id com role_id de admin. Agora só campos conhecidos,
+    // e perfil e situação só para quem gerencia usuários.
+    const { data: gerencia } = await c.rpc("posso", { p_permissao: "gerenciar_usuarios" });
+    const { data: sessao } = await c.auth.getUser();
+    if (gerencia !== true && sessao.user?.id !== id) {
+      return { ok: false, erro: "Seu perfil não pode editar outros usuários." };
+    }
+
+    const payload: Record<string, unknown> = {};
+    for (const campo of ["nome", "telefone"] as const) {
+      if (dados[campo] !== undefined) payload[campo] = dados[campo];
+    }
+    if (gerencia === true) {
+      if (dados.status !== undefined) payload.status = dados.status;
+      if (role_slug) {
+        const { data: meu } = await c.rpc("meu_perfil");
+        if (role_slug === "admin" && meu !== "admin") {
+          return { ok: false, erro: "Só um administrador promove alguém a administrador." };
+        }
+        const { data: role } = await c.from("roles").select("id").eq("slug", role_slug).maybeSingle();
+        if (role) payload.role_id = role.id;
+      }
+    }
     const { error } = await c.from("profiles").update(payload).eq("id", id);
     if (error) return { ok: false, erro: traduzirErroBanco(error) };
   }

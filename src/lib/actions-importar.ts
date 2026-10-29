@@ -39,6 +39,16 @@ export interface ResultadoImportacao {
   /** quantas conversas vieram com o conteúdo das mensagens */
   com_historico?: number;
   mensagens_importadas?: number;
+  leads_abertos?: number;
+}
+
+const JANELA_KANBAN_DIAS = 30;
+
+/** Não lida conta como viva mesmo sem data: alguém está esperando resposta. */
+function ativaRecentemente(chat: { naoLidas: number; ultimaEm?: Date }) {
+  if (chat.naoLidas > 0) return true;
+  if (!chat.ultimaEm) return false;
+  return Date.now() - chat.ultimaEm.getTime() < JANELA_KANBAN_DIAS * 86_400_000;
 }
 
 /**
@@ -46,6 +56,9 @@ export interface ResultadoImportacao {
  *
  * A ordem é a de `canalAtivo()`, e por um motivo prático além da coerência:
  * só a FluxoAPI tem histórico de mensagem.
+ *
+ * Os dois percorrem TODAS as páginas. Parar na primeira deixava de fora quem
+ * conversou antes dos 100 mais recentes, e essas conversas nunca apareciam.
  */
 interface Provedor {
   nome: string;
@@ -53,26 +66,41 @@ interface Provedor {
   historico?(idExterno: string): Promise<MensagemHistorica[]>;
 }
 
+/** Teto de páginas, para instância grande não prender a ação para sempre. */
+const MAX_PAGINAS = 30;
+
 function escolherProvedor(): Provedor | null {
   const fluxo = new CanalFluxoApi();
   if (fluxo.configurado()) {
     return {
       nome: "FluxoAPI",
       async chats() {
-        const r = await fluxo.listarConversas(undefined, 100);
-        if (r.erro) {
-          console.error(`[luxx] FluxoAPI não listou conversas: ${r.erro}`);
-          return null;
+        const todos: ChatNormalizado[] = [];
+        let cursor: string | undefined;
+
+        for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+          const r = await fluxo.listarConversas(cursor, 100);
+          if (r.erro) {
+            console.error(`[luxx] FluxoAPI não listou conversas: ${r.erro}`);
+            return pagina === 1 ? null : todos;
+          }
+
+          for (const c of r.conversas) {
+            todos.push({
+              telefone: c.phone.replace(/\D/g, ""),
+              nome: c.contact_name ?? undefined,
+              naoLidas: c.unread ?? 0,
+              ultimaEm: c.last_message_at ? new Date(c.last_message_at) : undefined,
+              arquivado: c.status === "closed",
+              idExterno: c.id,
+              janelaAte: c.window_expires_at ? new Date(c.window_expires_at) : null,
+            });
+          }
+
+          if (!r.proximo) break;
+          cursor = r.proximo;
         }
-        return r.conversas.map((c) => ({
-          telefone: c.phone.replace(/\D/g, ""),
-          nome: c.contact_name ?? undefined,
-          naoLidas: c.unread ?? 0,
-          ultimaEm: c.last_message_at ? new Date(c.last_message_at) : undefined,
-          arquivado: c.status === "closed",
-          idExterno: c.id,
-          janelaAte: c.window_expires_at ? new Date(c.window_expires_at) : null,
-        }));
+        return todos;
       },
       async historico(id) {
         const r = await fluxo.historico(id, 200);
@@ -97,7 +125,7 @@ function escolherProvedor(): Provedor | null {
     return {
       nome: "Z-API",
       async chats() {
-        const chats = await zapi.listarChats(1, 100);
+        const chats = await zapi.listarTodosChats();
         if (!chats) return null;
         return chats.map((c) => ({
           telefone: c.telefone,
@@ -168,6 +196,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
       ? escolherParaHistorico(chats).map((c) => c.idExterno).filter(Boolean)
       : [],
   );
+  let leadsAbertos = 0;
 
   for (const chat of chats) {
     // 1) cliente pelo telefone, que é único por loja
@@ -208,7 +237,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
 
     if (conversa) { jaExistiam++; continue; }
 
-    const { data: nova, error } = await c.from("conversations").insert({
+    const { data: criada, error } = await c.from("conversations").insert({
       store_id: STORE_ID,
       customer_id: customerId,
       canal: "whatsapp",
@@ -224,11 +253,24 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
       ultima_interacao_cliente: chat.ultimaEm?.toISOString() ?? null,
     }).select("id").single();
 
-    if (error || !nova) {
+    if (error || !criada) {
       console.error(`[luxx] conversa de ${chat.telefone} não importou: ${error?.message}`);
       continue;
     }
     conversasNovas++;
+
+    // conversa viva entra no kanban como atendimento aberto; a de meses
+    // atrás não — senão o funil nasceria com centenas de cards parados
+    if (!chat.arquivado && ativaRecentemente(chat)) {
+      const { error: erroLead } = await c.rpc("abrir_atendimento", {
+        p_conversation_id: criada.id, p_origem: "Importado do WhatsApp",
+      });
+      if (erroLead) {
+        console.error(`[luxx] atendimento de ${chat.telefone} não abriu: ${erroLead.message}`);
+      } else {
+        leadsAbertos++;
+      }
+    }
 
     /* ---- o conteúdo, quando o provedor tem ---- */
 
@@ -241,7 +283,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
 
     const { error: erroMsg } = await c.from("messages").insert(
       mensagens.map((m) => ({
-        conversation_id: nova.id,
+        conversation_id: criada.id,
         store_id: STORE_ID,
         sender_type: m.autor,
         external_message_id: m.idExterno || null,
@@ -267,7 +309,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
       await c.from("conversations").update({
         ultima_mensagem: ultima.texto.slice(0, 500),
         ultima_mensagem_em: ultima.em.toISOString(),
-      }).eq("id", nova.id);
+      }).eq("id", criada.id);
     }
   }
 
@@ -276,6 +318,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
   revalidatePath("/chats");
   revalidatePath("/clientes");
   revalidatePath("/painel-atendimento");
+  revalidatePath("/kanban");
 
   return {
     ok: true,
@@ -285,6 +328,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
     ja_existiam: jaExistiam,
     com_historico: comHistorico,
     mensagens_importadas: mensagensImportadas,
+    leads_abertos: leadsAbertos,
   };
 }
 

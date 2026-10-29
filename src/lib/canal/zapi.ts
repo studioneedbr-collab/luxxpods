@@ -1,7 +1,18 @@
+import { segredoConfere } from "../seguranca/segredo";
 import type {
   AtualizacaoStatus, Canal, EventoCanal, MensagemEntrada, MensagemSaida,
   ResultadoEnvio,
 } from "./tipos";
+
+/**
+ * A Z-API manda o horário ora em segundos, ora em milissegundos. Tratado
+ * como milissegundos, um valor em segundos vira janeiro de 1970.
+ */
+function emData(bruto: unknown): Date | null {
+  const n = Number(bruto);
+  if (!bruto || !Number.isFinite(n) || n <= 0) return null;
+  return new Date(n < 1e12 ? n * 1000 : n);
+}
 
 /**
  * Z-API — provedor não oficial, sobre o WhatsApp comum.
@@ -106,8 +117,12 @@ export class CanalZApi implements Canal {
     const c = corpo as Record<string, unknown>;
     if (!c) return null;
 
-    // a Z-API manda a mensagem do próprio número de volta; ignoramos
-    if (c.fromMe === true) return null;
+    // status vem em corpo próprio, com os ids numa lista — antes era lido de
+    // `messageId`, que esse corpo não tem, e nenhum tique mudava na tela
+    if (c.type === "MessageStatusCallback") return this.lerStatus(c);
+
+    // o que o próprio sistema mandou pela API já está gravado na conversa
+    if (c.fromMe === true && c.fromApi === true) return null;
 
     // grupo e canal de transmissão não são atendimento: o número da loja é
     // adicionado em grupo o tempo todo, e cada mensagem criaria um "cliente"
@@ -119,38 +134,48 @@ export class CanalZApi implements Canal {
     // status alheio respondido não é conversa
     if (c.isStatusReply === true) return null;
 
-    const mensagens: MensagemEntrada[] = [];
-    const statusAtualizados: AtualizacaoStatus[] = [];
-
     const conteudo = this.lerConteudo(c);
+    if (!conteudo) return null;
 
-    if (conteudo) {
-      mensagens.push({
-        idExterno: String(c.messageId ?? c.id ?? ""),
-        de: String(c.phone ?? ""),
-        nome: (c.senderName ?? c.chatName) as string | undefined,
-        ...conteudo,
-        recebidaEm: new Date(Number(c.momment ?? Date.now())),
-      });
-    }
+    const deMim = c.fromMe === true;
 
-    if (c.type === "MessageStatusCallback" || (c.status && !conteudo)) {
-      const bruto = String(c.status ?? "").toUpperCase();
-      statusAtualizados.push({
-        idExterno: String(c.messageId ?? c.id ?? ""),
-        status: bruto === "READ" ? "lida"
-          : bruto === "RECEIVED" || bruto === "DELIVERED" ? "entregue"
-          : bruto === "ERROR" || bruto === "FAILED" ? "erro" : "enviada",
-        em: new Date(Number(c.momment ?? Date.now())),
-      });
-    }
-
-    if (mensagens.length === 0 && statusAtualizados.length === 0) return null;
+    const mensagem: MensagemEntrada = {
+      idExterno: String(c.messageId ?? c.id ?? ""),
+      de: String(c.phone ?? ""),
+      // em mensagem nossa o senderName é o da loja, não o do cliente
+      nome: (deMim ? c.chatName : c.senderName ?? c.chatName) as string | undefined,
+      ...conteudo,
+      recebidaEm: emData(c.momment) ?? new Date(),
+      ...(deMim ? { enviadaPorMim: true } : {}),
+    };
 
     return {
       id: String(c.messageId ?? c.id ?? `zapi-${Date.now()}`),
-      mensagens,
-      statusAtualizados,
+      mensagens: [mensagem],
+      statusAtualizados: [],
+    };
+  }
+
+  /** READ_BY_ME é a loja lendo a mensagem do cliente — não muda tique nenhum. */
+  private lerStatus(c: Record<string, unknown>): EventoCanal | null {
+    const bruto = String(c.status ?? "").toUpperCase();
+    if (bruto === "READ_BY_ME") return null;
+
+    const status: AtualizacaoStatus["status"] =
+      bruto === "READ" || bruto === "PLAYED" ? "lida"
+        : bruto === "RECEIVED" || bruto === "DELIVERED" ? "entregue"
+        : bruto === "ERROR" || bruto === "FAILED" ? "erro"
+        : "enviada";
+
+    const ids = Array.isArray(c.ids) ? c.ids.map(String)
+      : c.messageId ? [String(c.messageId)] : [];
+    if (ids.length === 0) return null;
+
+    const em = emData(c.momment) ?? new Date();
+    return {
+      id: `zapi-status-${ids[0]}-${bruto}`,
+      mensagens: [],
+      statusAtualizados: ids.map((idExterno) => ({ idExterno, status, em })),
     };
   }
 
@@ -289,9 +314,7 @@ export class CanalZApi implements Canal {
           telefone: String(x.phone ?? "").replace(/\D/g, ""),
           nome: (x.name as string | null) || null,
           naoLidas: Number(x.unread ?? 0),
-          ultimaEm: x.lastMessageTime
-            ? new Date(Number(x.lastMessageTime))
-            : null,
+          ultimaEm: emData(x.lastMessageTime),
           arquivado: x.archived === true,
         }))
         .filter((x) => x.telefone.length >= 10);
@@ -301,10 +324,33 @@ export class CanalZApi implements Canal {
     }
   }
 
-  /** A Z-API usa um token fixo no header, não assinatura por corpo. */
-  validarAssinatura(_corpo: string, cabecalhos: Headers): boolean {
-    const esperado = process.env.ZAPI_WEBHOOK_SECRET;
-    if (!esperado) return true;
-    return cabecalhos.get("client-token") === esperado;
+  /**
+   * Todas as páginas, não só a primeira — antes a importação parava nos 100
+   * chats mais recentes e o resto nunca aparecia no painel.
+   */
+  async listarTodosChats(limitePaginas = 30) {
+    const todos: NonNullable<Awaited<ReturnType<CanalZApi["listarChats"]>>> = [];
+    const vistos = new Set<string>();
+
+    for (let pagina = 1; pagina <= limitePaginas; pagina++) {
+      const lote = await this.listarChats(pagina, 100);
+      if (!lote) return pagina === 1 ? null : todos;
+
+      // a Z-API repete a última página em vez de devolver vazio em algumas
+      // versões; sem conferir o repetido o laço iria até o limite à toa
+      const novos = lote.filter((x) => !vistos.has(x.telefone));
+      novos.forEach((x) => { vistos.add(x.telefone); todos.push(x); });
+      if (novos.length === 0) break;
+    }
+    return todos;
+  }
+
+  /**
+   * A Z-API não assina nem manda token no webhook: o segredo vai na própria
+   * URL cadastrada (`?token=`), e a rota repassa o que veio ali.
+   */
+  validarAssinatura(_corpo: string, req: Request): boolean {
+    const token = new URL(req.url).searchParams.get("token");
+    return segredoConfere(process.env.ZAPI_WEBHOOK_SECRET, token);
   }
 }

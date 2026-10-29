@@ -38,6 +38,7 @@ export function ImportarWhatsapp() {
       r.mensagens_importadas
         ? `${r.mensagens_importadas} mensagem(ns) em ${r.com_historico} conversa(s)`
         : null,
+      r.leads_abertos ? `${r.leads_abertos} no kanban` : null,
       r.ja_existiam ? `${r.ja_existiam} já existia(m)` : null,
     ].filter(Boolean);
 
@@ -58,7 +59,8 @@ export function ImportarWhatsapp() {
 
       <p className="text-[11px] leading-relaxed text-ink-500">
         Traz os contatos e as conversas que já existem no número conectado,
-        com o contador de não lidas.{" "}
+        com o contador de não lidas, e abre no kanban as que tiveram conversa
+        nos últimos 30 dias.{" "}
         {comHistorico === false ? (
           <>
             <strong className="text-ink-300">

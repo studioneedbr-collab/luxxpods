@@ -4,7 +4,7 @@ import { GraficoBarras } from "@/components/dashboard/charts";
 import { Badge, Panel, PanelHeader, Table, Td, Th, Tr, Vazio } from "@/components/ui";
 import { resolverPeriodo } from "@/lib/periodo";
 import { brl, num } from "@/lib/utils";
-import { getPedido, getPedidos } from "@/lib/data";
+import { getItensDosPedidos, getPedidos } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -21,19 +21,17 @@ export default async function RelatorioVendasPage({
            p.status_pedido !== "cancelado",
   );
 
-  // agrega itens de todos os pedidos do período
-  const detalhes = await Promise.all(noPeriodo.slice(0, 120).map((p) => getPedido(p.id)));
+  // agrega itens de todos os pedidos do período, numa consulta só
+  const itens = await getItensDosPedidos(noPeriodo.slice(0, 300).map((p) => p.id));
 
   const porProduto = new Map<string, { nome: string; qtd: number; receita: number; lucro: number }>();
-  detalhes.forEach((p) => {
-    p?.itens?.forEach((i) => {
-      const chave = `${i.produto_nome} · ${i.sabor_nome}`;
-      const atual = porProduto.get(chave) ?? { nome: chave, qtd: 0, receita: 0, lucro: 0 };
-      atual.qtd += i.quantidade;
-      atual.receita += i.subtotal;
-      atual.lucro += i.subtotal - i.custo_unitario * i.quantidade;
-      porProduto.set(chave, atual);
-    });
+  itens.forEach((i) => {
+    const chave = `${i.produto_nome} · ${i.sabor_nome}`;
+    const atual = porProduto.get(chave) ?? { nome: chave, qtd: 0, receita: 0, lucro: 0 };
+    atual.qtd += i.quantidade;
+    atual.receita += i.subtotal;
+    atual.lucro += i.subtotal - i.custo_unitario * i.quantidade;
+    porProduto.set(chave, atual);
   });
 
   const ranking = [...porProduto.values()].sort((a, b) => b.receita - a.receita);

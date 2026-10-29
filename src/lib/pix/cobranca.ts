@@ -1,6 +1,7 @@
 import "server-only";
 import QRCode from "qrcode";
 import { getSupabaseServer } from "../supabase/server";
+import { clienteDoSistema } from "../supabase/sistema";
 import { STORE_ID, supabaseConfigurado } from "../supabase/config";
 import { gerarBrCode, tipoDaChave } from "./brcode";
 import { demo } from "../demo";
@@ -28,6 +29,21 @@ export interface Cobranca {
   identificador: string;
 }
 
+/**
+ * Quem pede a cobrança decide o cliente do banco.
+ *
+ * O painel tem sessão e usa a dela. O bot roda dentro do webhook, sem
+ * ninguém logado: com o cliente de sessão o banco negava o pedido e a
+ * configuração, a cobrança do gateway falhava e o PIX estático saía sem
+ * chave — o cliente recebia "já te passo a chave" e nada mais.
+ */
+type Origem = "painel" | "sistema";
+
+async function clienteDa(origem: Origem) {
+  if (!supabaseConfigurado) return null;
+  return origem === "sistema" ? await clienteDoSistema() : await getSupabaseServer();
+}
+
 interface ConfigPix {
   chave: string;
   nome: string;
@@ -35,8 +51,8 @@ interface ConfigPix {
   gateway: string | null;
 }
 
-async function lerConfig(): Promise<ConfigPix | null> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+async function lerConfig(origem: Origem = "painel"): Promise<ConfigPix | null> {
+  const c = await clienteDa(origem);
 
   if (!c) {
     // na demonstração, uma chave de exemplo para o fluxo ficar navegável
@@ -70,16 +86,17 @@ async function lerConfig(): Promise<ConfigPix | null> {
 
 export async function gerarCobranca(
   pedidoId: string,
+  origem: Origem = "painel",
 ): Promise<{ ok: boolean; cobranca?: Cobranca; erro?: string }> {
   // com gateway configurado, a cobrança sai dele — traz confirmação automática
   const { meioAtivo } = await import("../pagamento");
   const meio = meioAtivo();
 
   if (meio.confirmacaoAutomatica) {
-    return gerarPeloGateway(pedidoId, meio);
+    return gerarPeloGateway(pedidoId, meio, origem);
   }
 
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDa(origem);
 
   const pedido = c
     ? (await c.from("orders")
@@ -95,7 +112,7 @@ export async function gerarCobranca(
     return { ok: false, erro: "Este pedido já está pago." };
   }
 
-  const config = await lerConfig();
+  const config = await lerConfig(origem);
   if (!config) {
     return {
       ok: false,
@@ -158,8 +175,9 @@ export async function gerarCobranca(
 async function gerarPeloGateway(
   pedidoId: string,
   meio: import("../pagamento").MeioPagamento,
+  origem: Origem,
 ): Promise<{ ok: boolean; cobranca?: Cobranca; erro?: string }> {
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = await clienteDa(origem);
 
   const pedido = c
     ? (await c.from("orders")
@@ -200,7 +218,7 @@ async function gerarPeloGateway(
 
   if (!r.ok) return { ok: false, erro: r.erro };
 
-  const config = await lerConfig();
+  const config = await lerConfig(origem);
 
   if (c) {
     await c.from("payments").upsert({

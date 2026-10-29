@@ -5,15 +5,18 @@ import Link from "next/link";
 import {
   Bot, Check, CheckCheck, AtSign, MessageCircle, Phone, Search, Send,
   ShoppingBag, User, UserCheck, Sparkles, Clock, ChevronLeft, Loader2, Package,
+  AlertCircle, Download, FileText, MapPin,
 } from "lucide-react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import {
   assumirConversa, devolverParaBot, enviarCatalogo, enviarMensagem, marcarComoLida,
 } from "@/lib/actions";
+import { importarConversasDoWhatsapp } from "@/lib/actions-importar";
+import { useToast } from "@/components/ui/toast";
 import { Badge, Button, Vazio } from "@/components/ui";
 import { CANAL, ESTADO_CONVERSA } from "@/lib/labels";
 import { brl, cn, hora, iniciais, telefone, tempoRelativo } from "@/lib/utils";
-import type { Conversa, Mensagem } from "@/lib/types";
+import { gostosDoCliente, type Conversa, type Mensagem } from "@/lib/types";
 
 type Filtro = "todas" | "nao_lidas" | "bot" | "humano" | "whatsapp" | "instagram";
 
@@ -28,10 +31,13 @@ export function Inbox({
   conversas: conversasIniciais,
   mensagensIniciais,
   conversaInicial,
+  podeImportar = false,
 }: {
   conversas: Conversa[];
   mensagensIniciais: Mensagem[];
   conversaInicial: string | null;
+  /** a Z-API está configurada — só ela entrega a lista de chats */
+  podeImportar?: boolean;
 }) {
   const [conversas, setConversas] = useState(conversasIniciais);
   const [ativaId, setAtivaId] = useState<string | null>(conversaInicial);
@@ -42,7 +48,9 @@ export function Inbox({
   const [carregandoMensagens, setCarregandoMensagens] = useState(false);
   const [enviando, iniciarEnvio] = useTransition();
   const [mobileAberto, setMobileAberto] = useState(Boolean(conversaInicial));
+  const [importando, setImportando] = useState(false);
   const fim = useRef<HTMLDivElement>(null);
+  const toast = useToast();
 
   // sincroniza a lista quando o servidor entrega dados novos (padrão oficial
   // de ajuste de estado derivado de props, sem efeito)
@@ -70,6 +78,12 @@ export function Inbox({
         (payload: { new: Mensagem }) => setMensagens((m) =>
           m.some((x) => x.id === payload.new.id) ? m : [...m, payload.new]),
       )
+      // o tique muda quando o provedor avisa entregue, lida ou erro
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages", filter: `conversation_id=eq.${ativaId}` },
+        (payload: { new: Mensagem }) => setMensagens((m) =>
+          m.map((x) => (x.id === payload.new.id ? { ...x, ...payload.new } : x))),
+      )
       .subscribe();
     return () => { supabase.removeChannel(canal); };
   }, [ativaId]);
@@ -78,14 +92,40 @@ export function Inbox({
   useEffect(() => {
     const supabase = getSupabaseBrowser();
     if (!supabase) return;
-    const canal = supabase
-      .channel("inbox-lista")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
+    // Antes cada mudança em QUALQUER conversa recarregava a lista inteira
+    // (até 1000, com o cliente junto) — umas 4 vezes por mensagem recebida.
+    // Agora a linha que mudou entra direto; só conversa nova, que precisa do
+    // cliente, busca a lista, e no máximo uma vez a cada 2 segundos.
+    let espera: ReturnType<typeof setTimeout> | null = null;
+    const recarregar = () => {
+      if (espera) return;
+      espera = setTimeout(() => {
+        espera = null;
         fetch("/api/conversas").then((r) => r.json()).then((d) => setConversas(d.conversas ?? []))
           .catch(() => {});
-      })
+      }, 2_000);
+    };
+
+    const canal = supabase
+      .channel("inbox-lista")
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" },
+        (payload: { eventType: string; new: Partial<Conversa> & { id?: string } }) => {
+          const nova = payload.new;
+          if (payload.eventType !== "UPDATE" || !nova?.id) { recarregar(); return; }
+
+          setConversas((lista) => {
+            if (!lista.some((c) => c.id === nova.id)) { recarregar(); return lista; }
+            return lista
+              .map((c) => (c.id === nova.id ? { ...c, ...nova, cliente: c.cliente } : c))
+              .sort((a, b) =>
+                +new Date(b.ultima_mensagem_em ?? 0) - +new Date(a.ultima_mensagem_em ?? 0));
+          });
+        })
       .subscribe();
-    return () => { supabase.removeChannel(canal); };
+    return () => {
+      if (espera) clearTimeout(espera);
+      supabase.removeChannel(canal);
+    };
   }, []);
 
   useEffect(() => {
@@ -136,6 +176,7 @@ export function Inbox({
     e.preventDefault();
     const conteudo = texto.trim();
     if (!conteudo || !ativaId) return;
+    const comBot = ativa?.bot_ativo ?? false;
     setTexto("");
     iniciarEnvio(async () => {
       addOtimista({
@@ -143,10 +184,41 @@ export function Inbox({
         tipo: "texto", conteudo, arquivo_url: null, status: "pendente",
         created_at: new Date().toISOString(),
       });
-      await enviarMensagem(ativaId, conteudo);
-      const r = await fetch(`/api/mensagens?c=${ativaId}`).then((x) => x.json()).catch(() => null);
-      if (r?.mensagens) setMensagens(r.mensagens);
+
+      // escrever é assumir: antes o campo ficava travado até apertar
+      // "Assumir", e o bot responderia por cima do atendente
+      if (comBot) {
+        setConversas((l) => l.map((c) => (c.id === ativaId ? { ...c, bot_ativo: false } : c)));
+        await assumirConversa(ativaId);
+      }
+
+      const r = await enviarMensagem(ativaId, conteudo);
+      if (!r.ok) {
+        toast.erro("Mensagem não enviada", r.erro);
+        setTexto(conteudo);
+      }
+      const lista = await fetch(`/api/mensagens?c=${ativaId}`).then((x) => x.json()).catch(() => null);
+      if (lista?.mensagens) setMensagens(lista.mensagens);
     });
+  }
+
+  async function importar() {
+    setImportando(true);
+    const r = await importarConversasDoWhatsapp();
+    setImportando(false);
+    if (!r.ok) { toast.erro("Não consegui trazer as conversas", r.erro); return; }
+
+    const partes = [
+      r.conversas_novas ? `${r.conversas_novas} conversa(s) nova(s)` : null,
+      r.leads_abertos ? `${r.leads_abertos} no kanban` : null,
+      r.ja_existiam ? `${r.ja_existiam} já estavam aqui` : null,
+    ].filter(Boolean).join(" · ");
+
+    if (!r.conversas_novas) toast.aviso("Nada novo no WhatsApp", partes || undefined);
+    else toast.ok("Conversas trazidas do WhatsApp", partes);
+
+    const d = await fetch("/api/conversas").then((x) => x.json()).catch(() => null);
+    if (d?.conversas) setConversas(d.conversas);
   }
 
   function alternarBot() {
@@ -170,14 +242,31 @@ export function Inbox({
         mobileAberto && "hidden lg:flex",
       )}>
         <div className="shrink-0 space-y-2.5 border-b border-[var(--linha)] p-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar conversa, nome ou telefone"
-              className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[11px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
-            />
+          <div className="flex items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar conversa, nome ou telefone"
+                className="h-8 w-full rounded-lg bg-ink-850 pl-8 pr-3 text-[11px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+              />
+            </div>
+            {podeImportar && (
+              <Button
+                tamanho="icone"
+                variante="suave"
+                onClick={importar}
+                disabled={importando}
+                aria-label="Trazer conversas do WhatsApp"
+                title="Trazer todas as conversas do WhatsApp conectado (o histórico antigo fica no celular)"
+                className="size-8 shrink-0"
+              >
+                {importando
+                  ? <Loader2 className="size-3.5 animate-spin" />
+                  : <Download className="size-3.5" />}
+              </Button>
+            )}
           </div>
           <div className="no-scrollbar flex gap-1 overflow-x-auto">
             {FILTROS.map((f) => (
@@ -361,8 +450,10 @@ export function Inbox({
               <input
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
-                placeholder={ativa.bot_ativo ? "Assuma a conversa para responder…" : "Escreva sua mensagem…"}
-                disabled={ativa.bot_ativo || enviando}
+                placeholder={ativa.bot_ativo
+                  ? "Escreva para assumir a conversa (o bot pausa)…"
+                  : "Escreva sua mensagem…"}
+                disabled={enviando}
                 className="h-10 flex-1 rounded-xl bg-ink-850 px-3.5 text-[13px] text-ink-100 ring-1 ring-inset ring-[var(--linha)] placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:opacity-50"
               />
               <Button
@@ -371,7 +462,7 @@ export function Inbox({
                 tamanho="icone"
                 aria-label="Enviar mensagem"
                 title="Enviar mensagem"
-                disabled={ativa.bot_ativo || enviando || !texto.trim()}
+                disabled={enviando || !texto.trim()}
                 className="rounded-xl"
               >
                 {enviando
@@ -455,22 +546,80 @@ function Bolha({ mensagem, anterior }: { mensagem: Mensagem; anterior?: Mensagem
               <Sparkles className="size-2.5" /> Bot
             </p>
           )}
-          <p className="whitespace-pre-wrap break-words">{mensagem.conteudo}</p>
+          <Midia mensagem={mensagem} />
+          {mensagem.conteudo && !legendaDeMidia(mensagem) && (
+            <p className="whitespace-pre-wrap break-words">{mensagem.conteudo}</p>
+          )}
           <p className={cn(
             "mt-0.5 flex items-center justify-end gap-1 text-[10px] tabular-nums",
             meu ? "text-white/55" : "text-ink-500",
           )}>
             {hora(mensagem.created_at)}
-            {meu && (mensagem.status === "lida"
-              ? <CheckCheck className="size-3" />
-              : mensagem.status === "pendente"
-                ? <Clock className="size-2.5" />
-                : <Check className="size-3" />)}
+            {meu && <Tique status={mensagem.status} />}
           </p>
         </div>
       </div>
     </>
   );
+}
+
+/** Dois tiques azuis é lida; o vermelho é o que não saiu e precisa de atenção. */
+function Tique({ status }: { status: string }) {
+  if (status === "erro") {
+    return (
+      <span className="flex items-center gap-0.5 rounded bg-bad-500 px-1 font-semibold text-white" title="Não foi entregue">
+        <AlertCircle className="size-3" /> falhou
+      </span>
+    );
+  }
+  if (status === "lida") return <CheckCheck className="size-3 text-sky-300" />;
+  if (status === "entregue") return <CheckCheck className="size-3" />;
+  if (status === "pendente") return <Clock className="size-2.5" />;
+  return <Check className="size-3" />;
+}
+
+/** "[imagem]", "[áudio de voz 12s]"… é o que o adaptador escreve quando não há legenda. */
+function legendaDeMidia(m: Mensagem) {
+  return Boolean(m.arquivo_url && m.conteudo && /^\[[^\]]*\]$/.test(m.conteudo.trim()));
+}
+
+/**
+ * O arquivo dentro da bolha. Antes só o texto aparecia: o atendente via
+ * "[áudio de voz 12s]" e tinha de abrir o celular para ouvir.
+ */
+function Midia({ mensagem: m }: { mensagem: Mensagem }) {
+  // o endereço vem do webhook: só https, nada de javascript: nem data:
+  if (!m.arquivo_url || !/^https:\/\//i.test(m.arquivo_url)) return null;
+
+  switch (m.tipo) {
+    case "imagem":
+      return (
+        <a href={m.arquivo_url} target="_blank" rel="noreferrer" className="mb-1 block">
+          {/* eslint-disable-next-line @next/next/no-img-element -- URL do provedor, domínio variável */}
+          <img src={m.arquivo_url} alt={m.conteudo ?? "imagem"} loading="lazy"
+            className="max-h-64 rounded-lg object-cover" />
+        </a>
+      );
+    case "audio":
+      return <audio controls preload="none" src={m.arquivo_url} className="mb-1 h-9 max-w-full" />;
+    case "video":
+      return <video controls preload="none" src={m.arquivo_url} className="mb-1 max-h-64 rounded-lg" />;
+    case "localizacao":
+      return (
+        <a href={m.arquivo_url} target="_blank" rel="noreferrer"
+          className="mb-1 flex items-center gap-1.5 underline underline-offset-2">
+          <MapPin className="size-3.5 shrink-0" /> Abrir no mapa
+        </a>
+      );
+    default:
+      return (
+        <a href={m.arquivo_url} target="_blank" rel="noreferrer"
+          className="mb-1 flex items-center gap-1.5 underline underline-offset-2">
+          <FileText className="size-3.5 shrink-0" />
+          {m.conteudo?.replace(/^\[documento: (.*)\]$/, "$1") || "Abrir arquivo"}
+        </a>
+      );
+  }
 }
 
 function Separador({ data }: { data: string }) {
@@ -511,10 +660,19 @@ function Ficha({ conversa }: { conversa: Conversa }) {
       <div className="space-y-2 border-t border-[var(--linha)] pt-3 text-[11px]">
         <Linha rotulo="Canal" valor={CANAL[conversa.canal].rotulo} />
         <Linha rotulo="Origem" valor={c.origem ?? "—"} />
-        <Linha rotulo="Primeiro contato" valor={new Date(c.created_at).toLocaleDateString("pt-BR")} />
-        <Linha rotulo="Última compra" valor={c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString("pt-BR") : "nunca"} />
+        <Linha rotulo="Primeiro contato" valor={new Date(c.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} />
+        <Linha rotulo="Última compra" valor={c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "nunca"} />
         <Linha rotulo="Etapa do funil" valor={ESTADO_CONVERSA[conversa.estado].rotulo} />
       </div>
+
+      {gostosDoCliente(c).length > 0 && (
+        <div className="border-t border-[var(--linha)] pt-3">
+          <p className="mb-2 text-[11px] font-semibold text-ink-300">Gosta de</p>
+          <div className="flex flex-wrap gap-1">
+            {gostosDoCliente(c).map((g) => <Badge key={g} tom="neutro">{g}</Badge>)}
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-[var(--linha)] pt-3">
         <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-ink-300">

@@ -40,16 +40,19 @@ export function tempoRelativo(data?: string | Date | null) {
   if (s < 3600) return `${Math.floor(s / 60)}min`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   if (s < 604800) return `${Math.floor(s / 86400)}d`;
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" });
 }
 
+// com o fuso explícito: renderizado no servidor (UTC), a hora saía 3h adiantada
 export const hora = (data?: string | Date | null) =>
-  data ? new Date(data).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—";
+  data ? new Date(data).toLocaleTimeString("pt-BR", {
+    hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo",
+  }) : "—";
 
 export const dataHora = (data?: string | Date | null) =>
   data
     ? new Date(data).toLocaleString("pt-BR", {
         day: "2-digit", month: "2-digit", year: "2-digit",
-        hour: "2-digit", minute: "2-digit",
+        hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo",
       })
     : "—";

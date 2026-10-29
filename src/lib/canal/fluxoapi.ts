@@ -263,7 +263,7 @@ export class CanalFluxoApi implements Canal {
 
   /* ------------------------------------------------------------ WEBHOOK -- */
 
-  validarAssinatura(corpoCru: string, cabecalhos: Headers): boolean {
+  validarAssinatura(corpoCru: string, req: Request): boolean {
     const segredo = process.env.FLUXOAPI_WEBHOOK_SECRET;
 
     if (!segredo) {
@@ -276,8 +276,8 @@ export class CanalFluxoApi implements Canal {
     const v = conferirWebhook({
       segredo,
       corpoCru,
-      assinatura: cabecalhos.get("x-fluxo-signature"),
-      timestamp: cabecalhos.get("x-fluxo-timestamp"),
+      assinatura: req.headers.get("x-fluxo-signature"),
+      timestamp: req.headers.get("x-fluxo-timestamp"),
     });
 
     if (!v.valida) console.warn(`[luxx] webhook FluxoAPI recusado: ${v.motivo}`);
@@ -299,20 +299,28 @@ export class CanalFluxoApi implements Canal {
     /**
      * O dono respondeu pelo aplicativo do celular.
      *
-     * Não é mensagem de cliente — vai como fala da loja, e quem recebe
-     * precisa desligar o bot naquela conversa. Sem isso o bot responderia
-     * por cima de uma pessoa que já está atendendo, e o cliente leria duas
+     * Entra como mensagem normal com `enviadaPorMim`: `de` continua sendo o
+     * telefone do CLIENTE, porque é a conversa onde ela cai. Quem recebe
+     * grava como fala da loja e desliga o bot ali — sem isso o bot
+     * responderia por cima de quem já está atendendo, e o cliente leria duas
      * respostas diferentes para a mesma pergunta.
      */
     if (c.type === "message.sent_from_phone") {
+      const para = so_digitos(c.data.to ?? "");
+      const idExterno = c.data.message_id;
+      if (!para || !idExterno) return null;
+
       const texto = (c.data.text ?? "").trim();
+
       return {
         ...vazio,
-        respostasDoDono: [{
-          idExterno: c.data.message_id ?? id,
-          para: so_digitos(c.data.to ?? ""),
+        mensagens: [{
+          idExterno,
+          de: para,
+          tipo: traduzirTipo(c.data.type),
           texto: texto || descreverMidia(c.data.type, c.data.media),
-          em: new Date(),
+          recebidaEm: new Date(),
+          enviadaPorMim: true,
         }],
       };
     }
