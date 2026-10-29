@@ -2,6 +2,7 @@ import "server-only";
 import { MeioAsaas } from "./pagamento/asaas";
 import { diagnosticar as diagnosticarDeepseek } from "./ia/deepseek";
 import { CanalFluxoApi } from "./canal/fluxoapi";
+import { avaliarInstancia } from "./diagnostico-fluxoapi";
 
 /**
  * O estado real de cada integração.
@@ -102,25 +103,10 @@ export async function diagnosticarWhatsapp(): Promise<Situacao> {
       return { tom: "bad", rotulo: "FluxoAPI com erro", detalhe: d.erro };
     }
 
-    const avisos: string[] = [];
-    if (!process.env.FLUXOAPI_WEBHOOK_SECRET) {
-      avisos.push("sem FLUXOAPI_WEBHOOK_SECRET o webhook aceita qualquer corpo");
-    }
-    if (fluxo.ehTeste()) {
-      avisos.push("a chave é fxk_test_: nada sai de verdade");
-    }
-    if (d.estado && !/connect|ativ|online|ok/i.test(d.estado)) {
-      avisos.push(`a instância está "${d.estado}"`);
-    }
-
-    return {
-      tom: avisos.length > 0 ? "warn" : "ok",
-      rotulo: `no ar · FluxoAPI${d.numero ? ` · ${d.numero}` : ""}`,
-      detalhe: avisos.length > 0
-        ? `${avisos.join("; ")}.`
-        : "Cloud API oficial da Meta. O número segue funcionando no celular do dono, "
-          + "e quando ele responde por lá o bot se cala naquela conversa.",
-    };
+    return avaliarInstancia(d, {
+      semSegredoDeWebhook: !process.env.FLUXOAPI_WEBHOOK_SECRET,
+      chaveDeTeste: fluxo.ehTeste(),
+    });
   }
 
   const semFluxo = faltando(["FLUXOAPI_KEY", "FLUXOAPI_SECRET", "FLUXOAPI_INSTANCE_ID"]);

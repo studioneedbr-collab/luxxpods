@@ -1,0 +1,106 @@
+import { describe, expect, it } from "vitest";
+import { CanalFluxoApi } from "./fluxoapi";
+
+/**
+ * O adaptador contra a FluxoAPI de verdade.
+ *
+ * Os outros testes provam que a assinatura casa com a documentação; só isto
+ * prova que casa com o SERVIDOR. É a diferença entre ler certo e estar
+ * certo — e a assinatura é o tipo de coisa que erra por um `\n` e devolve
+ * 401 em tudo, sem dizer onde.
+ *
+ * Fica fora do `npm test` de propósito. Para rodar:
+ *   FLUXO_AO_VIVO=1 npx vitest run src/lib/canal/fluxoapi-aovivo --testTimeout=60000
+ *
+ * Só lê. Nenhum teste aqui manda mensagem: o número é de uma loja atendendo,
+ * e um "teste" chegando para um cliente de verdade é pior que nenhum teste.
+ */
+
+const AO_VIVO = process.env.FLUXO_AO_VIVO === "1";
+const canal = new CanalFluxoApi();
+
+describe.skipIf(!AO_VIVO)("FluxoAPI ao vivo", () => {
+  it("as credenciais estão no ambiente", () => {
+    expect(canal.configurado(), "faltam FLUXOAPI_KEY, _SECRET ou _INSTANCE_ID")
+      .toBe(true);
+  });
+
+  /**
+   * A assinatura de pedido SEM query string, no caminho mais simples. Se
+   * esta falhar com 401, o erro está na string de seis linhas.
+   */
+  it("a instância responde: a assinatura do pedido confere", async () => {
+    const d = await canal.diagnosticar();
+
+    process.stderr.write(
+      `\n  instância: ${JSON.stringify(d)}\n`
+      + `  chave de teste? ${canal.ehTeste() ? "SIM — nada sai de verdade" : "não, é fxk_live_"}\n`);
+
+    expect(d.ok, d.erro).toBe(true);
+  }, 60_000);
+
+  /**
+   * O caso que o teste offline só conseguia provar por comparação: o caminho
+   * assinado inclui a query string. Se eu tivesse assinado sem ela, ESTA
+   * chamada voltaria 401 e a do diagnóstico acima passaria — o defeito
+   * apareceria só nas listagens, em produção.
+   */
+  it("listar conversas funciona: a query string entra na assinatura", async () => {
+    const r = await canal.listarConversas(undefined, 25);
+
+    process.stderr.write(
+      `\n  conversas: ${r.conversas.length}`
+      + `${r.proximo ? " (tem próxima página)" : ""}`
+      + `${r.erro ? ` — ERRO: ${r.erro}` : ""}\n`);
+
+    expect(r.erro, "a listagem recusou — suspeite da query string na assinatura")
+      .toBeUndefined();
+
+    for (const c of r.conversas.slice(0, 5)) {
+      process.stderr.write(
+        `    ${c.phone} ${c.contact_name ?? "(sem nome)"} · ${c.status}`
+        + ` · ${c.unread} não lida(s) · janela até ${c.window_expires_at ?? "—"}\n`);
+    }
+  }, 60_000);
+
+  /**
+   * O endpoint que a Z-API não tinha, e que me obrigou a escrever no botão
+   * de importar que o histórico não vinha.
+   */
+  it("traz o histórico de uma conversa, quando existe alguma", async () => {
+    const r = await canal.listarConversas(undefined, 5);
+    const primeira = r.conversas[0];
+
+    if (!primeira) {
+      process.stderr.write("\n  nenhuma conversa na instância — nada a buscar\n");
+      return;
+    }
+
+    const h = await canal.historico(primeira.id, 10);
+
+    process.stderr.write(
+      `\n  histórico de ${primeira.phone}: ${h.mensagens.length} mensagem(ns)`
+      + `${h.erro ? ` — ERRO: ${h.erro}` : ""}\n`);
+
+    for (const m of h.mensagens.slice(0, 5)) {
+      const quem = m.direction === "inbound"
+        ? "cliente"
+        : m.sent_from_phone ? "dono (celular)" : "sistema";
+      process.stderr.write(`    [${quem}] ${(m.text ?? "").slice(0, 70)}\n`);
+    }
+
+    expect(h.erro).toBeUndefined();
+  }, 60_000);
+
+  /**
+   * Nonce repetido dá 409. Duas chamadas seguidas provam que o nonce é novo
+   * a cada pedido — um nonce fixo passaria na primeira e quebraria em
+   * produção no segundo envio.
+   */
+  it("duas chamadas seguidas passam: o nonce não repete", async () => {
+    const a = await canal.diagnosticar();
+    const b = await canal.diagnosticar();
+    expect(a.ok && b.ok, `primeira: ${a.erro ?? "ok"} / segunda: ${b.erro ?? "ok"}`)
+      .toBe(true);
+  }, 60_000);
+});

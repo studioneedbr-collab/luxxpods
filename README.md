@@ -291,6 +291,28 @@ Na rota do webhook essas respostas são processadas **antes** das mensagens do
 cliente, porque o mesmo lote pode trazer as duas — na outra ordem o bot ainda
 estaria ligado quando a mensagem nova fosse processada.
 
+### O diagnóstico que quase mentiu
+
+A instância da loja respondeu `connected`, com número, nome verificado e
+limite de 250 conversas por dia — e `webhook_url: null`.
+
+Isso é o canal pela metade: o número conecta, **o envio funciona**, e nenhuma
+mensagem de cliente chega. Por isso `diagnostico-fluxoapi.ts` trata webhook
+ausente como **vermelho**, antes de qualquer outro aviso, e com prioridade
+sobre todos. Verde ali faria alguém conferir a tela, ler "no ar", e descobrir
+pelo cliente reclamando que ninguém respondeu.
+
+A mesma chamada de verdade pegou um defeito meu: a resposta vem embrulhada em
+`data`, a especificação não declara o corpo desse endpoint, e eu lia o nível
+de cima. Voltava `ok: true` com número vazio — então a tela diria "no ar" sem
+conseguir avisar que a instância caiu. O teste parte do JSON real que a loja
+devolveu, não de um exemplo inventado.
+
+O módulo também avisa o que vence ou degrada sozinho: `access_expires_at`
+(existe um webhook `instance.access_expiring` só por isso), a qualidade do
+número na Meta, e a troca de `coexistence` para `api_only` — que tiraria o
+WhatsApp do celular do dono, que é a razão de ter escolhido a FluxoAPI.
+
 ### Duas assinaturas, e não dá para trocá-las
 
 `fluxoapi-assinatura.ts` existe separado e com teste próprio porque a FluxoAPI

@@ -61,6 +61,35 @@ export interface ConversaFluxo {
   window_expires_at: string | null;
 }
 
+/** O corpo de `GET /instances/{id}`, por dentro do `data`. */
+interface InstanciaFluxo {
+  id?: string;
+  name?: string;
+  phone?: string | null;
+  verified_name?: string | null;
+  status?: string;
+  mode?: string;
+  quality?: string;
+  throughput_mps?: number;
+  messaging_limit_24h?: number;
+  access_expires_at?: string | null;
+  webhook_url?: string | null;
+}
+
+export interface DiagnosticoInstancia {
+  ok: boolean;
+  erro?: string;
+  numero?: string;
+  nomeVerificado?: string;
+  estado?: string;
+  modo?: string;
+  qualidade?: string;
+  /** null quando não há webhook cadastrado — nenhuma mensagem chega */
+  webhook?: string | null;
+  acessoExpiraEm?: Date | null;
+  limite24h?: number;
+}
+
 export interface MensagemFluxo {
   id: string;
   direction: "inbound" | "outbound";
@@ -197,14 +226,39 @@ export class CanalFluxoApi implements Canal {
     return { mensagens: d.data ?? [] };
   }
 
-  async diagnosticar(): Promise<{ ok: boolean; erro?: string; numero?: string; estado?: string }> {
+  /**
+   * O estado real da instância.
+   *
+   * A resposta vem embrulhada em `data` — a especificação não declara o
+   * corpo deste endpoint, e eu li o nível de cima: voltava `ok: true` com o
+   * número vazio, então a tela dizia "no ar" sem conseguir avisar que a
+   * instância estava desconectada. Foi a chamada de verdade que mostrou.
+   */
+  async diagnosticar(): Promise<DiagnosticoInstancia> {
     if (!this.configurado()) return { ok: false, erro: "sem credenciais" };
 
     const r = await this.chamar("GET", `/v1/instances/${this.instancia}`);
     if (!r.ok) return { ok: false, erro: r.falha.erro };
 
-    const d = r.dados as { phone?: string; status?: string; state?: string };
-    return { ok: true, numero: d.phone, estado: d.status ?? d.state };
+    const d = ((r.dados as { data?: InstanciaFluxo }).data ?? {}) as InstanciaFluxo;
+
+    return {
+      ok: true,
+      numero: d.phone ?? undefined,
+      nomeVerificado: d.verified_name ?? undefined,
+      estado: d.status,
+      /** `coexistence` é o que permite o dono responder pelo celular */
+      modo: d.mode,
+      qualidade: d.quality,
+      /**
+       * `null` aqui é o problema silencioso: sem webhook cadastrado o
+       * número conecta, o envio funciona, e NENHUMA mensagem de cliente
+       * chega. A tela precisa gritar isso, não dizer "no ar".
+       */
+      webhook: d.webhook_url ?? null,
+      acessoExpiraEm: d.access_expires_at ? new Date(d.access_expires_at) : null,
+      limite24h: d.messaging_limit_24h,
+    };
   }
 
   /* ------------------------------------------------------------ WEBHOOK -- */
