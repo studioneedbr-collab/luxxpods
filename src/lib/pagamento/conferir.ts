@@ -1,5 +1,6 @@
 import "server-only";
 import { getSupabaseServer } from "../supabase/server";
+import { clienteDoSistema } from "../supabase/sistema";
 import { supabaseConfigurado } from "../supabase/config";
 import { demo } from "../demo";
 import { meioAtivo } from "./index";
@@ -13,8 +14,19 @@ import { registrarPagamento } from "./recepcao";
  * pela mesma recepção do webhook, então a conferência de valor e a
  * idempotência continuam valendo — não é um atalho para confirmar pedido.
  */
+/**
+ * Quem chama diz de onde vem.
+ *
+ * O painel tem sessão; o bot roda dentro do webhook, sem ninguém logado. Com
+ * o cliente de sessão o RLS devolvia zero linha e a resposta era "pedido não
+ * encontrado" para um pedido que existe — mesmo defeito que já apareceu na
+ * cobrança do PIX, na fila e no cron.
+ */
+type Origem = "painel" | "sistema";
+
 export async function conferirPagamentoDoPedido(
   pedidoId: string,
+  origem: Origem = "painel",
 ): Promise<{ pago: boolean; motivo?: string }> {
   const meio = meioAtivo();
 
@@ -22,7 +34,9 @@ export async function conferirPagamentoDoPedido(
     return { pago: false, motivo: "Sem gateway, a baixa do PIX é manual." };
   }
 
-  const c = supabaseConfigurado ? await getSupabaseServer() : null;
+  const c = !supabaseConfigurado
+    ? null
+    : origem === "sistema" ? await clienteDoSistema() : await getSupabaseServer();
 
   const pedido = c
     ? (await c.from("orders")

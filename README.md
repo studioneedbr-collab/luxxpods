@@ -144,17 +144,18 @@ impressão, expiração de reserva), controle de ritmo de envio.
 Levantado por uma varredura com um auditor por área, em 2 de outubro de 2026.
 Ordenado por quanto custa, não por tamanho.
 
-### Esperando migração no banco
+### Migrações
 
-As duas estão escritas e revisadas; falta rodar.
+`0015` foi aplicada em 29/10/2026. As seguintes vieram de linhas de trabalho
+diferentes e precisam ser conferidas antes de confiar no sistema:
 
-- **`0015`** — reserva presa quando PIX é abandonado e cancelado (algumas
-  vezes e o sistema diz "esgotado" com produto na prateleira), o `ON CONFLICT`
-  com índice parcial que sobrevivia em `payments` (nenhum pagamento era
-  gravado), entrega paga em cartão ou transferência que não registrava o
-  dinheiro, e o lucro bruto que descontava o desconto duas vezes.
 - **`0016`** — a troca passa a mexer no estoque, com a peça de reposição
   baixando e a defeituosa não voltando à prateleira.
+- **`0017`** — `v_perfil_cliente`, as preferências do cliente.
+- **`0018`** — a auditoria de segurança e velocidade do banco.
+
+Rodar fora de ordem, ou pular uma, deixa o sistema num estado que o código
+não espera. `supabase/schema-completo.sql` é gerado e junta todas.
 
 ### Corrigido na auditoria de 28/10/2026 (migração `0018`)
 
@@ -179,6 +180,39 @@ As duas estão escritas e revisadas; falta rodar.
   avaliadas uma vez por consulta; `v_perfil_cliente` sem varrer a loja
   inteira; índices de fila e lead; a caixa de entrada não recarrega a lista
   a cada mensagem; jobs e eventos antigos são apagados de hora em hora.
+
+### Corrigido na varredura de 29/10/2026
+
+- **A mídia da FluxoAPI nunca apareceria.** O arquivo deles só sai por GET
+  assinado, e a bolha do chat põe a URL direto num `<img src>`: o navegador
+  levaria 401 e o atendente veria ícone quebrado — pior que nada, porque
+  parece defeito do sistema. Agora sai por `/api/midia/[id]`, que busca
+  assinado do lado do servidor, confere a sessão e a permissão de chat, e
+  repassa os bytes como stream (documento vai a 100 MB; carregar em memória
+  derruba a função).
+- **"Já paguei" não perguntava ao provedor.** `consultar_pagamento` só lia o
+  nosso banco. Com o webhook perdido — provedor fora do ar, deploy no meio,
+  rede — o cliente que PAGOU ouvia "ainda não caiu" e o pedido ficava parado
+  esperando alguém desconfiar. `conferirPagamentoDoPedido` existia escrita e
+  órfã; agora é chamada, e com o cliente de SISTEMA, porque o bot roda sem
+  sessão e o de sessão devolvia "pedido não encontrado".
+- **Webhook da FluxoAPI sem segredo aceitava qualquer corpo.** Em produção
+  agora recusa, como o da Meta já fazia.
+- **Conversas do cliente sem teto** na ficha: um contato antigo trazia a
+  lista inteira para a tela.
+
+### Conferido e sem problema
+
+- `src/proxy.ts` **não** é arquivo esquecido: no Next 16 o `middleware` foi
+  renomeado para `proxy`, e é ele que exige sessão. Conferido em produção —
+  `/chats` e `/pedidos` redirecionam para o login, `/api/mensagens` dá 401.
+- Índices cobrem os caminhos quentes: fila, mensagem por conversa, conversa
+  por última mensagem, telefone do cliente, pedido por loja e data.
+- A faxina horária apaga job concluído com mais de 30 dias e evento de
+  webhook processado com mais de 90, sem tocar em mensagem, pedido ou
+  dinheiro.
+- 189 arquivos, zero órfãos depois desta varredura. Dependências: 11 pacotes,
+  2,8 MB estáticos, e o grosso é o `recharts`, usado por 4 telas.
 
 ### Ainda em aberto
 
@@ -228,10 +262,10 @@ As duas estão escritas e revisadas; falta rodar.
   continua funcionando no celular do dono), **Meta** direto, e **Z-API** (a
   única com risco de banimento). Sem credencial o canal simulado responde
   "enviada" para mensagem que não saiu. Ver "A janela de 24 horas" abaixo.
-- **IA do bot (DeepSeek)**: ligada. Entra só na mensagem que a classificação
-  por palavra-chave não resolveu, recebe apenas ferramentas de consulta e não
-  escreve no banco — ver "A IA não fecha transação" abaixo. O treinamento fica
-  em Configurações › Inteligência do bot.
+- **IA do bot (DeepSeek)**: ligada. Entra onde a palavra-chave não resolveu, e
+  conduz a venda pelas mesmas funções validadas do sistema — ver "O que a IA
+  faz, e o que o sistema garante" abaixo. O treinamento fica em Configurações ›
+  Inteligência do bot.
 - **Instagram Direct**: previsto na caixa de entrada, falta o adaptador. A
   tela de integrações anuncia um webhook que não existe.
 - **Impressora térmica**: a comanda entra na fila ao confirmar o pedido e

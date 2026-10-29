@@ -588,32 +588,37 @@ function legendaDeMidia(m: Mensagem) {
  * "[áudio de voz 12s]" e tinha de abrir o celular para ouvir.
  */
 function Midia({ mensagem: m }: { mensagem: Mensagem }) {
-  // o endereço vem do webhook: só https, nada de javascript: nem data:
-  if (!m.arquivo_url || !/^https:\/\//i.test(m.arquivo_url)) return null;
+  /**
+   * O endereço vem do webhook, então só duas formas passam: https do
+   * provedor, ou a nossa rota `/api/midia/…` — que é por onde sai a mídia
+   * que exige requisição assinada. Nada de `javascript:` nem `data:`.
+   */
+  const endereco = m.arquivo_url ?? "";
+  if (!/^https:\/\//i.test(endereco) && !/^\/api\/midia\//.test(endereco)) return null;
 
   switch (m.tipo) {
     case "imagem":
       return (
-        <a href={m.arquivo_url} target="_blank" rel="noreferrer" className="mb-1 block">
+        <a href={endereco} target="_blank" rel="noreferrer" className="mb-1 block">
           {/* eslint-disable-next-line @next/next/no-img-element -- URL do provedor, domínio variável */}
-          <img src={m.arquivo_url} alt={m.conteudo ?? "imagem"} loading="lazy"
+          <img src={endereco} alt={m.conteudo ?? "imagem"} loading="lazy"
             className="max-h-64 rounded-lg object-cover" />
         </a>
       );
     case "audio":
-      return <audio controls preload="none" src={m.arquivo_url} className="mb-1 h-9 max-w-full" />;
+      return <audio controls preload="none" src={endereco} className="mb-1 h-9 max-w-full" />;
     case "video":
-      return <video controls preload="none" src={m.arquivo_url} className="mb-1 max-h-64 rounded-lg" />;
+      return <video controls preload="none" src={endereco} className="mb-1 max-h-64 rounded-lg" />;
     case "localizacao":
       return (
-        <a href={m.arquivo_url} target="_blank" rel="noreferrer"
+        <a href={endereco} target="_blank" rel="noreferrer"
           className="mb-1 flex items-center gap-1.5 underline underline-offset-2">
           <MapPin className="size-3.5 shrink-0" /> Abrir no mapa
         </a>
       );
     default:
       return (
-        <a href={m.arquivo_url} target="_blank" rel="noreferrer"
+        <a href={endereco} target="_blank" rel="noreferrer"
           className="mb-1 flex items-center gap-1.5 underline underline-offset-2">
           <FileText className="size-3.5 shrink-0" />
           {m.conteudo?.replace(/^\[documento: (.*)\]$/, "$1") || "Abrir arquivo"}

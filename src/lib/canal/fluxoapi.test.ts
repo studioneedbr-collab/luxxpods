@@ -48,8 +48,11 @@ describe("webhook da FluxoAPI — mensagem recebida", () => {
 
     expect(e?.mensagens[0]?.tipo).toBe("audio");
     expect(e?.mensagens[0]?.texto).toBe("[áudio de voz]");
-    expect(e?.mensagens[0]?.arquivo).toBe(
-      "https://api.fluxoapi.com.br/v1/messages/msg_2/media");
+    /**
+     * A nossa rota, não a da FluxoAPI: a mídia deles exige GET assinado, e
+     * a URL crua num `<img src>` daria 401 e ícone quebrado na conversa.
+     */
+    expect(e?.mensagens[0]?.arquivo).toBe("/api/midia/msg_2");
   });
 
   it("usa o nome do arquivo quando o documento não tem legenda", () => {

@@ -7,6 +7,7 @@ import { memoCurta } from "../memo-curta";
 import type { Contexto } from "./estados";
 import type { ItemCatalogo } from "../types";
 import { escolherOferta, type RegraAplicavel } from "./upsell";
+import { conferirPagamentoDoPedido } from "../pagamento/conferir";
 import { enderecoEmLinha, saborCombina, type PerfilSabor } from "./extrair";
 import type { FormaPagamento } from "./estados";
 
@@ -667,7 +668,31 @@ async function despachar(
 
       const { data } = await c.from("orders")
         .select("status_pagamento").eq("id", amb.contexto.order_id).maybeSingle();
-      return { ok: true, dados: { status: data?.status_pagamento ?? "aguardando" } };
+
+      if (data?.status_pagamento === "aprovado") {
+        return { ok: true, dados: { status: "aprovado" } };
+      }
+
+      /**
+       * O banco diz que não caiu — mas o webhook pode não ter chegado:
+       * provedor fora do ar, deploy no meio, rede. Antes a resposta parava
+       * aqui, e o cliente que PAGOU ouvia "ainda não caiu" enquanto o pedido
+       * ficava parado esperando alguém desconfiar.
+       *
+       * Agora pergunta ao provedor. A resposta entra pela mesma recepção do
+       * webhook, então a conferência de valor e a idempotência continuam
+       * valendo: não é atalho para confirmar pedido.
+       */
+      const conferido = await conferirPagamentoDoPedido(amb.contexto.order_id, "sistema");
+
+      return {
+        ok: true,
+        dados: {
+          status: conferido.pago ? "aprovado" : (data?.status_pagamento ?? "aguardando"),
+          motivo: conferido.pago ? undefined : conferido.motivo,
+        },
+        contexto: conferido.pago ? { pagamento_status: "aprovado" } : undefined,
+      };
     }
 
     /* ---------------------------------------------------------- pedido -- */

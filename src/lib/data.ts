@@ -358,8 +358,11 @@ export async function getCliente(id: string): Promise<{
     c.from("customer_addresses").select("*").eq("customer_id", id),
     c.from("orders").select("*, order_items(*)").eq("customer_id", id)
       .order("created_at", { ascending: false }).limit(100),
+    // com teto: a ficha do cliente mostra as conversas recentes, e sem
+    // limite um contato antigo traria a lista inteira para a tela
     c.from("conversations").select("*").eq("customer_id", id)
-      .order("ultima_mensagem_em", { ascending: false, nullsFirst: false }),
+      .order("ultima_mensagem_em", { ascending: false, nullsFirst: false })
+      .limit(50),
   ]);
   if (!cliente) return null;
 

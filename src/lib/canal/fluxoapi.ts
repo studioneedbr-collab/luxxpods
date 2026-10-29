@@ -239,6 +239,33 @@ export class CanalFluxoApi implements Canal {
    * número vazio, então a tela dizia "no ar" sem conseguir avisar que a
    * instância estava desconectada. Foi a chamada de verdade que mostrou.
    */
+  /**
+   * Os bytes de uma mídia, pelo GET assinado.
+   *
+   * Devolve a resposta crua para quem chama repassar sem carregar tudo na
+   * memória: documento vai até 100 MB, e ler isso num Buffer derruba a
+   * função serverless.
+   */
+  async baixarMidia(messageId: string): Promise<Response | null> {
+    if (!this.configurado()) return null;
+
+    const caminho = `/v1/messages/${encodeURIComponent(messageId)}/media`;
+    const cabecalhos = assinarPedido({
+      chave: this.chave, segredo: this.segredo, metodo: "GET", caminho,
+    });
+
+    try {
+      return await fetch(`${BASE}${caminho.replace(/^\/v1/, "")}`, {
+        headers: { ...cabecalhos },
+        signal: AbortSignal.timeout(30_000),
+        cache: "no-store",
+      });
+    } catch (e) {
+      console.error(`[luxx] mídia ${messageId} não baixou: ${String(e)}`);
+      return null;
+    }
+  }
+
   async diagnosticar(): Promise<DiagnosticoInstancia> {
     if (!this.configurado()) return { ok: false, erro: "sem credenciais" };
 
@@ -371,8 +398,16 @@ export class CanalFluxoApi implements Canal {
       de,
       tipo: traduzirTipo(d.type),
       texto: escolha?.title?.trim() || legenda || descreverMidia(d.type, d.media),
+      /**
+       * A nossa rota, não o endereço da FluxoAPI.
+       *
+       * A mídia deles só sai por GET ASSINADO, e a bolha do chat põe a URL
+       * direto num `<img src>`: o navegador levaria 401 e o atendente veria
+       * ícone quebrado — pior que não mostrar nada. `/api/midia/{id}` busca
+       * assinado do lado do servidor, com sessão conferida.
+       */
       arquivo: d.media?.download_path
-        ? `${BASE}${d.media.download_path.replace(/^\/v1/, "")}`
+        ? `/api/midia/${encodeURIComponent(idExterno)}`
         : undefined,
       botaoId: escolha?.id,
       recebidaEm: new Date(),
