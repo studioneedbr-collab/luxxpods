@@ -223,8 +223,11 @@ Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
 
 ### Canais e integrações
 
-- **WhatsApp**: o Z-API está implementado e espera três credenciais. Sem
-  credencial o canal simulado responde "enviada" para mensagem que não saiu.
+- **WhatsApp**: três caminhos implementados, nesta ordem de preferência em
+  `canalAtivo()` — **FluxoAPI** (Cloud API oficial da Meta por baixo; o número
+  continua funcionando no celular do dono), **Meta** direto, e **Z-API** (a
+  única com risco de banimento). Sem credencial o canal simulado responde
+  "enviada" para mensagem que não saiu. Ver "A janela de 24 horas" abaixo.
 - **IA do bot (DeepSeek)**: ligada. Entra só na mensagem que a classificação
   por palavra-chave não resolveu, recebe apenas ferramentas de consulta e não
   escreve no banco — ver "A IA não fecha transação" abaixo. O treinamento fica
@@ -260,6 +263,65 @@ Duas telas de servidor formatam sem fuso, então saem em UTC na Vercel — e
   existe para quando não for.
 - Áudio e imagem do cliente chegam como `[áudio de voz 12s]`; a IA não ouve
   nem vê. O `deepseek-flash` aceita imagem, mas nada está ligado nisso.
+
+### A janela de 24 horas
+
+A FluxoAPI e a Meta são a Cloud API oficial, e com ela vem uma regra que a
+Z-API não tinha: **passadas 24 horas desde a última mensagem do cliente, só
+sai modelo aprovado.** A API devolve 422 `window_closed`, e tentar de novo não
+resolve — por isso esse código entra como `tentarDeNovo: false` em
+`fluxoapi.ts`, senão a fila bateria na mesma porta para sempre.
+
+Isso muda o que já existe no sistema: o follow-up de 5 minutos cabe na janela,
+mas cobrança e marketing dias depois **não**. `window_expires_at` vem em cada
+conversa da FluxoAPI; a tela de chat ainda não usa esse dado, e enquanto não
+usar a mensagem fora da janela falha com motivo escrito no log em vez de sair.
+
+### O dono respondendo pelo celular
+
+A diferença que importa entre FluxoAPI e Z-API não é preço: é que o número
+segue funcionando no aplicativo do dono. Quando ele digita por lá chega o
+evento `message.sent_from_phone`, e `registrarRespostaDoDono` faz duas coisas,
+nesta ordem de importância: **desliga o bot naquela conversa** e grava a fala
+como `atendente`. Sem a primeira, o bot responderia por cima de uma pessoa que
+já está atendendo e o cliente leria duas respostas diferentes para a mesma
+pergunta.
+
+Na rota do webhook essas respostas são processadas **antes** das mensagens do
+cliente, porque o mesmo lote pode trazer as duas — na outra ordem o bot ainda
+estaria ligado quando a mensagem nova fosse processada.
+
+### Duas assinaturas, e não dá para trocá-las
+
+`fluxoapi-assinatura.ts` existe separado e com teste próprio porque a FluxoAPI
+assina **coisas diferentes** no pedido e no webhook:
+
+- pedido: seis linhas — `v1`, timestamp, nonce, método, **caminho com a query
+  string**, e o sha256 do corpo. Segredo `fxs_`, que nunca trafega.
+- webhook: duas linhas — timestamp e o corpo cru. Segredo `whsec_`.
+
+Três detalhes dão erro que só aparece em produção, e cada um tem teste:
+assinar o caminho sem a query faz só as chamadas **paginadas** voltarem 401;
+usar o JSON re-serializado no webhook muda espaço e ordem e a assinatura
+deixa de bater; e na rotação do segredo vêm **duas** assinaturas separadas por
+vírgula — não tratar isso derruba o canal justamente durante a troca que
+existe para não ter downtime.
+
+### O histórico que a Z-API não tinha
+
+A importação de conversas antes trazia só quem havia conversado, e eu tive que
+escrever no próprio botão que o conteúdo não vinha. A FluxoAPI tem
+`GET /conversations/{id}/messages`, então vem.
+
+Com um teto: cada histórico é uma chamada assinada à parte, e cem conversas
+seriam cem chamadas com a ação do servidor estourando o tempo no meio da
+gravação — o usuário veria erro com metade já importada. Traz o das 20 mais
+recentes, que é quem o atendente abre hoje, e o resto se preenche conforme as
+pessoas escrevem. O texto do botão muda conforme o provedor.
+
+E `classificarAutor` separa o que `outbound` sozinho não diz: saída pela API é
+o bot, saída com `sent_from_phone` é a pessoa. Creditar tudo ao bot faria o
+relatório de atendimento dar ao robô o trabalho de quem atendeu.
 
 ---
 

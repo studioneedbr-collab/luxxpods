@@ -12,11 +12,19 @@ export const dynamic = "force-dynamic";
 
 const INTEGRACOES = [
   {
-    nome: "WhatsApp Business (Meta)", icone: MessageCircle, cor: "#25D366",
+    nome: "WhatsApp", icone: MessageCircle, cor: "#25D366",
     chave: "whatsapp" as const,
-    descricao: "Recebe e envia texto, imagem, catálogo e PIX. Guarda ID, status, entrega e leitura de cada mensagem.",
+    descricao:
+      "Recebe e envia texto, imagem, catálogo e PIX, guardando ID, status, " +
+      "entrega e leitura de cada mensagem. Três caminhos, nesta ordem de " +
+      "preferência: FluxoAPI (Cloud API oficial da Meta, e o número continua " +
+      "funcionando no celular do dono — quando ele responde por lá, o bot se " +
+      "cala naquela conversa), Meta direto (para quem já tem conta " +
+      "comercial), ou Z-API (mais rápida de ligar, com risco de banimento). " +
+      "Na oficial vale a janela de 24h: passada, só sai modelo aprovado.",
     campos: [
-      "Meta: Phone Number ID, WABA ID, Access Token, Verify Token",
+      "FluxoAPI: FLUXOAPI_KEY, FLUXOAPI_SECRET, FLUXOAPI_INSTANCE_ID, FLUXOAPI_WEBHOOK_SECRET",
+      "ou Meta: Phone Number ID, WABA ID, Access Token, Verify Token",
       "ou Z-API: ZAPI_INSTANCE_ID, ZAPI_TOKEN, ZAPI_CLIENT_TOKEN",
     ],
     endpoint: "POST /api/webhooks/whatsapp",
@@ -68,7 +76,7 @@ export default async function IntegracoesPage() {
   const situacoes: Record<string, Situacao> = {
     asaas: await diagnosticarAsaas(),
     ia: await diagnosticarIa(),
-    whatsapp: diagnosticarWhatsapp(),
+    whatsapp: await diagnosticarWhatsapp(),
     instagram: diagnosticarInstagram(),
     impressora: diagnosticarImpressora(),
   };

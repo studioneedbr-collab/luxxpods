@@ -1,7 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { CanalFluxoApi } from "./canal/fluxoapi";
 import { CanalZApi } from "./canal/zapi";
+import {
+  classificarAutor, escolherParaHistorico, previaSemHistorico,
+  type ChatNormalizado, type MensagemHistorica,
+} from "./importar-core";
 import { clienteDoSistema } from "./supabase/sistema";
 import { getSupabaseServer } from "./supabase/server";
 import { STORE_ID, supabaseConfigurado } from "./supabase/config";
@@ -12,21 +17,101 @@ import { STORE_ID, supabaseConfigurado } from "./supabase/config";
  * Serve para o primeiro dia: sem isto, a caixa de entrada começa vazia e
  * quem já estava conversando com a loja só aparece quando escrever de novo.
  *
- * O QUE NÃO VEM, e é importante dizer: o histórico das mensagens. A Z-API
- * entrega a lista de conversas e as mensagens NOVAS a partir da conexão; o
- * histórico antigo fica no aparelho — é assim que o WhatsApp funciona, não é
- * limitação do sistema. Então cada conversa importada nasce com o contato, o
- * contador de não lidas e a data da última mensagem, e o conteúdo começa a
- * ser gravado da conexão em diante.
+ * O HISTÓRICO depende do provedor, e a diferença é grande:
+ *
+ * - FluxoAPI: tem `GET /conversations/{id}/messages`, então o conteúdo vem.
+ *   Buscar o de todas seria uma chamada assinada por conversa, e a ação do
+ *   servidor estoura o tempo no meio; traz o das mais recentes e deixa o
+ *   resto se preencher conforme as pessoas escrevem.
+ * - Z-API: não tem esse endpoint. Entrega a lista de conversas e as
+ *   mensagens NOVAS a partir da conexão; o histórico antigo fica no
+ *   aparelho. A conversa nasce com contato, não lidas e data, sem conteúdo.
  */
 
 export interface ResultadoImportacao {
   ok: boolean;
   erro?: string;
+  provedor?: string;
   clientes_novos?: number;
   conversas_novas?: number;
   ja_existiam?: number;
   grupos_ignorados?: number;
+  /** quantas conversas vieram com o conteúdo das mensagens */
+  com_historico?: number;
+  mensagens_importadas?: number;
+}
+
+/**
+ * De onde ler as conversas.
+ *
+ * A ordem é a de `canalAtivo()`, e por um motivo prático além da coerência:
+ * só a FluxoAPI tem histórico de mensagem.
+ */
+interface Provedor {
+  nome: string;
+  chats(): Promise<ChatNormalizado[] | null>;
+  historico?(idExterno: string): Promise<MensagemHistorica[]>;
+}
+
+function escolherProvedor(): Provedor | null {
+  const fluxo = new CanalFluxoApi();
+  if (fluxo.configurado()) {
+    return {
+      nome: "FluxoAPI",
+      async chats() {
+        const r = await fluxo.listarConversas(undefined, 100);
+        if (r.erro) {
+          console.error(`[luxx] FluxoAPI não listou conversas: ${r.erro}`);
+          return null;
+        }
+        return r.conversas.map((c) => ({
+          telefone: c.phone.replace(/\D/g, ""),
+          nome: c.contact_name ?? undefined,
+          naoLidas: c.unread ?? 0,
+          ultimaEm: c.last_message_at ? new Date(c.last_message_at) : undefined,
+          arquivado: c.status === "closed",
+          idExterno: c.id,
+          janelaAte: c.window_expires_at ? new Date(c.window_expires_at) : null,
+        }));
+      },
+      async historico(id) {
+        const r = await fluxo.historico(id, 200);
+        if (r.erro) {
+          console.warn(`[luxx] histórico de ${id} não veio: ${r.erro}`);
+          return [];
+        }
+        return r.mensagens
+          .filter((m) => (m.text ?? "").trim() || m.media)
+          .map((m) => ({
+            idExterno: m.id,
+            autor: classificarAutor(m),
+            texto: (m.text ?? "").trim() || `[${m.type}]`,
+            em: new Date(m.at),
+          }));
+      },
+    };
+  }
+
+  const zapi = new CanalZApi();
+  if (zapi.configurado()) {
+    return {
+      nome: "Z-API",
+      async chats() {
+        const chats = await zapi.listarChats(1, 100);
+        if (!chats) return null;
+        return chats.map((c) => ({
+          telefone: c.telefone,
+          nome: c.nome ?? undefined,
+          naoLidas: c.naoLidas,
+          ultimaEm: c.ultimaEm ?? undefined,
+          arquivado: c.arquivado,
+        }));
+      },
+      // a Z-API não tem endpoint de histórico — ver o comentário no topo
+    };
+  }
+
+  return null;
 }
 
 export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao> {
@@ -48,19 +133,19 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
     return { ok: false, erro: "Seu perfil não pode importar conversas." };
   }
 
-  const canal = new CanalZApi();
-  if (!canal.configurado()) {
+  const provedor = escolherProvedor();
+  if (!provedor) {
     return {
       ok: false,
-      erro: "Z-API não configurada: falta ZAPI_INSTANCE_ID e ZAPI_TOKEN.",
+      erro: "Nenhum provedor de WhatsApp configurado. Preencha a FluxoAPI ou a Z-API.",
     };
   }
 
-  const chats = await canal.listarChats(1, 100);
+  const chats = await provedor.chats();
   if (!chats) {
     return {
       ok: false,
-      erro: "Não consegui falar com a Z-API. Confira se a instância está conectada.",
+      erro: `Não consegui falar com a ${provedor.nome}. Confira se o número está conectado.`,
     };
   }
 
@@ -73,6 +158,16 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
   let clientesNovos = 0;
   let conversasNovas = 0;
   let jaExistiam = 0;
+  let comHistorico = 0;
+  let mensagensImportadas = 0;
+
+  // só as mais recentes ganham histórico: cada uma é uma chamada assinada à
+  // parte, e cem delas estouram o tempo da ação no meio da gravação
+  const comConteudo = new Set(
+    provedor.historico
+      ? escolherParaHistorico(chats).map((c) => c.idExterno).filter(Boolean)
+      : [],
+  );
 
   for (const chat of chats) {
     // 1) cliente pelo telefone, que é único por loja
@@ -113,7 +208,7 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
 
     if (conversa) { jaExistiam++; continue; }
 
-    const { error } = await c.from("conversations").insert({
+    const { data: nova, error } = await c.from("conversations").insert({
       store_id: STORE_ID,
       customer_id: customerId,
       canal: "whatsapp",
@@ -124,18 +219,56 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
       status: chat.arquivado ? "resolvida" : "aberta",
       bot_ativo: false,
       nao_lidas: chat.naoLidas,
-      ultima_mensagem: chat.naoLidas > 0
-        ? "(mensagens não lidas no WhatsApp)"
-        : "(conversa importada do WhatsApp)",
+      ultima_mensagem: previaSemHistorico(chat.naoLidas),
       ultima_mensagem_em: chat.ultimaEm?.toISOString() ?? null,
       ultima_interacao_cliente: chat.ultimaEm?.toISOString() ?? null,
-    });
+    }).select("id").single();
 
-    if (error) {
-      console.error(`[luxx] conversa de ${chat.telefone} não importou: ${error.message}`);
+    if (error || !nova) {
+      console.error(`[luxx] conversa de ${chat.telefone} não importou: ${error?.message}`);
       continue;
     }
     conversasNovas++;
+
+    /* ---- o conteúdo, quando o provedor tem ---- */
+
+    if (!provedor.historico || !chat.idExterno || !comConteudo.has(chat.idExterno)) {
+      continue;
+    }
+
+    const mensagens = await provedor.historico(chat.idExterno);
+    if (mensagens.length === 0) continue;
+
+    const { error: erroMsg } = await c.from("messages").insert(
+      mensagens.map((m) => ({
+        conversation_id: nova.id,
+        store_id: STORE_ID,
+        sender_type: m.autor,
+        external_message_id: m.idExterno || null,
+        tipo: "texto",
+        conteudo: m.texto,
+        status: "lida",
+        enviada_em: m.em.toISOString(),
+      })),
+    );
+
+    if (erroMsg) {
+      // conversa sem histórico é pior que nada? não: ela já está no painel
+      // com o contato, e o atendente responde. Só registra e segue.
+      console.warn(`[luxx] histórico de ${chat.telefone} não gravou: ${erroMsg.message}`);
+      continue;
+    }
+
+    comHistorico++;
+    mensagensImportadas += mensagens.length;
+
+    const ultima = mensagens.at(-1);
+    if (ultima) {
+      await c.from("conversations").update({
+        ultima_mensagem: ultima.texto.slice(0, 500),
+        ultima_mensagem_em: ultima.em.toISOString(),
+      }).eq("id", nova.id);
+    }
   }
 
   // o bot fica desligado nas importadas de propósito: ele não viu o começo
@@ -146,23 +279,29 @@ export async function importarConversasDoWhatsapp(): Promise<ResultadoImportacao
 
   return {
     ok: true,
+    provedor: provedor.nome,
     clientes_novos: clientesNovos,
     conversas_novas: conversasNovas,
     ja_existiam: jaExistiam,
+    com_historico: comHistorico,
+    mensagens_importadas: mensagensImportadas,
   };
 }
 
 /** Quantos chats a Z-API vê, sem gravar nada — para a tela mostrar antes. */
 export async function contarChatsDoWhatsapp(): Promise<
-  { ok: boolean; total?: number; erro?: string }
+  { ok: boolean; total?: number; provedor?: string; temHistorico?: boolean; erro?: string }
 > {
-  const canal = new CanalZApi();
-  if (!canal.configurado()) {
-    return { ok: false, erro: "Z-API não configurada." };
-  }
+  const provedor = escolherProvedor();
+  if (!provedor) return { ok: false, erro: "Nenhum provedor de WhatsApp configurado." };
 
-  const chats = await canal.listarChats(1, 100);
-  if (!chats) return { ok: false, erro: "Não consegui falar com a Z-API." };
+  const chats = await provedor.chats();
+  if (!chats) return { ok: false, erro: `Não consegui falar com a ${provedor.nome}.` };
 
-  return { ok: true, total: chats.length };
+  return {
+    ok: true,
+    total: chats.length,
+    provedor: provedor.nome,
+    temHistorico: Boolean(provedor.historico),
+  };
 }

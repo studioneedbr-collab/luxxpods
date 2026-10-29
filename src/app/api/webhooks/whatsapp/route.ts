@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { canalDoWebhook } from "@/lib/canal";
-import { receberMensagem, registrarStatus } from "@/lib/bot/recepcao";
+import {
+  receberMensagem, registrarRespostaDoDono, registrarStatus,
+} from "@/lib/bot/recepcao";
 import { processar } from "@/lib/bot/motor";
 
 export const dynamic = "force-dynamic";
@@ -44,10 +46,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ignorado: "formato não reconhecido" });
   }
 
-  const assinatura =
-    req.headers.get("x-hub-signature-256") ?? req.headers.get("client-token");
-
-  if (canal.validarAssinatura && !canal.validarAssinatura(cru, assinatura)) {
+  /**
+   * Os cabeçalhos inteiros, não a assinatura pronta.
+   *
+   * Cada provedor assina coisa diferente: a Meta manda o HMAC do corpo em
+   * `x-hub-signature-256`, a Z-API compara um token fixo em `client-token`,
+   * e a FluxoAPI assina `timestamp\ncorpo` — essa última não dá para
+   * conferir sem o `x-fluxo-timestamp`. Escolher o cabeçalho aqui fora
+   * obrigava a rota a conhecer o esquema de cada um.
+   */
+  if (canal.validarAssinatura && !canal.validarAssinatura(cru, req.headers)) {
     return NextResponse.json({ erro: "assinatura inválida" }, { status: 401 });
   }
 
@@ -55,8 +63,27 @@ export async function POST(req: Request) {
   if (!evento) return NextResponse.json({ ignorado: "sem conteúdo útil" });
 
   const resultado = {
-    recebidas: 0, ignoradas: 0, respondidas: 0, status: 0, erros: [] as string[],
+    recebidas: 0, ignoradas: 0, respondidas: 0, status: 0,
+    doDono: 0, erros: [] as string[],
   };
+
+  /**
+   * A resposta do dono pelo celular vem ANTES de tudo.
+   *
+   * Ela desliga o bot na conversa, e o lote pode trazer junto uma mensagem
+   * nova do cliente. Processando na outra ordem, o bot ainda estaria ligado
+   * e responderia por cima da pessoa que acabou de digitar no celular.
+   */
+  for (const r of evento.respostasDoDono ?? []) {
+    try {
+      const g = await registrarRespostaDoDono(r);
+      if (g.gravada) resultado.doDono++;
+      else resultado.ignoradas++;
+    } catch (e) {
+      console.error("[luxx] erro ao gravar resposta do dono:", e);
+      resultado.erros.push("resposta do celular não entrou no histórico");
+    }
+  }
 
   for (const mensagem of evento.mensagens) {
     try {

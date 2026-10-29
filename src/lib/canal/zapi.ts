@@ -302,9 +302,9 @@ export class CanalZApi implements Canal {
   }
 
   /** A Z-API usa um token fixo no header, não assinatura por corpo. */
-  validarAssinatura(_corpo: string, assinatura: string | null): boolean {
+  validarAssinatura(_corpo: string, cabecalhos: Headers): boolean {
     const esperado = process.env.ZAPI_WEBHOOK_SECRET;
     if (!esperado) return true;
-    return assinatura === esperado;
+    return cabecalhos.get("client-token") === esperado;
   }
 }

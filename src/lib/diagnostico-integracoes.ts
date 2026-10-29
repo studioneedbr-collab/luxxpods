@@ -1,6 +1,7 @@
 import "server-only";
 import { MeioAsaas } from "./pagamento/asaas";
 import { diagnosticar as diagnosticarDeepseek } from "./ia/deepseek";
+import { CanalFluxoApi } from "./canal/fluxoapi";
 
 /**
  * O estado real de cada integração.
@@ -87,7 +88,50 @@ export async function diagnosticarAsaas(): Promise<Situacao> {
  * vendo "aguardando credenciais" com o canal funcionando — e o `canalAtivo()`
  * já aceitava a Z-API como segunda opção.
  */
-export function diagnosticarWhatsapp(): Situacao {
+export async function diagnosticarWhatsapp(): Promise<Situacao> {
+  /**
+   * A FluxoAPI é a única que dá para conferir de verdade: ela tem endpoint
+   * de estado da instância. Nas outras duas só se vê se a variável está
+   * preenchida, o que não prova que a credencial vale.
+   */
+  const fluxo = new CanalFluxoApi();
+  if (fluxo.configurado()) {
+    const d = await fluxo.diagnosticar();
+
+    if (!d.ok) {
+      return { tom: "bad", rotulo: "FluxoAPI com erro", detalhe: d.erro };
+    }
+
+    const avisos: string[] = [];
+    if (!process.env.FLUXOAPI_WEBHOOK_SECRET) {
+      avisos.push("sem FLUXOAPI_WEBHOOK_SECRET o webhook aceita qualquer corpo");
+    }
+    if (fluxo.ehTeste()) {
+      avisos.push("a chave é fxk_test_: nada sai de verdade");
+    }
+    if (d.estado && !/connect|ativ|online|ok/i.test(d.estado)) {
+      avisos.push(`a instância está "${d.estado}"`);
+    }
+
+    return {
+      tom: avisos.length > 0 ? "warn" : "ok",
+      rotulo: `no ar · FluxoAPI${d.numero ? ` · ${d.numero}` : ""}`,
+      detalhe: avisos.length > 0
+        ? `${avisos.join("; ")}.`
+        : "Cloud API oficial da Meta. O número segue funcionando no celular do dono, "
+          + "e quando ele responde por lá o bot se cala naquela conversa.",
+    };
+  }
+
+  const semFluxo = faltando(["FLUXOAPI_KEY", "FLUXOAPI_SECRET", "FLUXOAPI_INSTANCE_ID"]);
+  if (semFluxo.length > 0 && semFluxo.length < 3) {
+    return {
+      tom: "bad",
+      rotulo: "FluxoAPI incompleta",
+      detalhe: `Falta ${semFluxo.join(", ")} — com parte das variáveis o envio falha calado.`,
+    };
+  }
+
   const meta = faltando([
     "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_VERIFY_TOKEN",
   ]);
@@ -130,7 +174,8 @@ export function diagnosticarWhatsapp(): Situacao {
     tom: "warn",
     rotulo: "aguardando credenciais",
     detalhe: "A mensagem que o atendente escreve fica gravada e enfileirada, mas não sai. "
-      + "Dá para usar a Meta (oficial) ou a Z-API (mais rápida de ligar).",
+      + "Dá para usar a FluxoAPI (oficial, e o número continua no celular), "
+      + "a Meta direto, ou a Z-API (com risco de banimento).",
   };
 }
 

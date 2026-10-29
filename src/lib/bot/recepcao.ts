@@ -4,7 +4,9 @@ import { STORE_ID } from "../supabase/config";
 import { enfileirar, cancelarJobs } from "../fila/worker";
 import { demo, demoAbrirAtendimento, demoEnviarMensagem } from "../demo";
 import { validarTelefone } from "./telefone";
-import type { AtualizacaoStatus, MensagemEntrada } from "../canal/tipos";
+import type {
+  AtualizacaoStatus, MensagemEntrada, RespostaDoDono,
+} from "../canal/tipos";
 
 /**
  * Onde a mensagem do cliente entra no sistema.
@@ -261,4 +263,71 @@ export async function agendarFollowup(conversationId: string): Promise<void> {
     { enviado_em: new Date().toISOString() },
     { conversationId, atrasoMs: minutos * 60_000 },
   );
+}
+
+/**
+ * O dono respondeu pelo aplicativo do celular.
+ *
+ * A FluxoAPI compartilha o número com o WhatsApp do dono, e avisa quando ele
+ * digita por lá. Duas coisas têm que acontecer, nesta ordem de importância:
+ *
+ * 1. DESLIGAR O BOT naquela conversa. Uma pessoa assumiu; o bot respondendo
+ *    junto faria o cliente ler duas respostas diferentes para a mesma
+ *    pergunta — e foi exatamente para evitar isso que `bot_ativo` existe.
+ * 2. Gravar a fala, como `atendente`. Sem isso o painel mostra a pergunta do
+ *    cliente sem resposta, e alguém responde de novo.
+ *
+ * Não cria cliente nem conversa: se não existe conversa com esse número, a
+ * mensagem saiu de um contato que nunca escreveu para a loja, e inventar um
+ * cadastro a partir daí encheria o kanban de linha vazia.
+ */
+export async function registrarRespostaDoDono(
+  r: RespostaDoDono,
+): Promise<{ gravada: boolean; motivo?: string }> {
+  const telefone = validarTelefone(r.para);
+  if (!telefone) return { gravada: false, motivo: `número inválido: ${r.para}` };
+
+  const c = await clienteDoSistema();
+  if (!c) return { gravada: false, motivo: "sem banco (demonstração)" };
+
+  // idempotência: o provedor reenvia o lote quando não recebe 200 a tempo
+  if (r.idExterno) {
+    const { data: jaExiste } = await c.from("messages")
+      .select("id").eq("external_message_id", r.idExterno).maybeSingle();
+    if (jaExiste) return { gravada: false, motivo: "repetida" };
+  }
+
+  const { data: conversa } = await c.from("conversations")
+    .select("id").eq("store_id", STORE_ID).eq("canal", "whatsapp")
+    .eq("identificador_externo", telefone.e164)
+    .maybeSingle();
+
+  if (!conversa) {
+    return { gravada: false, motivo: "não há conversa com esse número" };
+  }
+
+  const { error } = await c.from("messages").insert({
+    conversation_id: conversa.id,
+    store_id: STORE_ID,
+    sender_type: "atendente",
+    external_message_id: r.idExterno || null,
+    tipo: "texto",
+    conteudo: r.texto,
+    status: "enviada",
+    enviada_em: r.em.toISOString(),
+  });
+  if (error) throw new Error(`Falha ao gravar resposta do dono: ${error.message}`);
+
+  await c.from("conversations").update({
+    bot_ativo: false,
+    status: "aguardando_cliente",
+    ultima_mensagem: r.texto,
+    ultima_mensagem_em: r.em.toISOString(),
+    nao_lidas: 0,
+  }).eq("id", conversa.id);
+
+  // quem respondeu pelo celular não quer o follow-up do bot em cima
+  await cancelarJobs(conversa.id, "followup_catalogo");
+
+  return { gravada: true };
 }

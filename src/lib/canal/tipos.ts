@@ -47,11 +47,28 @@ export interface AtualizacaoStatus {
   em: Date;
 }
 
+/**
+ * O dono respondeu pelo aplicativo do celular.
+ *
+ * Só existe em provedor que compartilha o número com o app — hoje a
+ * FluxoAPI. Não é mensagem de cliente: entra na conversa como fala da loja,
+ * e desliga o bot ali. Sem isso o bot responderia por cima de uma pessoa que
+ * já está atendendo, e o cliente leria duas respostas diferentes.
+ */
+export interface RespostaDoDono {
+  idExterno: string;
+  /** telefone do cliente que recebeu, só dígitos */
+  para: string;
+  texto: string;
+  em: Date;
+}
+
 export interface EventoCanal {
   /** id único do evento, para não processar duas vezes */
   id: string;
   mensagens: MensagemEntrada[];
   statusAtualizados: AtualizacaoStatus[];
+  respostasDoDono?: RespostaDoDono[];
 }
 
 export interface Canal {
@@ -61,6 +78,12 @@ export interface Canal {
   enviar(mensagem: MensagemSaida): Promise<ResultadoEnvio>;
   /** traduz o corpo bruto do webhook para o formato de casa */
   interpretarWebhook(corpo: unknown): EventoCanal | null;
-  /** confere que o webhook veio mesmo do provedor */
-  validarAssinatura?(corpo: string, assinatura: string | null): boolean;
+  /**
+   * Confere que o webhook veio mesmo do provedor.
+   *
+   * Recebe os CABEÇALHOS, não só a assinatura: a FluxoAPI assina
+   * `timestamp\ncorpo`, então conferir sem o timestamp é impossível. Com só
+   * a string da assinatura, esse provedor não caberia no contrato.
+   */
+  validarAssinatura?(corpoCru: string, cabecalhos: Headers): boolean;
 }
