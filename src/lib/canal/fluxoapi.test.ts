@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CanalFluxoApi } from "./fluxoapi";
 
 /**
@@ -193,6 +193,38 @@ describe("o que a FluxoAPI manda e não vira conversa", () => {
     expect(canal.interpretarWebhook({ type: "message.received" })).toBeNull();
     expect(canal.interpretarWebhook(null)).toBeNull();
     expect(canal.interpretarWebhook("não é objeto")).toBeNull();
+  });
+});
+
+/* ------------------------------------------------- assinatura ausente -- */
+
+describe("webhook sem segredo configurado", () => {
+  const pedido = () =>
+    new Request("https://exemplo.com/api/webhooks/whatsapp", { method: "POST" });
+
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  /**
+   * O endereço do webhook é descobrível. Sem conferência, qualquer um forja
+   * mensagem de cliente — inclusive pedido. Antes isto devolvia `true` com
+   * um aviso no log, e passou batido até o deploy.
+   */
+  it("recusa em produção quando o segredo não está configurado", () => {
+    vi.stubEnv("FLUXOAPI_WEBHOOK_SECRET", "");
+    vi.stubEnv("NODE_ENV", "production");
+    expect(canal.validarAssinatura("{}", pedido())).toBe(false);
+  });
+
+  it("fora de produção passa, senão não dá para exercitar à mão", () => {
+    vi.stubEnv("FLUXOAPI_WEBHOOK_SECRET", "");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(canal.validarAssinatura("{}", pedido())).toBe(true);
+  });
+
+  it("com segredo, confere de verdade em qualquer ambiente", () => {
+    vi.stubEnv("FLUXOAPI_WEBHOOK_SECRET", "whsec_qualquer");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(canal.validarAssinatura("{}", pedido())).toBe(false);
   });
 });
 

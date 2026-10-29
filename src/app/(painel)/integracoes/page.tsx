@@ -2,6 +2,8 @@ import { AtSign, MessageCircle, Printer, QrCode, Database, Sparkles, Webhook } f
 import { Badge, Panel, PanelHeader } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { ImportarWhatsapp } from "@/components/sistema/importar-whatsapp";
+import { CustoWhatsapp } from "@/components/sistema/custo-whatsapp";
+import { CanalFluxoApi, lerPrecos } from "@/lib/canal/fluxoapi";
 import { usandoDemo } from "@/lib/data";
 import {
   diagnosticarAsaas, diagnosticarIa, diagnosticarImpressora,
@@ -77,6 +79,18 @@ const INTEGRACOES = [
 
 export default async function IntegracoesPage() {
   // o Asaas é consultado de verdade; os outros dependem só do ambiente
+  /**
+   * Custo e uso, lado a lado.
+   *
+   * As duas chamadas vão em paralelo: a de preços é pública e a da instância
+   * é assinada, e esperar uma pela outra atrasaria a tela à toa.
+   */
+  const fluxo = new CanalFluxoApi();
+  const [precos, instancia] = await Promise.all([
+    lerPrecos(),
+    fluxo.configurado() ? fluxo.diagnosticar() : Promise.resolve(null),
+  ]);
+
   const situacoes: Record<string, Situacao> = {
     asaas: await diagnosticarAsaas(),
     ia: await diagnosticarIa(),
@@ -107,6 +121,16 @@ export default async function IntegracoesPage() {
           )}
         </div>
       </Panel>
+
+      {fluxo.configurado() && (
+        <CustoWhatsapp dados={{
+          porMes: precos.porMes,
+          conversas24h: instancia?.conversas24h,
+          mensagens24h: instancia?.mensagens24h,
+          limite24h: instancia?.limite24h,
+          erro: precos.ok ? undefined : precos.erro,
+        }} />
+      )}
 
       <div className="grid gap-3 lg:grid-cols-2">
         {INTEGRACOES.map((i) => (

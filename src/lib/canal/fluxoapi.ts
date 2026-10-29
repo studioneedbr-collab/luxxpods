@@ -74,6 +74,8 @@ interface InstanciaFluxo {
   messaging_limit_24h?: number;
   access_expires_at?: string | null;
   webhook_url?: string | null;
+  conversations_24h?: number;
+  messages_24h?: number;
 }
 
 export interface DiagnosticoInstancia {
@@ -87,7 +89,10 @@ export interface DiagnosticoInstancia {
   /** null quando não há webhook cadastrado — nenhuma mensagem chega */
   webhook?: string | null;
   acessoExpiraEm?: Date | null;
+  /** teto de conversas por dia que a Meta dá a este número */
   limite24h?: number;
+  conversas24h?: number;
+  mensagens24h?: number;
 }
 
 export interface MensagemFluxo {
@@ -258,6 +263,8 @@ export class CanalFluxoApi implements Canal {
       webhook: d.webhook_url ?? null,
       acessoExpiraEm: d.access_expires_at ? new Date(d.access_expires_at) : null,
       limite24h: d.messaging_limit_24h,
+      conversas24h: d.conversations_24h,
+      mensagens24h: d.messages_24h,
     };
   }
 
@@ -266,10 +273,24 @@ export class CanalFluxoApi implements Canal {
   validarAssinatura(corpoCru: string, req: Request): boolean {
     const segredo = process.env.FLUXOAPI_WEBHOOK_SECRET;
 
+    /**
+     * Sem segredo, em produção, nada passa.
+     *
+     * Antes isto devolvia `true` com um aviso no log, e era um buraco: o
+     * endereço do webhook é descobrível, e sem conferência qualquer um
+     * forjaria mensagem de cliente — inclusive pedido. Fora de produção
+     * continua passando, senão não dá para exercitar o webhook à mão.
+     *
+     * É a mesma regra que o adaptador da Meta já seguia.
+     */
     if (!segredo) {
-      console.warn(
-        "[luxx] FLUXOAPI_WEBHOOK_SECRET vazio: o webhook aceita qualquer corpo",
-      );
+      if (process.env.NODE_ENV === "production") {
+        console.error(
+          "[luxx] FLUXOAPI_WEBHOOK_SECRET vazio: recusando o webhook em produção",
+        );
+        return false;
+      }
+      console.warn("[luxx] FLUXOAPI_WEBHOOK_SECRET vazio: aceitando fora de produção");
       return true;
     }
 
@@ -511,6 +532,53 @@ function descreverMidia(tipo?: string, midia?: Midia | null): string {
     case "contacts": return "[contato]";
     case "reaction": return "[reação]";
     default: return "";
+  }
+}
+
+/* ------------------------------------------------------------- PREÇOS -- */
+
+export interface Degrau {
+  numeros: number;
+  total_cents: number;
+  unit_cents: number;
+}
+
+/**
+ * A tabela de preços da FluxoAPI, do endereço público deles.
+ *
+ * É o custo da PLATAFORMA, por número e por mês. Não é o que a Meta cobra
+ * por conversa — isso varia por país e por categoria, muda com o tempo, e
+ * não há endpoint aqui que devolva. A tela diz isso em vez de estimar um
+ * número que ficaria errado em silêncio.
+ *
+ * Sem autenticação de propósito: é público, e a tela de integrações precisa
+ * mostrar o custo mesmo antes de a chave estar configurada.
+ */
+export async function lerPrecos(): Promise<{
+  ok: boolean;
+  erro?: string;
+  porMes?: number;
+  degraus?: Degrau[];
+}> {
+  try {
+    const r = await fetch("https://api.fluxoapi.com.br/public/pricing", {
+      signal: AbortSignal.timeout(8_000),
+      // os preços mudam devagar; uma hora de cache evita uma ida por carga
+      next: { revalidate: 3600 },
+    });
+    if (!r.ok) return { ok: false, erro: `preços responderam ${r.status}` };
+
+    const d = (await r.json()) as {
+      data?: { preco_cheio_cents?: number; degraus?: Degrau[] };
+    };
+
+    return {
+      ok: true,
+      porMes: (d.data?.preco_cheio_cents ?? 0) / 100,
+      degraus: d.data?.degraus,
+    };
+  } catch (e) {
+    return { ok: false, erro: String(e) };
   }
 }
 
